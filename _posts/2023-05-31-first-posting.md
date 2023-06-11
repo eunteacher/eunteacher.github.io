@@ -9,3 +9,5 @@ layout: single
 반갑습니다.
 
 블로그를 처음 시작했어용...
+
+![1018280](../images/2023-05-31-first-posting/1018280.jpg)
