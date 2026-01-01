@@ -2,8 +2,8 @@
 layout: post
 title:  "[어셈블리] Hello World 출력"
 date:   2026-01-01 22:45:00 +0900
-categories: Assembly
-tags: [어셈블리, CS, 컴퓨터구조, 메모리구조]
+categories: [Dev, Assembly]
+tags: [Assembly, CS]
 ---
 
 # [어셈블리] Hello World 출력 및 기초 CS 이론 정리
