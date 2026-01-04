@@ -50,20 +50,20 @@ tags: [시작, 영어회화]
     🗣️ [굳 앱터눈. 웰컴 투 더 스마일 호텔.]
 
 * **Guest:** Hello. **I'd like to check in, please.** 🗣️ [헬로우. 아읻 라잌 투 **체킨**, 플리즈.]
-    *(Tip: 'Check in'은 '체크 인'이 아니라 '체킨'처럼 이어집니다.)*
+    *(Tip: 'Check in'은 '체크 인'이 아니라 '체킨'처럼)*
 
 * **Receptionist:** Certainly. May I have your passport and booking confirmation?
     🗣️ [써-튼리. 메이 아이 **해뷰어** 패스포트 앤 부킹 컨퍼메이션?]
-    *(Tip: 'Have your'는 '해뷰어'처럼 부드럽게 연결하세요.)*
+    *(Tip: 'Have your'는 '해뷰어'처럼 부드럽게 연결하기)*
 
 * **Guest:** Here you go. By the way, I need some local cash. **Can I exchange money here?** 🗣️ [히어 유 고. 바이 더 웨이, 아이 니드 썸 로컬 캐쉬. **캐나이** 익스체인지 머니 히어?]
-    *(Tip: 'Can I'는 '캐나이'로 발음하면 훨씬 자연스럽습니다.)*
+    *(Tip: 'Can I'는 '캐나이'로 발음하면 훨씬 자연스러움)*
 
 * **Receptionist:** Yes, we provide currency exchange for our guests. The current rate is on the board.
     🗣️ [예스, 위 프로바이드 커런시 익스체인지 포 아우어 게스츠. 더 커런트 레이트 이즈 온 더 보드.]
 
 * **Guest:** That's great. Oh, and I saw some bottled water on the counter. **How much is this?** 🗣️ [대츠 그레이트. 오, 앤 아이 쏘 썸 **바를드** 워터 온 더 카운터. 하우 머치 이즈 디스?]
-    *(Tip: 'Bottled'는 T발음을 굴려서 '바를드'에 가깝게 소리 냅니다.)*
+    *(Tip: 'Bottled'는 T발음을 굴려서 '바를드'에 가깝게 소리)*
 
 * **Receptionist:** It's complimentary for guests. Please feel free to take one.
     🗣️ [이츠 컴플리멘터리 포 게스츠. 플리즈 필 프리 투 테이크 원.]
@@ -94,7 +94,7 @@ tags: [시작, 영어회화]
 **Guest:** **Could you tell me where it is?** (그곳이 어디인지 알려주시겠어요?)
 > 🗣️ [**쿠쥬** 텔 미 웨어 잇 이즈?]
 
-*(Tip: 'Could you tell me~'는 길을 물어볼 때 가장 확실하고 예의 바른 표현입니다.)*
+*(Tip: 'Could you tell me~'는 길을 물어볼 때 가장 확실하고 예의 바른 표현)*
 
 ---
 

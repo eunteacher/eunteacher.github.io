@@ -55,32 +55,32 @@ tags: [영어회화]
 
 * **Staff:** May I help you?
   🗣️ [메이 아이 **헬퓨**?]
-  *(Tip: 'Help you'는 자연스럽게 '헬퓨'처럼 이어집니다.)*
+  *(Tip: 'Help you'는 자연스럽게 '헬퓨'처럼)*
 
 * **Traveler:** Excuse me. **My luggage is missing.** I've been waiting for 30 minutes.
   🗣️ [익스큐즈 미. 마이 **러기지** 이즈 미씽. 아이브 빈 웨이팅 포 써티 미니츠.]
 
 * **Staff:** Do you have your baggage claim tag?
   🗣️ [두 유 **해뷰어** 배기지 클레임 태그?]
-  *(Tip: 'Have your'는 끊지 말고 '해뷰어'로 부드럽게 연결하세요.)*
+  *(Tip: 'Have your'는 끊지 말고 '해뷰어'로 부드럽게 연결하기)*
 
 * **Traveler:** Yes, here it is.
   🗣️ [예스, **히어리리즈**.]
-  *(Tip: 'Here it is'는 한 단어처럼 '히어-리-리즈'로 굴러갑니다.)*
+  *(Tip: 'Here it is'는 한 단어처럼 '히어-리-리즈'로)*
 
 ### ✈️ 상황 B: 공항 이동 & 출발 시간 확인
 
 * **Guest:** Excuse me. **How do I get to the airport?**
   🗣️ [익스큐즈 미. 하우 두 아이 **게투** 디 에어포트?]
-  *(Tip: 'Get to'는 '게투'로 딱 붙여서 발음하세요.)*
+  *(Tip: 'Get to'는 '게투'로 딱 붙여서 발음하기)*
 
 * **Concierge:** You can take the shuttle bus. It stops right here.
   🗣️ [유 캔 테이크 더 셔틀 버스. 잇 스탑스 **라이티어**.]
-  *(Tip: 'Right here'의 t발음이 뒤로 넘어가며 '라이티어'처럼 들립니다.)*
+  *(Tip: 'Right here'의 t발음이 뒤로 넘어가며 '라이티어'처럼 들림)*
 
 * **Guest:** Great. **When does the flight leave?** Oh, wait. I mean, when does the bus leave?
   🗣️ [그레이트. 웬 더즈 더 플라이트 **리-브**? 오, 웨이트. 아이 민, 웬 더즈 더 버스 **리-브**?]
-  *(Tip: 'Leave'는 길게 발음해야 합니다. 짧으면 'Live(살다)'가 됩니다.)*
+  *(Tip: 'Leave'는 길게 발음하기. 짧으면 'Live(살다)'가 됨)*
 
 * **Concierge:** It leaves every 20 minutes.
   🗣️ [잇 리브스 에브리 트웬티 미니츠.]
