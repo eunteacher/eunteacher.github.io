@@ -1,0 +1,153 @@
+---
+layout: post
+title:  "[Assembly 05] 사칙연산: 더하기, 빼기, 곱하기, 나누기 명령어"
+date:   2026-01-08 22:45:00 +0900
+categories: [Dev, Assembly]
+tags: [Assembly, ASM, Arithmetic, ADD, SUB, MUL, DIV]
+---
+
+# [Assembly] 레지스터와 메모리를 활용한 사칙연산
+
+어셈블리어에서 덧셈(`ADD`), 뺄셈(`SUB`), 곱셈(`MUL`), 나눗셈(`DIV`)을 수행하는 방법과, 각 연산 시 주의해야 할 오퍼랜드(Operand) 크기 및 레지스터 규칙을 정리
+
+---
+
+## 1. 소스 코드 (Source Code)
+
+`GET_DEC`으로 입력을 받아 사칙연산을 수행하고 결과를 출력하는 예제 코드
+
+```nasm
+%include "io64.inc"
+
+section .text
+global CMAIN
+CMAIN:
+    mov rbp, rsp; for correct debugging
+    ;write your code here
+
+    GET_DEC 1, al ; Input
+    GET_DEC 1, num ; 입력을 받기 때문에 초기화할 필요가 없음
+
+    ; PRINT_DEC 1, al
+    ; NEWLINE
+    ; PRINT_DEC 1, num
+
+    ; 더하기
+    ; add a, b (a = a + b)
+    ; a는 레지스터 혹은 메모리
+    ; b는 레지스터 혹은 메모리 혹은 상수
+    ; 단, a, b 모두 메모리는 안됨
+
+    add al, 1 ; 레지스터 + 상수
+    PRINT_DEC 1, al
+    NEWLINE
+
+    ; add al, num ; 레지스터 + 메모리
+    ; 에러가 난 이유
+    ; -> 주소값이 들어가 있어서
+    add al, [num] ; 레지스터 + 메모리 (대괄호 사용)
+    PRINT_DEC 1, al
+    NEWLINE
+
+    mov bl, 3
+    add al, bl ; 레지스터 + 레지스터
+    PRINT_DEC 1, al
+    NEWLINE
+
+    add [num], byte 1 ; 메모리 + 상수
+    ; 크기를 지정해줘야 되는 이유
+    ; num 자체는 메모리 주소이기 때문에 얼마나 영역을 잡아서 연산을 할지 정해줘야됨
+    PRINT_DEC 1, [num]
+    NEWLINE
+
+    add [num], al ; 메모리 + 레지스터
+    PRINT_DEC 1, [num]
+    NEWLINE
+
+    ; 빼기
+    ; sub a, b (a = a - b)
+    ; 더하기와 똑같음
+
+    ; 곱하기
+    ; mul reg
+    ; - mul bl -> al * bl
+    ; -- 연산 결과를 ax에 저장
+    ; - mul bx -> ax * bx
+    ; -- 연산 결과는 dx(상위 16비트) ax(하위 16비트)에 저장
+    ; - mul ebx -> eax * ebx
+
+    ; ex) 5 * 8 = ?
+    mov ax, 0
+    mov al, 5
+    mov bl, 8
+    mul bl
+    PRINT_DEC 2, ax
+    NEWLINE
+
+    ; 나누기
+    ; div reg
+    ; - div bl -> ax / bl
+    ; -- 연산 결과는 al(몫) ah(나머지)
+
+    ; ex) 100 / 3 = ?
+    mov ax, 100
+    mov bl, 3
+    div bl
+    PRINT_DEC 1, al
+    NEWLINE
+    mov al, ah
+    PRINT_DEC 1, al
+    NEWLINE
+
+    xor rax, rax
+    ret
+
+;section .data
+
+section .bss
+    num resb 1
+```
+
+---
+## 2. 이론 정리 (Study Notes)
+
+### 1) 덧셈 (ADD)과 뺄셈 (SUB)
+기본적인 산술 연산으로, **Operand(피연산자)**의 제약 사항을 이해하는 것이 핵심
+
+* **문법:** `add a, b` ($a = a + b$), `sub a, b` ($a = a - b$)
+* **제약 사항:**
+  1.  `a`와 `b`가 **모두 메모리(Memory)**일 수 없음 (최소 하나는 레지스터여야 함)
+  2.  서로 다른 크기(예: 8비트 레지스터와 16비트 레지스터)끼리 연산할 수 없음
+
+#### 메모리 접근 주의사항
+* **변수명 vs 값:** `num`은 주소(Address)이고, `[num]`은 그 주소에 있는 값(Value)
+  * `add al, num` (X): 주소값을 더하려 시도 (타입 불일치 오류 가능성)
+  * `add al, [num]` (O): 메모리 안의 값을 꺼내서 더함
+* **크기 지정자 (Size Directive):** 메모리에 상수를 바로 더할 때는 크기를 명시
+  * `add [num], 1` (X): 1바이트인지 4바이트인지 모름
+  * `add [num], byte 1` (O): 1바이트 크기로 연산 수행
+
+### 2) 곱셈 (MUL)
+곱셈은 오퍼랜드가 하나만 명시되며, 나머지 하나는 **AL, AX, EAX**로 고정되어 있음. 결과가 저장되는 레지스터도 정해져 있음
+
+| 구분 | 명령어 | 연산 식 | 결과 저장 위치 |
+| :--- | :--- | :--- | :--- |
+| **8 bit** | `mul bl` | $AL \times BL$ | **AX** (16비트 확장 저장) |
+| **16 bit** | `mul bx` | $AX \times BX$ | **DX** (상위) : **AX** (하위) |
+| **32 bit** | `mul ebx` | $EAX \times EBX$ | **EDX** (상위) : **EAX** (하위) |
+
+### 3) 나눗셈 (DIV)
+나눗셈 역시 레지스터가 고정되어 있으며, **몫(Quotient)**과 **나머지(Remainder)**가 각각 다른 레지스터에 저장
+
+| 구분 | 명령어 | 연산 식 | 몫 | 나머지 |
+| :--- | :--- | :--- | :--- | :--- |
+| **8 bit** | `div bl` | $AX \div BL$ | **AL** | **AH** |
+| **16 bit** | `div bx` | $(DX:AX) \div BX$ | **AX** | **DX** |
+
+---
+
+## 3. 종합 의견 (Review)
+
+* **메모리 명시의 중요성:** C++과 달리 어셈블리에서는 변수명 `num`이 값 자체가 아니라 주소를 의미한다는 점을 잊지 말아야 함. 값을 다룰 땐 반드시 `[]`를 사용
+* **암시적 레지스터(Implicit Register):** `ADD`, `SUB`는 내가 원하는 레지스터를 지정할 수 있지만, `MUL`, `DIV`는 `AX`, `DX` 등 정해진 레지스터를 사용해야 하므로, 기존 데이터를 덮어쓰지 않도록 주의
+* **초기화:** 나눗셈 등을 수행하기 전, 상위 비트(예: `AH`나 `DX`)에 쓰레기 값이 들어있으면 엉뚱한 결과가 나오거나 오버플로우가 발생할 수 있으므로 `xor`나 `mov`로 깔끔하게 초기화하는 습관이 필요
