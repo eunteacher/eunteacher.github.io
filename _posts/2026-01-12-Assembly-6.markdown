@@ -1,0 +1,160 @@
+---
+layout: post
+title: "[Assembly] 쉬프트(Shift)와 논리(Logical) 연산 완전 정복"
+date: 2026-01-12
+categories: [Assembly, System Programming]
+tags: [Assembly, Bitwise, Shift, XOR, Optimization]
+---
+
+# [Assembly] 비트 연산의 정석: Shift & Logical Operations
+
+## 1. 소스 코드 (Source Code)
+
+```nasm
+%include "io64.inc"
+
+section .text
+global CMAIN
+CMAIN:
+    mov rbp, rsp; for correct debugging
+
+    ; 입력 받기
+    GET_DEC 1, al
+    GET_DEC 1, num
+
+    ; 1. 쉬프트(Shift) 연산
+    ; 개념: 비트열을 좌측(<<) 또는 우측(>>)으로 이동시키는 연산
+    ; 특징:
+    ;   - Left Shift (shl): 값 * 2^n 효과 (곱셈 대용)
+    ;   - Right Shift (shr): 값 / 2^n 효과 (나눗셈 대용)
+    ;   - 범위를 벗어나는 비트는 버려짐(Truncated)
+
+    mov eax, 0x12345678
+
+    PRINT_HEX 4, eax
+    NEWLINE
+
+    ; [Left Shift] 8비트 이동 (곱하기 2^8)
+    shl eax, 8
+
+    PRINT_HEX 4, eax
+    NEWLINE
+
+    ; [Right Shift] 8비트 이동 (나누기 2^8)
+    shr eax, 8
+
+    PRINT_HEX 4, eax
+    NEWLINE
+
+    ; 활용:
+    ; 1. 고속 산술 연산 (곱셈/나눗셈보다 빠름)
+    ; 2. C/C++ 컴파일러 최적화에 자주 사용됨
+    ; 3. 게임 서버 ObjectID 생성 (비트 패킹)
+
+
+    ; 2. 논리(Logical) 연산
+    ; 종류: NOT, AND, OR, XOR
+
+    mov al, 0b10010101
+    mov bl, 0b01111100
+
+    NEWLINE
+
+    ; [AND 연산] : 논리곱
+    ; 두 비트가 모두 1일 때만 1 반환
+    ; 용도: 특정 비트 추출 (Masking)
+    and al, bl
+    ; 결과: 0b0001 0100
+
+    PRINT_HEX 4, al
+    NEWLINE
+
+    ; [NOT 연산] : 부정
+    ; 0 -> 1, 1 -> 0 (비트 반전)
+    ; 용도: 1의 보수 계산
+    not al
+    not bl
+
+    PRINT_HEX 4, al
+    NEWLINE
+
+    ; [XOR 연산] : 배타적 논리합
+    ; 서로 다르면 1, 같으면 0
+
+    mov al, 0b10010101
+    mov bl, 0b01111100
+
+    NEWLINE
+    PRINT_HEX 4, al
+    NEWLINE
+
+    xor al, bl
+    PRINT_HEX 4, al
+    NEWLINE
+
+    xor al, bl
+    PRINT_HEX 4, al
+    NEWLINE
+
+    ; XOR 특징:
+    ; 1. 암호학: 같은 값으로 두 번 XOR하면 원래 값으로 복구됨 (A ^ B ^ B = A)
+    ; 2. 초기화: 자기 자신과 XOR하면 무조건 0이 됨 (xor rax, rax)
+    ;    -> mov rax, 0 보다 속도가 빠름
+
+    xor al, al  ; Register 초기화 (0으로 설정)
+    PRINT_HEX 1, al
+    NEWLINE
+
+    xor rax, rax
+    ret
+
+;section .data
+
+section .bss
+    num resb 1
+```
+
+---
+
+## 2. 이론 정리 (Study Notes)
+
+### 쉬프트 연산 (Shift Operation)
+비트열을 지정된 방향으로 이동시키는 연산임. CPU 레벨에서 산술 연산(곱셈/나눗셈)보다 처리 속도가 매우 빠름
+
+| 종류 | 명령어 | 설명 | 수식적 의미 |
+| :--- | :--- | :--- | :--- |
+| **Left Shift** | `shl dst, src` | 비트를 왼쪽으로 이동, 빈 공간은 0 채움 | $N \times 2^k$ (곱셈) |
+| **Right Shift** | `shr dst, src` | 비트를 오른쪽으로 이동, 빈 공간은 0 채움 | $N / 2^k$ (나눗셈) |
+| **Arithmetic** | `sar` / `sal` | 부호 비트(MSB)를 유지하며 이동 | 부호 있는 수의 연산 |
+
+* **특징**: 레지스터 크기를 벗어나는 비트는 버려짐 (Truncated)
+* **용도**: 게임 서버 ObjectID 생성(비트 쪼개기), 고속 산술 연산
+
+### 논리 연산 (Logical Operation)
+각 비트 위치별로 논리값(True/False)을 판별하여 결과를 도출함
+
+| 연산자 | 명령어 | 동작 원리 (진리표) | 핵심 용도 |
+| :--- | :--- | :--- | :--- |
+| **AND** | `and` | $1 \land 1 = 1$, 그 외 $0$ | Masking (원하는 비트만 남기기) |
+| **OR** | `or` | $0 \lor 0 = 0$, 그 외 $1$ | Flag 설정 (비트 켜기), 값 합치기 |
+| **XOR** | `xor` | 서로 다르면 $1$, 같으면 $0$ | 암호화, 값 교체, 0으로 초기화 |
+| **NOT** | `not` | $0 \to 1$, $1 \to 0$ | 비트 반전 (1의 보수) |
+
+### XOR(Exclusive OR)의 활용성
+1.  **초기화 (Zeroing)**: `xor rax, rax`
+  * 자기 자신과 XOR하면 무조건 0이 됨
+  * `mov rax, 0`보다 명령어 길이가 짧고 파이프라인 처리가 유리하여 더 빠름
+2.  **복구 및 암호화**: $(A \oplus B) \oplus B = A$
+  * 어떤 값에 동일한 키를 두 번 XOR하면 원래 값으로 복구됨
+
+## 3. 종합 의견 (Review)
+
+### 핵심 요약 및 주의사항
+* **최적화 원리**: 컴파일러는 피연산자가 2의 거듭제곱인 곱셈/나눗셈을 `shl`, `shr`로 자동 변환하여 최적화함 (예: `x * 8` $\to$ `x << 3`)
+* **데이터 손실**: 쉬프트 연산 시 밀려나는 비트는 사라지므로, 오버플로우 발생 가능성을 염두에 둬야 함
+* **부호 처리**: 음수를 나눌 때는 논리 쉬프트(`shr`) 대신 산술 쉬프트(`sar`)를 사용해야 부호가 유지됨
+
+### Tip
+* **초기화 컨벤션**: 어셈블리 코드 작성 시 레지스터 초기화는 `xor reg, reg`를 사용하는 것이 표준임 (성능 및 코드 사이즈 이점)
+* **Bit Flag 활용**: RPG 게임 등에서 캐릭터의 상태(스턴, 중독, 무적 등)를 `bool` 변수 여러 개 대신 하나의 정수형 변수에 비트별로 할당하여 관리하면 메모리와 연산 효율이 극대화됨
+* **디버깅 팁**: 비트 연산은 눈으로 계산하기 어려우므로, 계산기의 '프로그래머 모드'를 활용하거나 디버거에서 값을 Binary 형태로 확인하는 습관을 들일 것

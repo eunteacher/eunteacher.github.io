@@ -1,0 +1,112 @@
+---
+layout: post
+title: "[Algorithm] Big-O 표기법과 시간 복잡도 완전 정복"
+date: 2026-01-12
+categories: [Dev, Algorithm]
+tags: [Big-O, Time Complexity, C++, Optimization]
+---
+
+# [Algorithm] 알고리즘 효율성 분석: Big-O 표기법
+
+## 1. 소스 코드 (Source Code)
+
+```cpp
+#include <iostream>
+using namespace std;
+
+// Big - O 표기법: 알고리즘 효율성 측정
+
+// 1. O(1) - 상수 시간: 입력 크기와 무관하게 일정함
+int Add(int n)
+{
+    return n + n;
+}
+
+// 2. O(N) - 선형 시간: 입력 크기에 비례하여 증가함
+int Add2(int n)
+{
+    int sum = 0;
+    for (int i = 0; i < n; i++)
+    {
+        sum += i;
+    }
+    return sum;
+}
+
+// 3. O(N^2) - 이차 시간: 입력의 제곱에 비례하여 증가함
+int add3(int n)
+{
+    int sum = 0;
+    for (int i = 0; i < n; i++)
+    {
+        for (int j = 0; j < n; j++)
+        {
+            sum += 1;
+        }
+    }
+    return sum;
+}
+
+// 4. 복합 연산의 단순화 -> O(N^2)
+// O(1 + N + 4N^2 + 1) => O(N^2) (규칙: 최고차항만 유지, 상수 무시)
+int Add4(int n)
+{
+    int sum = 0;
+    for (int i = 0; i < n; i++) sum += i; // O(N)
+
+    for (int i = 0; i < 2 * n; i++) // O(N^2)
+    {
+        for (int j = 0; j < 2 * n; j++)
+        {
+            sum += 1;
+        }
+    }
+    sum += 1234567; // O(1)
+    return sum;
+}
+
+int main()
+{
+    return 0;
+}
+```
+
+## 2. 이론 정리 (Study Notes)
+
+### Big-O 표기법 (Big-O Notation)
+* **정의**: 알고리즘의 효율성을 상한선(Worst Case) 기준으로 표기하는 수학적 기법임. 입력 크기($N$) 증가에 따른 실행 시간/공간의 증가율을 나타냄
+* **계산 단계**:
+  1.  **연산 횟수 추정**: 대입, 비교, 산술 연산 횟수를 $N$에 대한 수식으로 표현함
+  2.  **점근적 표기 (Asymptotic Analysis)**: 가장 영향력이 큰 최고차항만 남기고 상수와 낮은 차수의 항은 제거함
+      $$T(n) = 4n^2 + n + 1 \implies O(n^2)$$
+
+### 주요 시간 복잡도 비교
+
+| 표기법 | 명칭 | 실행 시간 증가 추세 | 대표 알고리즘 |
+| :--- | :--- | :--- | :--- |
+| $O(1)$ | Constant | 입력 크기와 무관하게 일정함 | 배열 인덱스 접근, 스택 Push/Pop |
+| $O(\log N)$ | Logarithmic | 입력이 2배 되어도 시간은 미미하게 증가함 | 이진 탐색 (Binary Search) |
+| $O(N)$ | Linear | 입력 크기에 정비례하여 증가함 | 단일 for문 순회 |
+| $O(N \log N)$ | Linear-Logarithmic | 선형보다 약간 느림 (효율적 정렬) | 퀵 정렬, 병합 정렬, 힙 정렬 |
+| $O(N^2)$ | Quadratic | 입력의 제곱만큼 증가함 | 이중 for문, 버블 정렬 |
+| $O(2^N)$ | Exponential | 기하급수적으로 증가함 (사용 지양) | 피보나치(재귀), 외판원 순회 |
+
+### 로그(Logarithm)의 개념과 시간 복잡도
+* **직관적 이해 (Up-Down 게임)**: 탐색 범위를 매 단계마다 **절반($1/2$)**으로 줄여나가는 과정임
+* **수식 유도**:
+  * 데이터 $N$개를 1개가 남을 때까지 $k$번 반으로 나눈다고 가정
+  * $N \times (\frac{1}{2})^k = 1$
+  * $N = 2^k$
+  * 양변에 로그를 취하면 $\log_2 N = k$
+* **CS에서의 로그**: 컴퓨터 과학에서 로그의 밑(Base)은 보통 2를 의미함 ($\log N \approx \log_2 N$)
+
+## 3. 종합 의견 (Review)
+
+### 핵심 요약 및 주의사항
+* **상수의 함정**: 이론적으로 $O(N)$이 $O(1)$보다 느리지만, $N$이 작을 때는 상수가 큰 $O(1)$보다 단순한 $O(N)$이 더 빠를 수 있음 (예: 해시맵 오버헤드 vs 작은 배열 순회)
+* **가독성 vs 효율성**: 현업에서는 $N$이 크지 않다면 $O(N^2)$이라도 가독성이 좋은 코드가 복잡한 $O(N \log N)$ 코드보다 선호될 수 있음.
+* **공간 복잡도 (Space Complexity)**: 시간 복잡도뿐만 아니라 메모리 사용량도 중요함. 재귀 호출의 깊이(Stack)나 보조 배열(Heap) 사용 시 고려가 필수적임.
+
+### Tip
+* **최적화 시점**: 모든 코드를 $O(1)$이나 $O(\log N)$으로 만들 강박을 가질 필요 없음. **병목(Bottleneck)**이 발생하는 구간을 프로파일링하여 집중 최적화하는 것이 효율적임
+* **STL 활용**: C++ STL의 `std::sort`나 `std::binary_search` 등은 검증된 최적화 복잡도를 보장하므로, 직접 구현보다는 라이브러리 활용을 적극 권장함
