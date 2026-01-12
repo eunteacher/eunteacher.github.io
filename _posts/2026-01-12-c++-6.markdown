@@ -2,7 +2,7 @@
 layout: post
 title: "[C++] 데이터 연산과 산술 연산자의 이해"
 date: 2026-01-12
-categories: [C++, Programming Basics]
+categories: [Dev, C++]
 tags: [C++, Operators, Arithmetic, Memory, Optimization]
 ---
 
