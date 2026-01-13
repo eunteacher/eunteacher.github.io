@@ -1,0 +1,133 @@
+---
+layout: post
+title: "[Assembly 07] 분기문(Branching)과 조건 분기 (CMP, JMP)"
+date: 2026-01-13
+categories: [Dev, Assembly]
+tags: [Assembly, Branching, CMP, JMP, Optimization]
+---
+
+# [어셈블리] 분기문과 논리 연산 완전 정복
+
+## 1. 소스 코드 (Source Code)
+
+`CMP`와 `JMP` 계열 명령어를 사용한 흐름 제어(Flow Control)와 `DIV` 명령어를 활용한 홀수/짝수 판별 로직 구현
+
+```nasm
+%include "io64.inc"
+
+section .text
+global CMAIN
+CMAIN:
+    mov rbp, rsp        ; 디버깅을 위한 스택 프레임 설정
+
+    ; 1. 기본 분기문 (CMP, JMP) 학습
+    ; 두 숫자가 같으면 1, 다르면 0을 출력하는 로직
+
+    mov rax, 10
+    mov rbx, 10
+
+    cmp rax, rbx        ; dst(rax) - src(rbx) 연산 수행 (결과는 Flag Register에 저장)
+
+    je LABEL_EQUAL      ; ZF=1이면(같으면) 점프
+
+    ; [Else 블록] 같지 않은 경우
+    mov rcx, 0
+    jmp LABEL_EQUAL_END ; 비교 종료 지점으로 무조건 점프
+
+LABEL_EQUAL:
+    ; [If 블록] 같은 경우
+    mov rcx, 1
+
+LABEL_EQUAL_END:
+    PRINT_HEX 1, rcx    ; 결과 출력
+    NEWLINE
+
+    ; 2. 연습 문제: 홀수/짝수 판별
+    ; 입력받은 숫자가 짝수면 1, 홀수면 0 출력
+
+    ; 2-1) 입력 및 나눗셈 연산
+    GET_DEC 1, ax       ; 사용자 입력 (Input)
+    PRINT_DEC 1, ax     ; 입력값 확인
+    NEWLINE
+
+    mov bl, 2
+    div bl              ; AX / BL 수행 -> 몫: AL, 나머지: AH
+
+    ; 2-2) 나머지 확인 (디버깅)
+    PRINT_STRING "Quotient: "
+    PRINT_DEC 1, al     ; 몫 출력
+    NEWLINE
+    PRINT_STRING "Remainder: "
+    PRINT_DEC 1, ah     ; 나머지 출력
+    NEWLINE
+
+    ; 2-3) 분기 처리
+    cmp ah, 0           ; 나머지가 0인지 비교
+    je LABEL_EVEN       ; 0이면 짝수(Even)로 점프
+
+    ; [Odd Case] 홀수 처리
+    mov al, 0
+    jmp LABEL_END_CHECK
+
+LABEL_EVEN:
+    ; [Even Case] 짝수 처리
+    mov al, 1
+
+LABEL_END_CHECK:
+    PRINT_STRING "Result(Even=1, Odd=0): "
+    PRINT_DEC 1, al
+    NEWLINE
+
+    xor rax, rax        ; 리턴값 0 초기화
+    ret
+```
+
+---
+## 2. 이론 정리 (Study Notes)
+
+### 2.1 분기문 (Branching Statement)
+* **CMP (Compare)**: 두 피연산자를 비교하여 **플래그 레지스터(EFLAGS)**의 상태를 업데이트
+  * **실제 동작**: `dst - src`를 수행하되, 결과값은 저장하지 않고 플래그(ZF, SF, OF 등)만 변경
+* **JMP (Jump)**: 코드의 실행 흐름을 특정 주소(Label)로 강제 이동
+
+### 2.2 조건부 점프 명령어 (Conditional Jump)
+`CMP` 명령의 결과(플래그 상태)에 따라 점프 여부를 결정
+
+| 명령어 | 의미 (Meaning) | 조건 (Condition) | 비고 |
+| :--- | :--- | :--- | :--- |
+| `JMP` | Unconditional Jump | 무조건 점프 | `goto`와 동일 |
+| `JE` | Jump if Equal | `ZF = 1` | 같으면 점프 |
+| `JNE` | Jump if Not Equal | `ZF = 0` | 다르면 점프 |
+| `JG` | Jump if Greater | `ZF=0` and `SF=OF` | (부호 있는) 큼 |
+| `JGE` | Jump if Greater or Equal | `SF=OF` | (부호 있는) 크거나 같음 |
+| `JL` | Jump if Less | `SF != OF` | (부호 있는) 작음 |
+| `JLE` | Jump if Less or Equal | `ZF=1` or `SF!=OF` | (부호 있는) 작거나 같음 |
+
+### 2.3 나눗셈 연산 (DIV)
+레지스터 크기에 따라 피연산자의 위치와 저장되는 곳이 달라짐에 주의
+
+* **수식**: $$Dividend \div Divisor = Quotient \cdots Remainder$$
+* **동작 원리**:
+
+| 크기 (Size) | 피제수 (Dividend) | 제수 (Divisor, Operand) | 몫 (Quotient) | 나머지 (Remainder) |
+| :--- | :--- | :--- | :--- | :--- |
+| **Byte** | `AX` (16bit) | `reg8` (ex: `BL`) | `AL` | `AH` |
+| **Word** | `DX:AX` (32bit) | `reg16` (ex: `BX`) | `AX` | `DX` |
+| **Dword** | `EDX:EAX` (64bit) | `reg32` (ex: `EBX`) | `EAX` | `EDX` |
+
+> **주의**: `div bl`을 수행할 때 피제수는 `al`이 아니라 `ax`임. 따라서 `ah`에 쓰레기 값이 들어있으면 오버플로우나 엉뚱한 결과가 나올 수 있으므로, 연산 전 `ah`를 초기화하거나 `ax` 전체를 세팅
+
+## 3. 종합 의견 (Review)
+
+### 핵심 요약 및 주의사항
+* **플래그 레지스터 의존성**: 모든 조건 점프(`JE`, `JG` 등)는 직전의 산술 연산이나 `CMP` 명령어가 설정한 플래그 비트에 전적으로 의존함. 중간에 다른 연산이 끼어들면 의도치 않은 분기가 발생할 수 있음
+* **부호 유무의 구분**:
+  * **부호 없는 수(Unsigned)**: `JA` (Above), `JB` (Below) 사용
+  * **부호 있는 수(Signed)**: `JG` (Greater), `JL` (Less) 사용
+  * 이를 혼동하면 음수 비교 시 논리적 오류 발생
+
+### Tip
+* **최적화 (Optimization)**: 홀수/짝수 판별 시 `DIV` 명령어는 CPU 사이클을 많이 소모하는 무거운 연산임. 비트 연산을 활용하면 훨씬 빠름
+  * **변경 전**: `div bl` -> 나머지 확인
+  * **변경 후**: `test ax, 1` (또는 `and ax, 1`) -> `JZ` (짝수), `JNZ` (홀수)
+  * 최하위 비트가 0이면 짝수, 1이면 홀수라는 성질을 이용한 최적화 기법
