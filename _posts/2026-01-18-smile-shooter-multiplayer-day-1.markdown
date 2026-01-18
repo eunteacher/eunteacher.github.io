@@ -116,15 +116,19 @@ void ASSSpawnerBase::PlayerClear()
 * **Event OnPostLogin**: 접속한 플레이어의 `PlayerController`를 확인하고, 이를 관리하기 위해 배열(Array)에 추가
 * **SetupPlatforms**: 레벨에 배치된 Platform 액터들을 `GetAllActorsOfClass` 으로 찾아와서 게임 모드에서 사용할 수 있도록 참조를 캐싱(Caching)
 
-### 02. 초기화 대기 (Setup Wait)
+### 02. 초기화 대기
 ![SetupPlatformsDone](assets/img/SmileShooter_Lobby_GameMode_04.png)
 
 * **상태 확인**: Platform 설정이 완전히 끝났는지 확인하는 로직. 비동기 로딩 등으로 인해 플랫폼이 아직 준비되지 않았을 때 로직이 실행되는 것을 방지
 * **UpdatePlayerOnPlatforms 호출**: 준비가 완료된 경우에만 플레이어 갱신 함수를 호출하여 불필요한 연산을 줄임
 
-### 03. 플레이어 스폰 및 정리 (Spawn & Cleanup)
+### 03. 플레이어 스폰 및 정리
 
 ![SetupPlatformsDone](assets/img/SmileShooter_Lobby_GameMode_03.png)
 
 * **신규 유저 스폰**: 현재 접속자 목록(Array)을 순회하며 아직 캐릭터가 생성되지 않은 플레이어가 있다면, 비어 있는 플랫폼 위치에 `SpawnActor`를 수행
-* **나간 유저 정리 (Cleanup)**: `LobbyGameMode`의 관리 목록(Array)에는 없는데 플랫폼 위에 덩그러니 남겨진 캐릭터가 있다면, 이를 감지하여 `Destroy` 처리(데이터 무결성 유지)
+* **나간 유저 정리**: `LobbyGameMode`의 관리 목록(Array)에는 없는데 플랫폼 위에 덩그러니 남겨진 캐릭터가 있다면, 이를 감지하여 `Destroy` 처리(데이터 무결성 유지)
+
+# 결과
+
+![SmileShooter_Lobby](assets/img/SmileShooter_Lobby.png)
