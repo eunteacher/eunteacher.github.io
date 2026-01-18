@@ -1,6 +1,6 @@
 ---
 layout: post
-title: "[Algorithm 01] Big-O 표기법과 시간 복잡도 완전 정복"
+title: "[Algorithm 02] 미로 만들기 및 오른손 법칙"
 date: 2026-01-12
 categories: [Dev, Algorithm]
 tags: [Big-O, Time Complexity, C++, Optimization]
