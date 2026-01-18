@@ -1,6 +1,6 @@
 ---
 layout: post
-title: "[Algorithm] Big-O 표기법과 시간 복잡도 완전 정복"
+title: "[Algorithm 01] Big-O 표기법과 시간 복잡도 완전 정복"
 date: 2026-01-12
 categories: [Dev, Algorithm]
 tags: [Big-O, Time Complexity, C++, Optimization]
@@ -82,14 +82,14 @@ int main()
 
 ### 주요 시간 복잡도 비교
 
-| 표기법 | 명칭 | 실행 시간 증가 추세 | 대표 알고리즘 |
-| :--- | :--- | :--- | :--- |
-| $O(1)$ | Constant | 입력 크기와 무관하게 일정함 | 배열 인덱스 접근, 스택 Push/Pop |
-| $O(\log N)$ | Logarithmic | 입력이 2배 되어도 시간은 미미하게 증가함 | 이진 탐색 (Binary Search) |
-| $O(N)$ | Linear | 입력 크기에 정비례하여 증가함 | 단일 for문 순회 |
+| 표기법           | 명칭 | 실행 시간 증가 추세 | 대표 알고리즘 |
+|:--------------| :--- | :--- | :--- |
+| $O(1)$        | Constant | 입력 크기와 무관하게 일정함 | 배열 인덱스 접근, 스택 Push/Pop |
+| $O(\log N)$   | Logarithmic | 입력이 2배 되어도 시간은 미미하게 증가함 | 이진 탐색 (Binary Search) |
+| $O(N)$        | Linear | 입력 크기에 정비례하여 증가함 | 단일 for문 순회 |
 | $O(N \log N)$ | Linear-Logarithmic | 선형보다 약간 느림 (효율적 정렬) | 퀵 정렬, 병합 정렬, 힙 정렬 |
-| $O(N^2)$ | Quadratic | 입력의 제곱만큼 증가함 | 이중 for문, 버블 정렬 |
-| $O(2^N)$ | Exponential | 기하급수적으로 증가함 (사용 지양) | 피보나치(재귀), 외판원 순회 |
+| $O(N^2)$      | Quadratic | 입력의 제곱만큼 증가함 | 이중 for문, 버블 정렬 |
+| $O(2^N)$      | Exponential | 기하급수적으로 증가함 (사용 지양) | 피보나치(재귀), 외판원 순회 |
 
 ### 로그(Logarithm)의 개념과 시간 복잡도
 * **직관적 이해 (Up-Down 게임)**: 탐색 범위를 매 단계마다 **절반($1/2$)**으로 줄여나가는 과정임

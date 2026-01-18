@@ -99,12 +99,12 @@ int main()
 변수의 값을 1씩 변경. 위치에 따라 동작 순서가 다름
 
 * **전위 연산 (Prefix, `++a`)**:
-  1.  변수의 값을 먼저 1 증가.
-  2.  증가된 값을 수식에 사용.
+  1.  변수의 값을 먼저 1 증가
+  2.  증가된 값을 수식에 사용
       $$a \leftarrow a + 1, \quad \text{return } a$$
 * **후위 연산 (Postfix, `a++`)**:
-  1.  현재 변수의 값을 먼저 반환(사용).
-  2.  나중에 변수의 값을 1 증가.
+  1.  현재 변수의 값을 먼저 반환(사용)
+  2.  나중에 변수의 값을 1 증가
       $$\text{temp} \leftarrow a, \quad a \leftarrow a + 1, \quad \text{return temp}$$
 
 ## 3. 종합 의견 (Review)
