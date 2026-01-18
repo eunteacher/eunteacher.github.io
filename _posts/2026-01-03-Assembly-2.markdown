@@ -1,6 +1,6 @@
 ---
 layout: post
-title:  "[어셈블리 02] 데이터 표현과 레지스터(Register)의 이해"
+title:  "[Assembly 02] 데이터 표현과 레지스터(Register)의 이해"
 date:   2026-01-03 20:00:00 +0900
 categories: [Dev, Assembly]
 tags: [어셈블리, 레지스터, 컴퓨터구조, 2진수, 16진수]

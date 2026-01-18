@@ -1,6 +1,6 @@
 ---
 layout: post
-title:  "[어셈블리 03] 변수 선언과 메모리 주소의 이해"
+title:  "[Assembly 03] 변수 선언과 메모리 주소의 이해"
 date:   2026-01-04 14:00:00 +0900
 categories: [Dev, Assembly]
 tags: [어셈블리, 메모리구조, 변수, Data, BSS]
