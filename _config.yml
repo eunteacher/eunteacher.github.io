@@ -230,9 +230,3 @@ plugins:
   - jekyll-seo-tag
   - jekyll-archives
 
-# Conversion
- markdown: kramdown
- highlighter: rouge
- lsi: false
- excerpt_separator: "\n\n"
- incremental: false
