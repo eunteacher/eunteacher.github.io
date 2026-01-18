@@ -4,6 +4,7 @@ title:  "[UE5 Distance Matching] Distance Matching을 위한 커브 데이터 �
 date:   2026-01-13 22:00:00 +0900
 categories: [Dev, Unreal, Locomotion]
 tags: [UE5, Locomotion, DistanceMatching]
+use_math : true
 ---
 
 # [UE5] Distance Matching을 위한 커브 데이터 생성 및 애니메이션 제작 가이드

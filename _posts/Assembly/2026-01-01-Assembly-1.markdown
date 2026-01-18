@@ -4,6 +4,7 @@ title:  "[Assembly 01] Hello World 출력"
 date:   2026-01-01 23:00:00 +0900
 categories: [Dev, Assembly]
 tags: [Assembly, CS]
+use_math : true
 ---
 
 # [어셈블리] Hello World 출력 및 기초 CS 이론 정리

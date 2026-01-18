@@ -4,6 +4,7 @@ title: "[Assembly 06] 쉬프트(Shift)와 논리(Logical) 연산 완전 정복"
 date: 2026-01-12
 categories: [Dev, Assembly]
 tags: [Assembly, Bitwise, Shift, XOR, Optimization]
+use_math : true
 ---
 
 # [Assembly] 비트 연산의 정석: Shift & Logical Operations

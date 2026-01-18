@@ -4,6 +4,7 @@ title:  "[C++ 05] 문자와 문자열: ASCII, 유니코드, 그리고 인코딩"
 date:   2026-01-08 22:30:00 +0900
 categories: [Dev, C++]
 tags: [C++, String, Unicode, Encoding]
+use_math : true
 ---
 
 # [C++] 문자와 문자열의 메모리 구조 및 인코딩

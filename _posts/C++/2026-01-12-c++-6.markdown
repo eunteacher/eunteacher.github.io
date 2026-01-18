@@ -4,6 +4,7 @@ title: "[C++ 06] 데이터 연산과 산술 연산자의 이해"
 date: 2026-01-12
 categories: [Dev, C++]
 tags: [C++, Operators, Arithmetic, Memory, Optimization]
+use_math : true
 ---
 
 # [C++] 데이터의 연산: 할당과 산술(Arithmetic)

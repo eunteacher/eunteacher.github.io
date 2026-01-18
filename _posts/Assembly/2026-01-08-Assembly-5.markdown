@@ -4,6 +4,7 @@ title:  "[Assembly 05] 사칙연산: 더하기, 빼기, 곱하기, 나누기 명
 date:   2026-01-08 22:45:00 +0900
 categories: [Dev, Assembly]
 tags: [Assembly, ASM, Arithmetic, ADD, SUB, MUL, DIV]
+use_math : true
 ---
 
 # [Assembly] 레지스터와 메모리를 활용한 사칙연산

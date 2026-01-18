@@ -4,6 +4,7 @@ title:  "[UE5 SmileShooter MultiPlayer 01] GameModeBase: OnPostLogin()"
 date:   2026-01-13 22:00:00 +0900
 categories: [Dev, Unreal, SubProject]
 tags: [UE5, C++, GameMode, Multiplayer]
+use_math : true
 ---
 
 # [UE5 SmileShooter MultiPlayer] GameModeBase: OnPostLogin의 역할과 생명주기

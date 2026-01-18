@@ -4,6 +4,7 @@ title:  "[C++ 03] 불리언(Boolean) 타입과 1바이트의 비밀"
 date:   2026-01-04 15:00:00 +0900
 categories: [Dev, C++]
 tags: [C++, Boolean, bool, 자료형, 메모리]
+use_math : true
 ---
 
 # [C++] 불리언(Boolean) 자료형의 이해

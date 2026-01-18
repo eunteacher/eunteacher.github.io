@@ -4,6 +4,7 @@ title:  "[C++ 04] 실수(Floating Point)와 부동 소수점의 구조"
 date:   2026-01-06 23:00:00 +0900
 categories: [Dev, C++]
 tags: [C++, 부동소수점]
+use_math : true
 ---
 
 # [C++] 실수형 데이터와 부동 소수점의 원리

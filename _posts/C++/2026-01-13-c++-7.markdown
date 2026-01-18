@@ -4,6 +4,7 @@ title: "[C++ 07] 비트 연산(Bitwise)과 비트 플래그(BitFlag) 활용"
 date: 2026-01-14
 categories: [Dev, C++]
 tags: [C++, Bitwise, Optimization, BitFlag, Memory]
+use_math : true
 ---
 
 # [C++] 데이터 연산: 비트 연산자와 상태 관리 최적화

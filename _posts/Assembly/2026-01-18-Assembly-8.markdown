@@ -4,6 +4,7 @@ title: "[Assembly 08] 반복문(Loops)과 LOOP 명령어"
 date: 2026-01-18
 categories: [Dev, Assembly]
 tags: [Assembly, Loop, Control Flow, Optimization]
+use_math : true
 ---
 
 # [어셈블리] 반복문 구현과 LOOP 명령어

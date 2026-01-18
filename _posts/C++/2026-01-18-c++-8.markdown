@@ -4,6 +4,7 @@ title: "[C++ 08] 데이터 연산: 비교 연산자와 논리 연산자"
 date: 2026-01-18
 categories: [Dev, C++]
 tags: [C++, Operators, Boolean, Logic]
+use_math : true
 ---
 
 # [C++] 비교 연산자와 논리 연산자 기초

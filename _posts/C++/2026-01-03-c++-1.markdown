@@ -4,6 +4,7 @@ title:  "[C++ 01] Hello World 출력"
 date:   2026-01-03 20:45:00 +0900
 categories: [Dev, C++]
 tags: [C++, CS]
+use_math : true
 ---
 
 # [C++] Hello World 출력 및 개발 환경 기초 정리

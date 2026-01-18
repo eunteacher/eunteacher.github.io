@@ -4,6 +4,7 @@ title: "[Assembly 07] 분기문(Branching)과 조건 분기 (CMP, JMP)"
 date: 2026-01-13
 categories: [Dev, Assembly]
 tags: [Assembly, Branching, CMP, JMP, Optimization]
+use_math : true
 ---
 
 # [어셈블리] 분기문과 논리 연산 완전 정복
