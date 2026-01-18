@@ -1,113 +1,170 @@
 ---
 layout: post
-title: "[Algorithm 02] 미로 만들기 및 오른손 법칙"
-date: 2026-01-12
+title: "[Algorithm 02] 미로 생성 및 길 찾기(Right-Hand Rule)"
+date: 2026-01-18
 categories: [Dev, Algorithm]
-tags: [Big-O, Time Complexity, C++, Optimization]
+tags: [C++, Maze, PathFinding, GameLogic]
 use_math : true
 ---
 
-# [Algorithm] 알고리즘 효율성 분석: Big-O 표기법
+# [Algorithm] 미로 생성과 오른손법칙(Right-Hand Rule) 구현
 
 ## 1. 소스 코드 (Source Code)
 
+### 1.1 길 찾기 로직: 오른손법칙 (Right-Hand Rule)
+오른쪽 벽을 짚고 이동하는 알고리즘으로, 미로의 출구를 찾는 가장 기초적인 방법
+우선순위: **오른쪽 회전 및 전진 > 직진 > 왼쪽 회전(제자리 회전)**
+
 ```cpp
-#include <iostream>
-using namespace std;
+// 1. 초기화 및 준비
+Pos CurrentPosition = Position; // 현재 위치 추적용
+Path.clear();
+Path.push_back(CurrentPosition);
 
-// Big - O 표기법: 알고리즘 효율성 측정
+Pos Destination = InBoard->GetExitPos(); // 목적지 설정
 
-// 1. O(1) - 상수 시간: 입력 크기와 무관하게 일정함
-int Add(int n)
+// 방향 벡터 정의 (Up, Left, Down, Right 순서)
+// y축은 아래로 갈수록 증가, x축은 오른쪽으로 갈수록 증가하는 2D 배열 기준
+Pos Front[4] =
 {
-    return n + n;
-}
+    Pos{-1, 0}, // 0: Up
+    Pos{0, -1}, // 1: Left
+    Pos{1, 0},  // 2: Down
+    Pos{0, 1},  // 3: Right
+};
 
-// 2. O(N) - 선형 시간: 입력 크기에 비례하여 증가함
-int Add2(int n)
+// 2. 길 찾기 루프 시작
+while (CurrentPosition != Destination)
 {
-    int sum = 0;
-    for (int i = 0; i < n; i++)
+    // [1] 현재 바라보는 방향 기준 '오른쪽'으로 갈 수 있는지 확인
+    // 공식: (현재 방향 - 1 + 방향개수) % 방향개수
+    int32 newDirection = (Direction - 1 + Dir_Count) % Dir_Count;
+
+    if (CanGo(CurrentPosition + Front[newDirection]))
     {
-        sum += i;
-    }
-    return sum;
-}
+        // 오른쪽으로 회전
+        Direction = newDirection;
 
-// 3. O(N^2) - 이차 시간: 입력의 제곱에 비례하여 증가함
-int add3(int n)
-{
-    int sum = 0;
-    for (int i = 0; i < n; i++)
+        // 회전된 방향으로 한 칸 전진
+        CurrentPosition += Front[Direction];
+        Path.push_back(CurrentPosition);
+    }
+    // [2] 오른쪽이 막혔다면 '직진' 가능한지 확인
+    else if (CanGo(CurrentPosition + Front[Direction]))
     {
-        for (int j = 0; j < n; j++)
-        {
-            sum += 1;
-        }
+        // 현재 방향 그대로 한 칸 전진
+        CurrentPosition += Front[Direction];
+        Path.push_back(CurrentPosition);
     }
-    return sum;
-}
-
-// 4. 복합 연산의 단순화 -> O(N^2)
-// O(1 + N + 4N^2 + 1) => O(N^2) (규칙: 최고차항만 유지, 상수 무시)
-int Add4(int n)
-{
-    int sum = 0;
-    for (int i = 0; i < n; i++) sum += i; // O(N)
-
-    for (int i = 0; i < 2 * n; i++) // O(N^2)
+    // [3] 오른쪽과 직진 모두 막혔다면 '왼쪽'으로 회전
+    else
     {
-        for (int j = 0; j < 2 * n; j++)
-        {
-            sum += 1;
-        }
+        // 왼쪽으로 90도 회전 (반시계 방향)
+        // 공식: (현재 방향 + 1) % 방향개수
+        Direction = (Direction + 1) % Dir_Count;
     }
-    sum += 1234567; // O(1)
-    return sum;
-}
-
-int main()
-{
-    return 0;
 }
 ```
 
+---
+
+### 1.2 이진 트리 미로 생성
+격자무늬로 벽을 세운 뒤, 각 방(Room)에서 **오른쪽(East)** 혹은 **아래쪽(South)** 벽을 뚫어 길을 만드는 방식
+
+```cpp
+// 1. 기본 맵 초기화 (격자형 벽 생성)
+// 짝수 좌표는 벽(Wall), 홀수 좌표는 빈 공간(Empty)으로 설정하여 격리된 방을 만듦
+for (int32 y = 0; y < Size; y++)
+{
+    for (int32 x = 0; x < Size; x++)
+    {
+        if (x % 2 == 0 || y % 2 == 0)
+            Tile[y][x] = TileType::Wall;
+        else
+            Tile[y][x] = TileType::Empty;
+    }
+}
+
+// 2. 길 뚫기 (Binary Tree Maze)
+// 우측(Right) 혹은 하단(Down) 중 하나를 랜덤으로 선택하여 벽을 허묾
+for (int32 y = 0; y < Size; y++)
+{
+    for (int32 x = 0; x < Size; x++)
+    {
+        // 벽인 구간은 스킵 (방인 경우만 처리)
+        if (x % 2 == 0 || y % 2 == 0) continue;
+
+        // 맵의 가장 끝(우하단)인 경우 처리 불필요
+        if (y == Size - 2 && x == Size - 2) continue;
+
+        // [예외 처리 1] 맨 아래쪽 라인
+        // 아래로 뚫을 공간이 없으므로 무조건 오른쪽(East)으로 뚫음
+        if (y == Size - 2)
+        {
+            Tile[y][x + 1] = TileType::Empty;
+            continue;
+        }
+
+        // [예외 처리 2] 맨 오른쪽 라인
+        // 오른쪽으로 뚫을 공간이 없으므로 무조건 아래(South)로 뚫음
+        if (x == Size - 2)
+        {
+            Tile[y + 1][x] = TileType::Empty;
+            continue;
+        }
+
+        // [랜덤 분기]
+        // 0이면 우측 통로 개방, 1이면 하단 통로 개방
+        const int32 randValue = ::rand() % 2;
+        if (randValue == 0)
+        {
+            Tile[y][x + 1] = TileType::Empty; // Right
+        }
+        else
+        {
+            Tile[y + 1][x] = TileType::Empty; // Down
+        }
+    }
+}
+
+```
+
+---
 ## 2. 이론 정리 (Study Notes)
 
-### Big-O 표기법 (Big-O Notation)
-* **정의**: 알고리즘의 효율성을 상한선(Worst Case) 기준으로 표기하는 수학적 기법임. 입력 크기($N$) 증가에 따른 실행 시간/공간의 증가율을 나타냄
-* **계산 단계**:
-  1.  **연산 횟수 추정**: 대입, 비교, 산술 연산 횟수를 $N$에 대한 수식으로 표현함
-  2.  **점근적 표기 (Asymptotic Analysis)**: 가장 영향력이 큰 최고차항만 남기고 상수와 낮은 차수의 항은 제거함
-      $$T(n) = 4n^2 + n + 1 \implies O(n^2)$$
+### 2.1 방향 회전과 모듈러 연산
+방향을 정수(`enum` 혹은 `int`)로 관리할 때, 모듈러 연산(`%`)을 활용하면 복잡한 `if-else` 분기 없이 회전 로직을 구현할 수 있음
 
-### 주요 시간 복잡도 비교
+**방향 정의 배열 (Front)**
 
-| 표기법           | 명칭 | 실행 시간 증가 추세 | 대표 알고리즘 |
-|:--------------| :--- | :--- | :--- |
-| $O(1)$        | Constant | 입력 크기와 무관하게 일정함 | 배열 인덱스 접근, 스택 Push/Pop |
-| $O(\log N)$   | Logarithmic | 입력이 2배 되어도 시간은 미미하게 증가함 | 이진 탐색 (Binary Search) |
-| $O(N)$        | Linear | 입력 크기에 정비례하여 증가함 | 단일 for문 순회 |
-| $O(N \log N)$ | Linear-Logarithmic | 선형보다 약간 느림 (효율적 정렬) | 퀵 정렬, 병합 정렬, 힙 정렬 |
-| $O(N^2)$      | Quadratic | 입력의 제곱만큼 증가함 | 이중 for문, 버블 정렬 |
-| $O(2^N)$      | Exponential | 기하급수적으로 증가함 (사용 지양) | 피보나치(재귀), 외판원 순회 |
+| 인덱스 | 방향 | dy (행) | dx (열) | 비고 |
+| :---: | :---: | :---: | :---: | :--- |
+| 0 | Up | -1 | 0 | 배열 인덱스 감소 (위로) |
+| 1 | Left | 0 | -1 | 배열 인덱스 감소 (좌로) |
+| 2 | Down | +1 | 0 | 배열 인덱스 증가 (아래로) |
+| 3 | Right | 0 | +1 | 배열 인덱스 증가 (우로) |
 
-### 로그(Logarithm)의 개념과 시간 복잡도
-* **직관적 이해 (Up-Down 게임)**: 탐색 범위를 매 단계마다 **절반($1/2$)**으로 줄여나가는 과정임
-* **수식 유도**:
-  * 데이터 $N$개를 1개가 남을 때까지 $k$번 반으로 나눈다고 가정
-  * $N \times (\frac{1}{2})^k = 1$
-  * $N = 2^k$
-  * 양변에 로그를 취하면 $\log_2 N = k$
-* **CS에서의 로그**: 컴퓨터 과학에서 로그의 밑(Base)은 보통 2를 의미함 ($\log N \approx \log_2 N$)
+**회전 공식**
+* **전제**: $Dir_{count} = 4$ (상, 하, 좌, 우)
+* **왼쪽 회전 (반시계)**:
+  $$Dir_{new} = (Dir_{current} + 1) \pmod 4$$
+* **오른쪽 회전 (시계)**:
+  $$Dir_{new} = (Dir_{current} - 1 + 4) \pmod 4$$
+  > **Note:** `-1` 연산 시 음수가 되는 것을 방지하기 위해 `+4`를 더한 후 나머지 연산을 수행
+
+### 2.2 이진 트리 미로 생성 (Binary Tree Maze Generation)
+* **원리**: 모든 칸(Cell)에 대해 독립적으로 **동쪽(East)** 혹은 **남쪽(South)** 중 하나를 선택하여 벽을 제거
+* **특징**:
+  1.  **단순성**: 별도의 상태 저장 공간이 필요 없으며, 한 번의 순회(Iterate)로 생성이 완료 ($O(N)$).
+  2.  **편향성(Bias)**: 북쪽(North)과 서쪽(West) 벽은 절대 뚫리지 않아, 맵의 좌상단은 막혀있고 우하단으로 갈수록 길이 트이는 경향이 있음
+  3.  **Perfect Maze**: 폐쇄된 구간(Loop)이 존재하지 않고, 모든 지점이 하나로 연결된 미로가 보장
 
 ## 3. 종합 의견 (Review)
 
 ### 핵심 요약 및 주의사항
-* **상수의 함정**: 이론적으로 $O(N)$이 $O(1)$보다 느리지만, $N$이 작을 때는 상수가 큰 $O(1)$보다 단순한 $O(N)$이 더 빠를 수 있음 (예: 해시맵 오버헤드 vs 작은 배열 순회)
-* **가독성 vs 효율성**: 현업에서는 $N$이 크지 않다면 $O(N^2)$이라도 가독성이 좋은 코드가 복잡한 $O(N \log N)$ 코드보다 선호될 수 있음.
-* **공간 복잡도 (Space Complexity)**: 시간 복잡도뿐만 아니라 메모리 사용량도 중요함. 재귀 호출의 깊이(Stack)나 보조 배열(Heap) 사용 시 고려가 필수적임.
+* **좌표계 주의**: 2D 배열(`Tile[y][x]`) 사용 시, `y`가 행(Row, 세로), `x`가 열(Col, 가로)임을 혼동하지 말 것. `Pos{-1, 0}`은 행 인덱스를 줄이므로 '위'로 이동하는 것
+* **우수법의 한계**: '오른손 법칙'은 미로가 **단일 연결(Simply Connected)** 상태일 때만 유효함. 미로 내부에 고립된 섬(Island)이 있거나 순환 구조가 있다면 길을 찾지 못하고 뱅뱅 돌 수 있음 (단, 이진 트리 미로는 Loop가 없으므로 우수법 적용 가능)
 
 ### Tip
-* **최적화 시점**: 모든 코드를 $O(1)$이나 $O(\log N)$으로 만들 강박을 가질 필요 없음. **병목(Bottleneck)**이 발생하는 구간을 프로파일링하여 집중 최적화하는 것이 효율적임
-* **STL 활용**: C++ STL의 `std::sort`나 `std::binary_search` 등은 검증된 최적화 복잡도를 보장하므로, 직접 구현보다는 라이브러리 활용을 적극 권장함
+* **모듈러 연산 활용**: 방향 전환 시 `switch-case`문을 나열하는 것보다, 모듈러 연산(`%`)을 사용하는 것이 코드 라인 수를 줄이고 가독성을 높이는 데 유리함
+* **난수 시드**: `rand()` 함수 사용 전 `srand(time(0))` 등을 통해 시드값을 초기화해야 프로그램 실행 시마다 다른 형태의 미로가 생성됨
