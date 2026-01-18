@@ -1,17 +1,16 @@
 ---
 layout: post
-title: "[Assembly 08] 분기문(Branching)과 조건 점프 명령어"
+title: "[Assembly 08] 반복문(Loops)과 LOOP 명령어"
 date: 2026-01-18
 categories: [Dev, Assembly]
-tags: [Assembly, CMP, JMP, Control Flow]
+tags: [Assembly, Loop, Control Flow, Optimization]
 ---
 
-# [어셈블리] 분기문과 논리 제어 (CMP, JMP)
+# [어셈블리] 반복문 구현과 LOOP 명령어
 
 ## 1. 소스 코드 (Source Code)
-
-`CMP` 명령어를 통한 비교와 다양한 `JMP` 명령어들을 활용하여 조건문(if-else) 로직을 구현한 코드임
-특히 짝수/홀수 판별 예제를 통해 나눗셈 연산(`DIV`) 후 나머지 레지스터(`AH`)를 활용하는 방법을 포함
+`CMP`와 `JMP`를 이용한 수동 반복문 구현과, `ECX` 레지스터를 기반으로 동작하는 `LOOP` 명령어를 비교하는 예제
+1부터 100까지의 합(Summation)을 구하는 세 가지 방식을 포함
 
 ```nasm
 %include "io64.inc"
@@ -21,119 +20,98 @@ global CMAIN
 CMAIN:
     mov rbp, rsp; for correct debugging
 
-    ; 1. 분기문 (Branching) 기초
-    ; 특정 조건에 따라서 코드 흐름을 제어함
-    ; CMP dst, src -> 비교 결과는 EFLAGS 레지스터에 저장됨
+    ; 1. 기본 반복문 (CMP + JMP)
+    ; Hello World를 10번 출력
 
-    ; [테스트 로직] 두 숫자가 같으면 1, 다르면 0을 RCX에 저장
-    mov rax, 10
-    mov rbx, 10
+    mov ecx, 10         ; 카운터 초기화 (10회)
 
-    cmp rax, rbx        ; rax와 rbx 비교 (rax - rbx 결과로 플래그 세팅)
-
-    je LABEL_EQUAL      ; ZF=1이면 (같으면) 점프
-
-    ; -- 같지 않을 경우 실행되는 영역 --
-    mov rcx, 0
-    jmp LABEL_EQUAL_END ; 비교 종료 지점으로 무조건 점프 (else문 종료와 동일)
-
-LABEL_EQUAL:
-    ; -- 같을 경우 실행되는 영역 --
-    mov rcx, 1
-
-LABEL_EQUAL_END:
-
-    PRINT_HEX 1, rcx    ; 결과 출력
+LABEL_LOOP:
+    PRINT_STRING msg
     NEWLINE
 
-    ; 2. 연습 문제: 짝수/홀수 판별기
-    ; 입력받은 숫자가 짝수면 1, 홀수면 0 출력
+    dec ecx             ; ecx = ecx - 1 (Counter 감소)
+    cmp ecx, 0          ; 0인지 확인
+    jne LABEL_LOOP      ; 0이 아니면(ZF=0) 다시 라벨로 점프
 
-    GET_DEC 1, ax       ; 사용자 입력 (Input)
-    PRINT_DEC 1, ax     ; 입력값 확인
+
+    ; 2. 연습 문제: 1부터 100까지의 합 구하기
+
+    ; [방법 1] 증가 연산 (INC) 활용
+    ; 1 + 2 + ... + 100
+
+    mov eax, 100        ; 최종 목적지 (N)
+    xor ebx, ebx        ; 결과값 누적용 (ebx = 0 초기화, mov보다 빠름)
+    xor ecx, ecx        ; 카운터 (i = 0)
+
+LABEL_SUM_MANUAL:
+    inc ecx             ; i++
+    add ebx, ecx        ; sum += i
+
+    cmp ecx, eax        ; i == 100 ?
+    jne LABEL_SUM_MANUAL
+
+    PRINT_DEC 4, ebx    ; 결과 출력 (5050)
     NEWLINE
 
-    mov bl, 2
-    div bl              ; ax / bl 수행 -> 몫: al, 나머지: ah
 
-    ; 나눗셈 결과 확인 (디버깅)
-    PRINT_DEC 1, al     ; 몫 출력
-    NEWLINE
-    mov al, ah          ; 출력을 위해 나머지(ah)를 al로 이동
-    PRINT_DEC 1, al     ; 나머지 출력
-    NEWLINE
+    ; [방법 2] LOOP 명령어 활용
+    ; 100 + 99 + ... + 1 (순서는 반대지만 합은 동일)
 
-    ; 나머지(ah)가 0인지 확인
-    cmp ah, 0
-    je LABEL_EVEN       ; 나머지가 0이면 짝수(Even)
+    mov ecx, 100        ; 반복 횟수 설정 (LOOP 명령은 ECX를 참조함)
+    xor ebx, ebx        ; 결과값 초기화
 
-    ; -- 홀수일 경우 --
-    mov rcx, 0          ; 결과값 0
-    jmp LABEL_CASE_END
+LABEL_LOOP_SUM:
+    add ebx, ecx        ; sum += ecx
 
-LABEL_EVEN:
-    ; -- 짝수일 경우 --
-    mov rcx, 1          ; 결과값 1
+    loop LABEL_LOOP_SUM ; [핵심] ecx--, if(ecx != 0) goto Label
 
-LABEL_CASE_END:
-    PRINT_DEC 1, rcx    ; 최종 결과 출력 (1 or 0)
+    PRINT_DEC 4, ebx    ; 결과 출력 (5050)
     NEWLINE
 
-    xor rax, rax        ; 리턴값 0 초기화
+    xor rax, rax
     ret
+
+section .data
+    msg db 'Hello World', 0x00
 ```
 
 ---
 ## 2. 이론 정리 (Study Notes)
 
-### 2.1 비교 명령어와 플래그 레지스터
-* **`CMP dst, src`**: `dst - src` 연산을 수행하지만, 결과를 피연산자에 저장하지 않고 **플래그 레지스터(Flag Register)**만 업데이트
-* **주요 플래그**:
-  * **ZF (Zero Flag)**: 연산 결과가 0일 때 1로 세팅 (두 값이 같음)
-  * **SF (Sign Flag)**: 연산 결과가 음수일 때 1로 세팅
-  * **OF (Overflow Flag)**: 연산 결과 오버플로우 발생 시 1로 세팅
+### 2.1 반복문의 구조
+* 어셈블리어에는 고수준 언어의 `while`이나 `for`문이 직접적으로 존재하지 않음. 대신 **조건 분기(Jump)**를 이용하여 구현
+* **구조**: `초기값 설정` $\rightarrow$ `본문 실행` $\rightarrow$ `증감(DEC/INC)` $\rightarrow$ `조건 확인(CMP)` $\rightarrow$ `점프(JMP)`
 
-### 2.2 점프 명령어 (Jump Instructions)
-`CMP` 명령의 결과(플래그 상태)에 따라 프로그램의 흐름(`EIP`/`RIP`)을 변경하는 명령어
+### 2.2 LOOP 명령어
+반복문의 패턴(`DEC ECX` + `CMP ECX, 0` + `JNE`)을 하나의 명령어로 축약한 것
 
-| 명령어 | 의미 | 조건 (Flag 상태) | 비고 |
-| :--- | :--- | :--- | :--- |
-| **`JMP`** | Unconditional Jump | 무조건 점프 | `goto`와 유사 |
-| **`JE`** | Jump if Equal | $dst = src$ (ZF=1) | 같으면 점프 |
-| **`JNE`** | Jump if Not Equal | $dst \neq src$ (ZF=0) | 다르면 점프 |
-| **`JG`** | Jump if Greater | $dst > src$ | (Signed) 크면 점프 |
-| **`JGE`** | Jump if Greater or Equal | $dst \ge src$ | (Signed) 크거나 같으면 점프 |
-| **`JL`** | Jump if Less | $dst < src$ | (Signed) 작으면 점프 |
-| **`JLE`** | Jump if Less or Equal | $dst \le src$ | (Signed) 작거나 같으면 점프 |
+* **동작 원리**:
+  1. `ECX` 레지스터의 값을 1 감소시킴 (`DEC ECX`)
+  2. `ECX`가 0이 아니면 지정된 라벨로 점프함 (`JNE`)
+  3. `ECX`가 0이면 다음 명령어로 넘어감
+* **특징**: 무조건 **`ECX` 레지스터**를 카운터로 사용해야 한다는 제약이 있음
 
-### 2.3 나눗셈 연산 (DIV) 레지스터 구조
-나눗셈(`DIV`)은 피연산자의 크기에 따라 묵시적으로 사용하는 레지스터가 정해져 있음
+### 2.3 주요 연산 명령어 정리
 
-* **수식**: $Dividend \div Divisor = Quotient \dots Remainder$
-* **레지스터 매핑**:
+| 명령어 | 설명 | 특징 |
+| :--- | :--- | :--- |
+| **`INC reg`** | `reg` 값을 1 증가시킴 | `ADD reg, 1`보다 명령어 길이가 짧고 빠를 수 있음 |
+| **`DEC reg`** | `reg` 값을 1 감소시킴 | `SUB reg, 1`과 동일 효과 |
+| **`XOR reg, reg`** | `reg` 값을 0으로 초기화 | `MOV reg, 0`보다 빠르고 기계어 코드가 짧음 |
+| **`LOOP label`** | `ECX`를 1 줄이고 0이 아니면 점프 | 코드가 간결해지지만 `ECX` 사용 강제됨 |
 
-| 피연산자 크기 (Operand) | 피제수 (Dividend) | 몫 (Quotient) | 나머지 (Remainder) |
-| :--- | :--- | :--- | :--- |
-| **1 Byte** (`reg8`) | `AX` (16bit) | `AL` | `AH` |
-| **2 Byte** (`reg16`) | `DX:AX` (32bit) | `AX` | `DX` |
-| **4 Byte** (`reg32`) | `EDX:EAX` (64bit) | `EAX` | `EDX` |
-
-> **주의**: 1바이트 레지스터(`BL`)로 나눌 때, CPU는 `AL`이 아닌 `AX` 전체를 피제수로 인식함. 따라서 `AH`에 쓰레기 값이 있다면 엉뚱한 결과가 나올 수 있으므로 초기화가 중요함
+### 2.4 등차수열의 합 (검증)
+1부터 100까지의 합이 맞는지 수학적으로 검증
+$$\sum_{k=1}^{n} k = \frac{n(n+1)}{2}$$
+$$\frac{100 \times 101}{2} = 5050$$
 
 ## 3. 종합 의견 (Review)
 
 ### 핵심 요약 및 주의사항
-* **흐름 제어**: 고수준 언어의 `if`, `switch`, `for`, `while` 문은 어셈블리 레벨에서 모두 `CMP`와 `JMP` 시리즈의 조합으로 변환됨
-* **라벨 네이밍**: 점프할 위치를 표시하는 라벨(Label)은 중복될 수 없음. 코드량이 많아지면 `L1`, `L2` 같은 이름보다 `LABEL_EVEN_CHECK_START` 처럼 명확한 네이밍 규칙이 필요함
+* **`ECX` 레지스터 관리**: `LOOP` 명령어 사용 시, 루프 내부에서 `ECX` 값을 변경하면 반복 횟수가 꼬이게 됨. 만약 내부에서 `ECX`가 필요하다면 스택에 백업(`PUSH`/`POP`)하거나 다른 레지스터를 사용해야 함
+* **초기화의 중요성**: 반복문에서 누적 변수(`sum`)나 카운터 변수는 루프 진입 전에 반드시 초기화(`MOV` or `XOR`)해야 쓰레기 값에 의한 오류를 방지할 수 있음
 
 ### Tip
-* **짝수/홀수 판별 최적화**:
-  위 코드에서는 `DIV`를 사용했지만, 실제로는 비트 연산(`AND` 또는 `TEST`)이 훨씬 빠름. 짝수는 2진수의 마지막 비트가 항상 0이고, 홀수는 1임
-
-  **개선 코드:**
-  ```nasm
-  ; DIV 대신 비트 연산 사용 예시
-  mov ax, 5
-  test ax, 1      ; 마지막 비트가 1인지 확인 (AND 연산하되 저장 안함)
-  jz IS_EVEN      ; 0이면(ZF=1) 짝수
-  jnz IS_ODD      ; 0이 아니면(ZF=0) 홀수
+* **`MOV` vs `XOR`**: 레지스터를 0으로 만들 때 `mov rax, 0`을 쓰면 명령어를 처리할 때 '0'이라는 데이터를 가져오는 과정이 필요함. 반면 `xor rax, rax`는 같은 값끼리 비트 연산(Exclusive OR)을 하면 무조건 0이 되는 논리를 이용하므로 CPU 입장에서 더 빠르고 효율적임
+  * $1 \oplus 1 = 0$
+  * $0 \oplus 0 = 0$
