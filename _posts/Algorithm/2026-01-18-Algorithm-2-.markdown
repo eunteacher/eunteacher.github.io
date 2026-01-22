@@ -79,9 +79,13 @@ for (int32 y = 0; y < Size; y++)
     for (int32 x = 0; x < Size; x++)
     {
         if (x % 2 == 0 || y % 2 == 0)
+        {
             Tile[y][x] = TileType::Wall;
+        }
         else
+        {
             Tile[y][x] = TileType::Empty;
+        }
     }
 }
 

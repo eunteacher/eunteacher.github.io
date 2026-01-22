@@ -1,0 +1,117 @@
+---
+layout: post
+title: "[C++ 10] 변수의 유효 범위와 타입 변환(Type Casting)"
+date: 2026-01-22
+categories: [Dev, C++]
+tags: [C++, Scope, Casting, Arithmetic, Overflow]
+use_math: true
+---
+
+# [C++] 변수 스코프(Scope)와 데이터 타입 변환의 주의점
+
+---
+
+## 1. 이론 정리 (Study Notes)
+
+### 변수의 유효 범위 (Scope)
+* **전역 변수 (Global Variable):** 프로그램 전체에서 접근 가능하며, 데이터 영역(Data Segment)에 저장
+* **지역 변수 (Local Variable):** `{}` 중괄호 블록 내부에서만 유효하며, 스택 영역(Stack Segment)에 저장
+* **이름 충돌 (Name Conflict):** 전역 변수와 지역 변수의 이름이 같을 경우, **지역 변수**가 우선순위를 가짐 (전역 변수는 가려짐)
+
+### 타입 변환 (Type Casting)
+* **데이터 손실 (Data Loss):** 큰 바구니(ex: `int`)의 데이터를 작은 바구니(ex: `short`)로 옮길 때, 상위 비트가 잘려나가면서 값의 변형이 발생
+* **비트 해석의 차이:** `signed`를 `unsigned`로 변환할 때, 메모리의 비트값은 그대로지만 이를 해석하는 방식이 달라져 엉뚱한 값(오버플로우)이 될 수 있음
+* **실수 변환:** 정수를 실수(`float`)로 변환할 때 정밀도(Precision) 차이로 인한 근사값 처리가 발생할 수 있음
+
+### 사칙 연산 주의사항
+* **정수 나눗셈:** `int / int`의 결과는 항상 `int`임 (소수점 버림). 정확한 값을 얻으려면 피연산자 중 하나를 `float`로 캐스팅해야 함
+* **0으로 나누기:** 수학적으로 불가능하며, 프로그램 크래시(Crash)의 주원인이 됨
+
+---
+
+## 2. 소스 코드 (Source Code)
+
+```cpp
+#include <iostream>
+using namespace std;
+
+// [전역 변수]
+// 프로그램 어디서든 접근 가능
+int hp = 100;
+
+int main()
+{
+    // [지역 변수]
+    // main 함수 내부에서만 생존
+    int hp = 10;
+
+    // 이름 충돌: 지역 변수 hp가 전역 변수 hp를 가림
+    cout << "Local hp: " << hp << endl; // 10 출력
+
+    // 같은 스코프 내 중복 선언 불가
+    // int hp = 50; // Error: 재정의 불가
+
+#pragma region 타입 변환 (Type Casting)
+
+    int mp = 10;
+
+    // 1. 작은 타입으로 변환 (Downcasting)
+    // 데이터 손실 없음 (범위 내)
+    short s_mp = mp;
+
+    // 2. 큰 값을 작은 타입으로 변환 (Overflow)
+    mp = 77777; // 0x12FD1 (16진수)
+    s_mp = mp;  // short는 2바이트(16비트)만 수용 가능
+
+    // 결과: 상위 비트(0x1)가 잘리고 0x2FD1만 남음 -> 12241
+    cout << "Truncated Value: " << s_mp << endl;
+
+    // 3. 부호 없는 타입으로 변환 (Unsigned)
+    mp = -1; // 메모리: 1111 1111 ... (2의 보수)
+    unsigned int ui_mp = mp;
+
+    // 결과: 비트열을 양수로 해석하므로 최대값(약 42억)이 출력됨
+    cout << "Unsigned Cast: " << ui_mp << endl;
+
+#pragma endregion
+
+#pragma region 산술 연산 (Arithmetic)
+
+    // 1. 나눗셈의 함정 (정수 vs 실수)
+    int max = 1000;
+    int value = 123;
+
+    // int / int = int (소수점 절삭)
+    // 0.123 -> 0
+    float ratio = value / max;
+    cout << "Integer Div: " << ratio << endl;
+
+    // 해결책: 명시적 형변환 (Explicit Casting)
+    ratio = value / (float)max;
+    cout << "Float Div: " << ratio << endl;
+
+    // 2. 0으로 나누기 (Divide By Zero)
+    // max = 0;
+    // ratio = value / max; // Runtime Error (Crash)
+
+#pragma endregion
+
+    return 0;
+}
+```
+---
+## 3. 종합 (Review)
+
+* **스코프의 우선순위:** 전역 변수와 지역 변수의 이름이 같으면 **지역 변수**가 우선
+* **비트 잘림 (Truncation):** `int`(4byte)를 `short`(2byte)에 구겨 넣으면 상위 2바이트가 물리적으로 날아감. 값이 변형되므로 주의가 필요
+* **나눗셈 연산:** 확률이나 비율 계산 시 `int / int`를 수행하여 결과가 0이 되는 버그가 빈번함. 반드시 `(float)` 캐스팅을 기억할 것
+
+---
+
+## 4. Tip
+
+### 연산자 우선순위와 괄호
+
+* `a + b * c` 처럼 연산자가 섞여 있을 때 우선순위가 헷갈린다면, 굳이 외우려 하지 말고 **괄호 `()`**를 사용하는 것이 가장 좋음
+* **예시:** `(a + b) * c` 또는 `a + (b * c)`
+* 이는 컴파일러에게 의도를 명확히 전달하고, 코드를 읽는 사람(협업자)에게도 가독성을 제공

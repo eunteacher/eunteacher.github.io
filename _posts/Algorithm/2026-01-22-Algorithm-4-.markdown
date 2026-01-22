@@ -1,0 +1,202 @@
+---
+layout: post
+title: "[Algorithm 04] 동적 배열(Vector)의 구현과 메모리 관리"
+date: 2026-01-22
+categories: [Dev, Algorithm]
+tags: [C++, DataStructure, Vector, Memory]
+use_math: true
+---
+
+# [Algorithm] 동적 배열(Vector) 직접 구현하기
+
+---
+
+## 1. 이론 정리 (Study Notes)
+
+### 동적 배열 (Dynamic Array)의 핵심 메커니즘
+* **Size vs Capacity**
+  * **Size ($N$):** 실제 데이터가 저장된 개수
+  * **Capacity:** 메모리에 할당된 여유 공간의 크기
+* **증설 정책 (Growth Strategy)**
+  * 데이터를 추가(`push_back`)할 때 `Size == Capacity` 상태라면, 더 큰 메모리 공간을 새로 할당
+  * 보통 1.5배 또는 2배로 `Capacity`를 늘려 **재할당(Reallocation)** 비용을 최소화
+  * **과정:** 신규 메모리 할당 $\rightarrow$ 기존 데이터 복사 ($O(N)$) $\rightarrow$ 기존 메모리 해제 $\rightarrow$ 포인터 교체
+
+### 시간 복잡도
+* **접근 (Access):** 인덱스를 통한 임의 접근은 $O(1)$
+* **삽입 (push_back):**
+  * 여유 공간이 있을 때: $O(1)$.
+  * 재할당이 발생할 때: $O(N)$ (복사 비용)
+  * **분할 상환 분석 (Amortized Analysis):** 재할당이 드물게 일어나므로 평균적으로 $O(1)$로 간주함
+
+---
+
+## 2. 소스 코드 (Source Code)
+
+### 2.1 Vector 클래스 구현
+C++ `std::vector`의 작동 원리를 모사하여 구현한 커스텀 클래스
+
+```cpp
+#include <iostream>
+#include <vector>
+
+using namespace std;
+
+template<typename T>
+class Vector
+{
+public:
+    Vector() { }
+    ~Vector()
+    {
+        if (_data)
+        {
+            delete[] _data;
+        }
+    }
+
+    // 데이터 추가
+    void push_back(const T& value)
+    {
+        // 공간 부족 시 증설
+        if (_size == _capacity)
+        {
+            // 1.5배 적용 (초기값 0일 경우 1로 보정)
+            int newCapacity = static_cast<int>(_capacity * 1.5f);
+            if (newCapacity == _capacity)
+            {
+                newCapacity++;
+            }
+
+            reserve(newCapacity);
+        }
+
+        // 데이터 저장
+        _data[_size] = value;
+        _size++;
+    }
+
+    // 메모리 예약 (재할당 로직 핵심)
+    void reserve(int capacity)
+    {
+        // 기존 용량이 충분하면 무시
+        if (_capacity >= capacity)
+        {
+            return;
+        }
+
+        _capacity = capacity;
+
+        // 새로운 공간 할당
+        T* newData = new T[_capacity];
+
+        // 기존 데이터 복사
+        for (int i = 0; i < _size; i++)
+        {
+            newData[i] = _data[i];
+        }
+
+        // 기존 메모리 해제
+        if (_data)
+        {
+            delete[] _data;
+        }
+
+        // 포인터 교체
+        _data = newData;
+    }
+
+    // 초기화
+    void clear()
+    {
+        // 현재 구현: 메모리를 완전히 해제하고 새로 할당
+        if (_data)
+        {
+            delete[] _data;
+            _data = new T[_capacity];
+        }
+
+        _size = 0;
+    }
+
+    // 임의 접근 연산자 오버로딩
+    T& operator[](int index)
+    {
+        return _data[index];
+    }
+
+    // Getter
+    int size() { return _size; }
+    int capacity() { return _capacity; }
+
+public:
+    T* _data = nullptr;
+    int _size = 0;
+    int _capacity = 0;
+};
+```
+---
+### 2.2 메인 함수 (테스트)
+STL `vector`와 직접 구현한 커스텀 `Vector`의 동작 흐름 비교 및 검증
+
+```cpp
+int main()
+{
+    // STL Vector Test
+    {
+        vector<int> v;
+        cout << "-------------------------------" << '\n';
+
+        // v.reserve(100); // 미리 예약하면 재할당 비용 감소
+
+        for (int i = 0; i < 10; i++)
+        {
+            v.push_back(i);
+            // Size와 Capacity 변화 관찰
+            cout << "Size: " << v.size() << " / Capacity: " << v.capacity() << '\n';
+        }
+
+        v.clear();
+        cout << "After Clear -> Size: " << v.size() << " / Capacity: " << v.capacity() << '\n';
+        cout << "-------------------------------" << '\n';
+    }
+
+    // Custom Vector Test
+    {
+        cout << "-------------------------------" << '\n';
+
+        Vector<int> v;
+
+        for (int i = 0; i < 10; i++)
+        {
+            v.push_back(i);
+            cout << "Size: " << v.size() << " / Capacity: " << v.capacity() << '\n';
+        }
+
+        v.clear();
+        cout << "After Clear -> Size: " << v.size() << " / Capacity: " << v.capacity() << '\n';
+        cout << "-------------------------------" << '\n';
+    }
+}
+```
+---
+## 3. 실행 결과 (Execution Result)
+
+![Result](assets/img/Algorithm05.png)
+
+## 4. 종합 (Review)
+
+* **재할당 비용:** `reserve()`가 호출될 때 `new`, `copy loop`, `delete` 과정이 수행되므로 오버헤드가 큼. 따라서 빈번한 재할당은 성능 저하의 주원인
+* **복사 전략:** 데이터 개수가 많아질수록 복사 비용이 기하급수적으로 커짐. 이를 방지하기 위해 `Capacity`를 넉넉하게(1.5~2배) 잡는 것
+* **STL과의 차이:** 실제 STL `clear()`는 메모리를 해제하지 않고 `size`만 0으로 줄여 재사용성을 높임 (위 예제 코드는 `clear` 시 재할당을 수행하도록 구현됨)
+
+---
+
+## 5. Tip
+
+### reserve() vs resize()
+
+| 함수 | 동작 방식 | 목적 |
+| :--- | :--- | :--- |
+| **reserve(N)** | 실제 데이터(`Size`)는 건드리지 않고, 메모리 공간(`Capacity`)만 $N$만큼 미리 확보함 | 재할당 방지 (성능 최적화) |
+| **resize(N)** | 데이터의 개수(`Size`)를 $N$으로 강제 변경함. 부족하면 기본값으로 채우고, 넘치면 잘라냄 | 데이터 크기 조절 |

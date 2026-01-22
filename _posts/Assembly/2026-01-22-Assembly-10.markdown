@@ -1,0 +1,117 @@
+---
+layout: post
+title: "[Assembly 10] 함수(Procedure)와 스택(Stack)의 필요성"
+date: 2026-01-22
+categories: [Dev, Assembly]
+tags: [Assembly, Function, Procedure, Stack, Call]
+use_math: true
+---
+
+# [Assembly] 함수 호출 규약과 스택 메모리의 도입 배경
+
+---
+
+## 1. 이론 정리 (Study Notes)
+
+### 함수 (Function / Procedure / Subroutine)
+* **정의:** 특정 기능을 수행하는 코드의 묶음으로, 반복되는 코드를 줄이고 재사용성을 높이기 위해 사용
+* **호출과 복귀:** `call` 명령어로 진입하고 `ret` 명령어로 호출했던 위치로 복귀
+
+### 레지스터를 이용한 인자 전달의 한계
+* **방식:** `EAX`, `EBX` 등 범용 레지스터에 값을 넣고 함수를 호출하여 매개변수처럼 사용
+* **취약점 (Vulnerability):**
+  1.  **인자의 개수 제한:** 레지스터의 개수는 한정적이므로 많은 인자를 전달하기 어려움
+  2.  **레지스터 덮어쓰기 (Contention):** 함수 내부에서 중요한 레지스터 값을 변경하면, 함수가 끝난 뒤 원래 데이터를 잃어버릴 위험이 있음
+  3.  **중첩 호출 (Nested Call):** 함수 A가 함수 B를 호출하는 식의 깊은 호출이 발생하면 레지스터만으로는 상태 관리가 불가능
+
+### 스택 (Stack) 메모리의 필요성
+* **개념:** 함수가 실행되는 동안 임시로 사용하는 **"메모장"** 같은 영역
+* **역할:**
+  1.  **매개변수 전달:** 레지스터 부족 시 스택을 통해 인자를 전달
+  2.  **돌아갈 주소 (Return Address) 관리:** `call` 시 자동으로 복귀 주소가 스택에 저장
+  3.  **지역 변수 (Local Variable):** 함수 내에서만 유효한 변수를 할당하고, 함수 종료 시 정리(반환)
+* **특징:** 후입선출 (LIFO: Last In First Out) 구조
+
+---
+
+## 2. 소스 코드 (Source Code)
+
+### 레지스터 기반의 MAX 함수 구현
+두 값을 비교하여 큰 값을 반환하는 함수 예제. 레지스터만 사용했을 때의 구조를 보여줌
+
+```nasm
+%include "io64.inc"
+
+section .text
+global CMAIN
+CMAIN:
+    mov rbp, rsp        ; 디버깅을 위한 스택 프레임
+
+    ; [함수 호출 테스트]
+    ; 10과 5 중 더 큰 값을 구하시오.
+    mov eax, 10         ; 첫 번째 인자
+    mov ebx, 5          ; 두 번째 인자
+
+    call MAX            ; 함수 호출
+
+    PRINT_DEC 4, ecx    ; 결과 출력 (10)
+    NEWLINE
+
+    xor rax, rax
+    ret
+
+; --------------------------------------------
+; Func: 문자열 출력 함수
+; --------------------------------------------
+PRINT_MSG:
+    PRINT_STRING msg
+    NEWLINE
+    ret
+
+; --------------------------------------------
+; Func: 두 값 중 더 큰 값을 반환 (MAX)
+; Input: eax, ebx
+; Output: ecx
+; --------------------------------------------
+MAX:
+    call PRINT_MSG      ; 함수 내부에서 또 다른 함수 호출
+
+    cmp eax, ebx        ; 두 값 비교
+    jg L1               ; eax > ebx 이면 L1 점프
+
+    mov ecx, ebx        ; 아니면 ecx = ebx
+    jmp L2              ; 종료 지점으로 점프
+
+L1:
+    mov ecx, eax        ; ecx = eax
+
+L2:
+    ret                 ; 함수 종료 및 복귀
+
+section .data
+    msg db 'Hello World', 0x00
+
+section .bss
+    num resb 10
+```
+---
+## 3. 종합 (Review)
+
+* **레지스터 전달 방식:** `MAX` 함수에서 보듯 `EAX`, `EBX`에 값을 미리 넣고 호출하는 방식은 직관적이고 빠름
+* **확장성 문제:** 하지만 코드가 복잡해져서 `MAX` 함수 안에서 `EAX`를 다른 용도로 써버린다면, 호출자(Caller)의 데이터가 오염
+* **메모리 유효 범위:** 전역 변수(`.data`, `.bss`)는 모든 함수가 공유하므로, 함수별로 독립적인 공간(Scope)을 보장받기 위해 **스택 프레임(Stack Frame)** 개념이 필수적으로 도입되어야 함
+
+---
+
+## 4. Tip
+
+### CALL과 JMP의 차이
+
+* **`JMP Address`**
+  * 단순히 해당 주소로 실행 흐름을 옮김. (돌아올 방법을 모름)
+* **`CALL Address`**
+  1. 현재 명령어의 **다음 주소(Return Address)**를 **스택(Stack)**에 `PUSH` 함.
+  2. 해당 주소로 점프함.
+* **`RET`**
+  1. 스택의 최상단(TOP)에 있는 값을 `POP`하여 **IP(Instruction Pointer)** 레지스터에 넣음.
+  2. 즉, 저장해 둔 위치로 복귀함.
