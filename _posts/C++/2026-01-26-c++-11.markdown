@@ -1,0 +1,166 @@
+---
+layout: post
+title: "[C++ 11] 분기문(Branching Statement)과 흐름 제어"
+date: 2026-01-26
+categories: [Dev, C++]
+tags: [C++, If, Switch, ControlFlow, Branching]
+use_math: true
+---
+
+# [C++] 조건에 따른 코드 실행: 분기문의 이해
+
+[cite_start]데이터를 가공한 후, 특정 조건에 따라 프로그램의 흐름을 제어하는 **분기문(Branching Statement)**의 종류(`if`, `switch`)와 사용법을 정리
+
+---
+
+## 1. 이론 정리 (Study Notes)
+
+### 1) 분기문의 필요성
+* 데이터를 메모리에 할당하고 가공하는 것만으로는 부족함. 가공된 데이터의 상태에 따라 **"무엇을 할지"** 결정해야 함
+* 프로그램의 실행 흐름을 조건에 따라 여러 갈래로 나누는 문법
+
+### 2) if 문 (If Statement)
+* **if:** 조건식이 `true`일 때만 내부 코드를 실행
+* **else:** `if`의 조건이 `false`일 때 실행
+* **else if:** 여러 조건을 순차적으로 검사할 때 사용. 가독성을 높이고 중첩된 `if-else`를 피할 수 있음
+
+### 3) switch 문 (Switch Statement)
+* **특징:** 입력 변수의 값과 일치하는 `case` 문으로 즉시 이동 (Jump)
+* **제약:** 괄호 `()` 안에는 정수 계열(정수, 문자, 열거형)만 올 수 있음 (실수 불가)
+* **break:** 실행 후 `switch` 문을 빠져나오기 위해 필수. 없으면 아래 `case`까지 연속 실행됨(Fall-through)
+
+---
+
+## 2. 소스 코드 (Source Code)
+
+몬스터의 상태(HP)에 따른 전투 로직과 가위바위보 예제를 통해 `if`와 `switch`의 차이를 확인
+
+```cpp
+#include <iostream>
+using namespace std;
+
+int main()
+{
+    // [분기문]
+    // 데이터의 상태에 따라 코드의 실행 흐름을 제어함
+
+    int hp = 100;
+    int damage = 100;
+
+    // 1. 기본 if 문
+    hp -= damage;
+    bool IsDead = hp <= 0; // true
+
+    if (IsDead)
+    {
+        cout << "몬스터를 처치했습니다" << endl;
+    }
+
+    // 2. if - else 문
+    // 양자택일의 상황
+    hp = 100;
+    damage = 90;
+    hp -= damage; // hp: 10
+    IsDead = hp <= 0; // false
+
+    if (IsDead)
+    {
+        cout << "몬스터를 처치했습니다" << endl;
+    }
+    else
+    {
+        cout << "몬스터가 반격했습니다" << endl;
+    }
+
+    // 3. 중첩 if vs else if
+    // 시나리오: 처치(<=0), 도망(<=20), 반격(나머지)
+
+    hp = 100;
+    damage = 70;
+    hp -= damage; // hp: 30
+    IsDead = hp <= 0; // false
+
+    // 3-1) 중첩 if (가독성 나쁨)
+    if (IsDead)
+    {
+        cout << "몬스터를 처치했습니다" << endl;
+    }
+    else
+    {
+        if (hp <= 20)
+        {
+            cout << "몬스터가 도망치고 있습니다" << endl;
+        }
+        else
+        {
+            cout << "몬스터가 반격했습니다" << endl;
+        }
+    }
+
+    // 3-2) else if (권장)
+    // 위 코드와 동일한 로직이나 가독성이 훨씬 좋음
+    if (IsDead)
+    {
+        cout << "몬스터를 처치했습니다" << endl;
+    }
+    else if (hp <= 20)
+    {
+        cout << "몬스터가 도망치고 있습니다" << endl;
+    }
+    else
+    {
+        cout << "몬스터가 반격했습니다" << endl;
+    }
+
+    // 4. switch 문
+    // 가위바위보 예제
+    const int ROCK = 0;
+    const int PAPER = 1;
+    const int SCISSORS = 2;
+
+    int input = ROCK;
+
+    // if문으로 작성 시
+    if (input == ROCK)
+        cout << "바위를 냈습니다" << endl;
+    else if (input == PAPER)
+        cout << "보를 냈습니다" << endl;
+    else if(input == SCISSORS)
+        cout << "가위를 냈습니다" << endl;
+    else
+        cout << "가위 바위 보만 내세요" << endl;
+
+    // switch문으로 작성 시 (가독성 및 최적화 이점)
+    switch (input)
+    {
+    case ROCK:
+        cout << "바위를 냈습니다" << endl;
+        break; // 필수
+    case PAPER:
+        cout << "보를 냈습니다" << endl;
+        break;
+    case SCISSORS:
+        cout << "가위를 냈습니다" << endl;
+        break;
+    default: // else와 같은 역할
+        cout << "가위 바위 보만 내세요" << endl;
+        break;
+    }
+
+    return 0;
+}
+```
+---
+## 3. 종합 (Review)
+
+* **코드의 효율성:** 불필요하게 `if`를 여러 번 쓰는 것보다, 상호 배타적인 조건이라면 `else`나 `else if`를 사용하여 연산을 줄이는 것이 효율적
+* **가독성:** 중첩된 `if`문(Nesting)은 코드를 읽기 어렵게 만듦. 가능한 `else if`를 활용하거나 조건을 단순화하여 들여쓰기 깊이를 줄이는 것이 좋음
+* **용도 구분:**
+  * **if:** 범위 비교(`hp <= 20`)나 복합 조건(`A && B`) 처리에 적합
+  * **switch:** 딱 떨어지는 정수 값(`0`, `1`, `2`)이나 상태(State) 분기에 적합하며, 가독성이 뛰어남
+
+## 4. Tip
+
+* **Switch문의 제약:** `switch (조건)`에는 정수형(`char`, `short`, `int`, `long`, `enum`)만 들어갈 수 있음. `float`나 사용자 정의 객체 등은 사용할 수 없음
+* **Break 누락 주의:** `case` 끝에 `break;`를 적지 않으면 밑에 있는 `case`까지 모조리 실행됨. 의도한 게 아니라면 반드시 작성
+* **상수 활용:** `case 0:` 보다는 `case ROCK:` 처럼 `const` 변수나 `enum`을 활용하면 코드의 의미를 파악하기 훨씬 수월

@@ -1,0 +1,123 @@
+---
+layout: post
+title: "[Assembly 11] 스택 메모리와 스택 프레임(Stack Frame)"
+date: 2026-01-26
+categories: [Dev, Assembly]
+tags: [Assembly, Stack, Memory, RSP, RBP]
+use_math: true
+---
+
+# [어셈블리] 스택(Stack)의 구조와 함수 호출 규약
+
+---
+
+## 1. 이론 정리 (Study Notes)
+
+### 메모리 구조 (Memory Layout)
+프로그램 실행 시 운영체제로부터 할당받는 메모리 공간의 구분
+
+| 영역 | 역할 | 결정 시점 | 방향 |
+| :--- | :--- | :--- | :--- |
+| **Code** | 실행할 기계어 코드 저장 | Compile Time | 고정 |
+| **Data** | 초기화된 전역 변수 | Compile Time | 고정 |
+| **BSS** | 초기화되지 않은 전역 변수 | Compile Time | 고정 |
+| **Heap** | 프로그래머가 관리하는 동적 할당 영역 | Runtime | 낮은 주소 $\rightarrow$ 높은 주소 |
+| **Stack** | 지역 변수, 매개 변수, 복귀 주소 저장 | Runtime | **높은 주소 $\rightarrow$ 낮은 주소** |
+
+### 스택 포인터와 베이스 포인터
+스택은 '높은 주소에서 낮은 주소'로 자라나며, 아래 레지스터들을 통해 관리함
+
+* **RSP (Stack Pointer):** 현재 스택의 **가장 낮은 위치(Top)**를 가리키는 커서. `PUSH`/`POP`에 따라 자동으로 변경
+* **RBP (Base Pointer):** 함수 내에서 스택 영역의 **기준점(Base)** 역할을 하는 포인터
+  * **필요성:** `RSP`는 계속 변하기 때문에, 고정된 `RBP`를 기준으로 상대 주소(`RBP + offset`)를 계산하여 매개변수나 지역변수에 접근
+
+### 스택 프레임 (Stack Frame)
+함수 호출 시 스택에 할당되는 블록. 함수가 호출될 때 생성되고 종료될 때 소멸
+* **Prologue (함수 시작):** 이전 함수의 RBP 저장(`push rbp`) $\rightarrow$ 현재 RSP를 RBP로 설정(`mov rbp, rsp`).
+* **Epilogue (함수 종료):** 사용한 스택 복원 $\rightarrow$ 이전 RBP 복구(`pop rbp`) $\rightarrow$ 복귀(`ret`).
+
+---
+
+## 2. 소스 코드 (Source Code)
+
+### 스택을 이용한 MAX 함수 구현
+레지스터 부족 문제를 해결하기 위해 **스택**을 통해 매개변수를 전달하고, **스택 프레임**을 구성하여 접근하는 예제
+
+```nasm
+%include "io64.inc"
+
+section .text
+global CMAIN
+CMAIN:
+    mov rbp, rsp        ; 디버깅을 위한 스택 프레임 설정
+
+    ; [매개변수 전달]
+    ; 스택에 값을 밀어넣음 (PUSH)
+    ; 스택은 높은 주소 -> 낮은 주소로 자라남
+    push 1              ; [RSP+8] 위치 (나중에 넣은게 더 낮은 주소니까)
+    push 2              ; [RSP] 위치 (Top)
+
+    call MAX            ; 함수 호출
+    ; call 동작: 다음 실행할 명령어 주소(Return Address)를 스택에 PUSH하고 점프
+
+    PRINT_DEC 8, rax    ; 결과 출력 (MAX 값)
+    NEWLINE
+
+    ; [스택 정리]
+    ; 함수 호출 시 push 1, push 2로 8byte * 2 = 16byte를 사용함
+    ; 이를 정리해주지 않으면 RSP가 꼬여서 ret 시 엉뚱한 곳으로 튐 (Crash)
+    add rsp, 16         ; 사용한 만큼 RSP를 되돌림 (Caller Clean-up)
+
+    xor rax, rax
+    ret
+
+; ---------------------------------------------------------
+; Func: 두 값 중 큰 값을 반환 (MAX)
+; Parameter: 스택을 통해 전달받음
+; Return: rax
+; ---------------------------------------------------------
+MAX:
+    ; [Prologue] 스택 프레임 생성
+    push rbp            ; 이전 함수의 RBP(Base Pointer)를 저장 (백업)
+    mov rbp, rsp        ; 현재 스택의 Top(RSP)을 새로운 RBP로 설정
+
+    ; [스택 메모리 구조 분석]
+    ; (High Address)
+    ; [ 1 ]         <- rbp + 24
+    ; [ 2 ]         <- rbp + 16
+    ; [ Ret Addr ]  <- rbp + 8  (call 명령어 실행 시 push됨)
+    ; [ Old RBP ]   <- rbp + 0  (현재 rbp가 가리키는 곳)
+    ; (Low Address)
+
+    mov rax, [rbp + 16] ; 두 번째로 push한 값 (2) 가져오기
+    mov rbx, [rbp + 24] ; 첫 번째로 push한 값 (1) 가져오기
+
+    cmp rax, rbx        ; 비교
+    jg L1               ; rax > rbx 이면 L1 점프
+
+    mov rax, rbx        ; 아니면 rax에 rbx(더 큰 값) 저장
+L1:
+    ; [Epilogue] 스택 프레임 해제
+    pop rbp             ; 저장해둔 이전 함수의 RBP 복원
+    ret                 ; 스택의 Ret Addr를 pop하여 해당 주소로 점프
+```
+---
+## 3. 종합 (Review)
+
+* **스택의 활용:** 레지스터의 개수 제한을 극복하고, 함수 간의 독립적인 메모리 공간(지역 변수 등)을 보장하기 위해 필수
+* **RBP의 역할:** `RSP`는 `PUSH`/`POP`에 따라 수시로 변하므로, 기준점(`RBP`)을 고정해두면 매개변수나 지역 변수의 위치를 `[RBP + N]`, `[RBP - N]` 형태로 일관성 있게 접근할 수 있음
+* **주의사항:** 스택은 사용 후 반드시 청소(Clean-up)해야 함. `PUSH`한 횟수만큼 `POP`하거나, `ADD RSP, N`을 통해 포인터를 원상복구 시키지 않으면 `RET` 명령 시 엉뚱한 주소로 점프하여 **Segmentation Fault**가 발생
+
+## 4. Tip
+
+### 호출 규약 (Calling Convention)
+함수를 호출할 때 **인자를 어떻게 전달**하고, **스택 정리는 누가 할 것인가**에 대한 약속
+
+* **__cdecl (C Declaration):**
+  * **인자 전달:** 오른쪽에서 왼쪽 순서로 스택에 Push
+  * **스택 정리:** **호출자(Caller)**가 정리함 (`add rsp, n`).
+  * **특징:** C/C++의 기본 규약, 가변 인자 함수(`printf`) 구현 가능
+* **__stdcall (Standard Call):**
+  * **인자 전달:** 오른쪽에서 왼쪽 순서로 스택에 Push
+  * **스택 정리:** **피호출자(Callee)**가 정리함 (`ret n`)
+  * **특징:** Win32 API에서 주로 사용, 코드 크기가 약간 줄어듦

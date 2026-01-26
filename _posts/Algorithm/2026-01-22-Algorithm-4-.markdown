@@ -49,9 +49,9 @@ public:
     Vector() { }
     ~Vector()
     {
-        if (_data)
+        if (data)
         {
-            delete[] _data;
+            delete[] data;
         }
     }
 
@@ -59,11 +59,11 @@ public:
     void push_back(const T& value)
     {
         // 공간 부족 시 증설
-        if (_size == _capacity)
+        if (vectorSize == vectorCapacity)
         {
             // 1.5배 적용 (초기값 0일 경우 1로 보정)
-            int newCapacity = static_cast<int>(_capacity * 1.5f);
-            if (newCapacity == _capacity)
+            int newCapacity = static_cast<int>(vectorCapacity * 1.5f);
+            if (newCapacity == vectorCapacity)
             {
                 newCapacity++;
             }
@@ -72,67 +72,67 @@ public:
         }
 
         // 데이터 저장
-        _data[_size] = value;
-        _size++;
+        data[vectorSize] = value;
+        vectorSize++;
     }
 
     // 메모리 예약 (재할당 로직 핵심)
     void reserve(int capacity)
     {
         // 기존 용량이 충분하면 무시
-        if (_capacity >= capacity)
+        if (vectorCapacity >= capacity)
         {
             return;
         }
 
-        _capacity = capacity;
+        vectorCapacity = capacity;
 
         // 새로운 공간 할당
-        T* newData = new T[_capacity];
+        T* newData = new T[vectorCapacity];
 
         // 기존 데이터 복사
-        for (int i = 0; i < _size; i++)
+        for (int i = 0; i < vectorSize; i++)
         {
-            newData[i] = _data[i];
+            newData[i] = data[i];
         }
 
         // 기존 메모리 해제
-        if (_data)
+        if (data)
         {
-            delete[] _data;
+            delete[] data;
         }
 
         // 포인터 교체
-        _data = newData;
+        data = newData;
     }
 
     // 초기화
     void clear()
     {
         // 현재 구현: 메모리를 완전히 해제하고 새로 할당
-        if (_data)
+        if (data)
         {
-            delete[] _data;
-            _data = new T[_capacity];
+            delete[] data;
+            data = new T[vectorCapacity];
         }
 
-        _size = 0;
+        vectorSize = 0;
     }
 
     // 임의 접근 연산자 오버로딩
     T& operator[](int index)
     {
-        return _data[index];
+        return data[index];
     }
 
     // Getter
-    int size() { return _size; }
-    int capacity() { return _capacity; }
+    int size() { return vectorSize; }
+    int capacity() { return vectorCapacity; }
 
 public:
-    T* _data = nullptr;
-    int _size = 0;
-    int _capacity = 0;
+    T* data = nullptr;
+    int vectorSize = 0;
+    int vectorCapacity = 0;
 };
 ```
 ---

@@ -1,0 +1,318 @@
+---
+layout: post
+title: "[Algorithm 05] 연결 리스트(Linked List)의 구현과 이터레이터"
+date: 2026-01-26
+categories: [Dev, Algorithm]
+tags: [C++, LinkedList, Iterator, DataStructure]
+use_math: true
+---
+
+# [Algorithm] 이중 연결 리스트(Doubly Linked List)와 이터레이터 구현
+
+---
+
+## 1. 이론 정리 (Study Notes)
+
+### 연결 리스트 (Linked List)
+* **정의:** 데이터를 담은 노드(Node)들이 포인터로 연결된 선형 자료구조임.
+* **특징:**
+  * **메모리:** 불연속적인 메모리 공간을 사용함.
+  * **접근:** 인덱스 접근이 불가능하여 $O(N)$의 탐색 시간이 소요됨.
+  * **삽입/삭제:** 위치를 알고 있다면 $O(1)$로 매우 빠름.
+
+### 핵심 구성 요소
+1. **Node:** 실제 데이터와 앞(`prev`), 뒤(`next`)를 가리키는 포인터를 포함하는 객체.
+2. **Iterator:** 리스트의 요소를 순회하며 접근하기 위한 도구 (포인터 래퍼).
+3. **Dummy Node:** 리스트의 양 끝(Head/Tail)에 배치된 빈 노드. 경계 조건(nullptr 체크 등)을 단순화함.
+
+---
+
+## 2. 소스 코드 (Source Code)
+
+### Node 및 Iterator 클래스
+```cpp
+#include <iostream>
+#include <vector>
+#include <list>
+using namespace std;
+
+// 노드 클래스: 데이터를 담고 앞/뒤 노드를 가리키는 기본 단위
+template <typename T>
+class Node
+{
+public:
+    // 기본 생성자
+    Node() : prevNode(nullptr), nextNode(nullptr), data(T())
+    {
+    }
+
+    // 데이터를 받아 생성하는 생성자
+    Node(const T& value) : prevNode(nullptr), nextNode(nullptr), data(value)
+    {
+    }
+
+public:
+    Node* prevNode; // 이전 노드를 가리키는 포인터
+    Node* nextNode; // 다음 노드를 가리키는 포인터
+    T data; // 실제 저장할 데이터
+};
+
+// 이터레이터 클래스: 리스트의 요소를 포인터처럼 순회하고 접근하기 위한 도구
+template <typename T>
+class Iterator
+{
+public:
+    Iterator() : node(nullptr)
+    {
+    }
+
+    Iterator(Node<T>* node) : node(node)
+    {
+    }
+
+    // 전위 증가 연산자 (++it)
+    // 동작: 다음 노드로 이동 후, 이동한 자기 자신 반환
+    Iterator& operator++()
+    {
+        node = node->nextNode;
+        return *this;
+    }
+
+    // 후위 증가 연산자 (it++)
+    // 동작: 현재 상태를 복사해두고, 다음 노드로 이동한 뒤, 복사해둔(이동 전) 값 반환
+    Iterator operator++(int)
+    {
+        Iterator<T> temp = *this;
+        node = node->nextNode;
+        return temp;
+    }
+
+    // 전위 감소 연산자 (--it)
+    Iterator& operator--()
+    {
+        node = node->prevNode;
+        return *this;
+    }
+
+    // 후위 감소 연산자 (it--)
+    Iterator operator--(int)
+    {
+        Iterator<T> temp = *this;
+        node = node->prevNode;
+        return temp;
+    }
+
+    // 역참조 연산자 (*it)
+    // 동작: 현재 가리키는 노드의 데이터를 반환 (참조형으로 반환하여 수정 가능하게 함)
+    T& operator*()
+    {
+        return node->data;
+    }
+
+    // 비교 연산자 (==)
+    bool operator==(const Iterator& other)
+    {
+        return node == other.node;
+    }
+
+    // 비교 연산자 (!=)
+    bool operator!=(const Iterator& other)
+    {
+        return node != other.node;
+    }
+
+public:
+    Node<T>* node; // 이터레이터가 현재 가리키고 있는 노드
+};
+```
+---
+### List 클래스
+```cpp
+// 리스트 클래스: 이중 연결 리스트 관리 클래스
+template <typename T>
+class List
+{
+public:
+    List() : listSize(0)
+    {
+        // [head] <-> ... <-> [tail]
+        // 더미 헤드와 더미 테일을 생성하여 경계 조건 처리를 단순화함
+        // 데이터가 없어도 항상 head와 tail이 존재하므로 nullptr 체크가 줄어듦
+        headNode = new Node<T>();
+        tailNode = new Node<T>();
+
+        headNode->nextNode = tailNode; // 헤드 다음은 테일
+        tailNode->prevNode = headNode; // 테일 이전은 헤드
+    }
+
+    ~List()
+    {
+        // 리스트 소멸 시 남은 데이터 모두 삭제
+        while (listSize > 0)
+        {
+            pop_back();
+        }
+
+        // 더미 노드들도 메모리 해제
+        delete headNode;
+        delete tailNode;
+    }
+
+    // 맨 뒤에 데이터 추가
+    void push_back(const T& value)
+    {
+        AddNode(tailNode, value); // tail 앞에 노드를 추가하면 맨 뒤에 추가하는 효과
+    }
+
+    // 맨 뒤 데이터 삭제
+    void pop_back()
+    {
+        RemoveNode(tailNode->prevNode); // tail 이전 노드(실제 마지막 데이터)를 삭제
+    }
+
+private:
+    // 임의의 노드(before) '앞'에 새로운 노드 추가
+    // 순서: [head] <-> ... <-> [prevNode] <-> [before] <-> [tail]
+    // 추가 후: [head] <-> ... <-> [prevNode] <-> [newNode] <-> [before] <-> [tail]
+    Node<T>* AddNode(Node<T>* before, const T& value)
+    {
+        Node<T>* newNode = new Node<T>(value);
+        Node<T>* prevNode = before->prevNode; // 삽입될 위치의 바로 앞 노드
+
+        // [prevNode]와 [newNode] 연결
+        prevNode->nextNode = newNode;
+        newNode->prevNode = prevNode;
+
+        // [newNode]와 [before] 연결
+        newNode->nextNode = before;
+        before->prevNode = newNode;
+
+        listSize++;
+
+        return newNode;
+    }
+
+
+    // 특정 노드 삭제
+    // 순서: [prevNode] <-> [node] <-> [nextNode]
+    // 삭제 후: [prevNode] <-> [nextNode]
+    // 시간 복잡도 : 상수
+    Node<T>* RemoveNode(Node<T>* node)
+    {
+        Node<T>* prevNode = node->prevNode;
+        Node<T>* nextNode = node->nextNode;
+
+        // 삭제할 노드의 앞뒤를 서로 연결 (삭제할 노드는 고립됨)
+        prevNode->nextNode = nextNode;
+        nextNode->prevNode = prevNode;
+
+        // 노드 메모리 해제
+        delete node;
+
+        listSize--;
+
+        return nextNode; // 삭제된 노드의 다음 노드 반환 (이터레이터 갱신용)
+    }
+
+
+    int size() { return listSize; }
+
+public:
+    using iterator = Iterator<T>;
+
+    // begin(): 실제 데이터의 시작 (헤드 다음 노드)
+    iterator begin() { return iterator(headNode->nextNode); }
+
+    // end(): 끝 다음을 의미 (더미 테일 노드)
+    iterator end() { return iterator(tailNode); }
+
+    // 이터레이터가 가리키는 위치 '앞'에 데이터 추가
+    iterator insert(iterator it, const T& value)
+    {
+        Node<T>* node = AddNode(it.node, value);
+        return iterator(node);
+    }
+
+    // 이터레이터가 가리키는 위치의 데이터 삭제
+    iterator erase(iterator it)
+    {
+        Node<T>* node = RemoveNode(it.node);
+        return iterator(node);
+    }
+
+private:
+    Node<T>* headNode; // 더미 헤드
+    Node<T>* tailNode; // 더미 테일
+    int listSize; // 데이터 개수
+};
+```
+---
+### List 클래스
+```cpp
+int main()
+{
+    List<int> li;
+
+    // 추가할 위치 혹은 제거할 위치를 알고 있는 경우 삽입과 삭제가 빠름(조건부)
+    List<int>::iterator eraseIt; // 나중에 삭제할 위치(값 5)를 기억할 이터레이터
+
+    // 0부터 9까지 데이터를 넣는 과정
+    for (int i = 0; i < 10; i++)
+    {
+        if (i == 5)
+        {
+            // i가 5일 때: end() (테일) 앞에 삽입 -> 즉, 맨 뒤에 삽입됨
+            // 그리고 해당 위치를 eraseIt에 저장해둠
+            eraseIt = li.insert(li.end(), i);
+        }
+        else
+        {
+            // 그 외: 그냥 맨 뒤에 삽입
+            li.push_back(i);
+        }
+    }
+    // 현재 리스트 상태: 0 1 2 3 4 5 6 7 8 9
+
+    li.pop_back();
+    // 맨 뒤(9) 삭제 -> 리스트: 0 1 2 3 4 5 6 7 8
+
+    li.erase(eraseIt);
+    // 아까 저장해둔 eraseIt(값 5) 위치 삭제 -> 리스트: 0 1 2 3 4 6 7 8
+
+    // 리스트는 인덱스 접근([])이 불가능하므로 이터레이터를 이용해 순회
+    for (List<int>::iterator it = li.begin(); it != li.end(); it++)
+    {
+        cout << (*it) << '\n';
+    }
+    // 최종 출력 예상: 0 1 2 3 4 6 7 8
+}
+```
+---
+## 3. 실행 결과(Result)
+![Result](assets/img/Algorithm06.png)
+
+---
+## 4. 종합 (Review)
+
+* **연결 리스트의 장점:**
+  * 중간 삽입/삭제가 빈번한 상황에서 배열보다 월등히 효율적임 ($O(1)$ vs $O(N)$).
+  * 메모리를 미리 할당할 필요 없이 필요할 때마다 동적으로 사용
+* **구현 포인트:**
+  * **더미 노드:** `head`와 `tail`이 변하는 예외 케이스를 없애주어 `if`문 도배를 막아줌. 필수적인 테크닉
+  * **이터레이터:** 포인터를 캡슐화하여 일관된 인터페이스(`++`, `*` 등)로 리스트를 제어할 수 있게 함
+
+## 5. Tip
+
+### 전위 증가(`++it`) vs 후위 증가(`it++`)
+* **전위 증가 (`++it`):** 자기 자신의 레퍼런스를 반환하므로 빠름
+* **후위 증가 (`it++`):**
+*
+```cpp
+Iterator operator++(int)
+{
+    Iterator<T> temp = *this; // 복사 비용 발생
+    node = node->nextNode;
+    return temp;
+}
+```
+
