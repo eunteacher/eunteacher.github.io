@@ -1,0 +1,141 @@
+---
+layout: post
+title: "[Algorithm 06] 스택(Stack)의 개념과 구현 (LIFO)"
+date: 2026-02-02
+categories: [Dev, Algorithm]
+tags: [C++, DataStructure, Stack, LIFO, Adapter]
+use_math: true
+---
+
+# [Algorithm] 스택(Stack)의 개념과 구현: LIFO 구조
+
+## 1. 소스 코드 (Source Code)
+
+### 1.1 Custom Stack vs STL Stack
+STL의 `stack`을 사용하는 방법과 `vector`를 이용하여 직접 구현한 `Stack` 클래스를 비교
+
+```cpp
+#include <iostream>
+#include <vector>
+#include <list>
+#include <stack>
+using namespace std;
+
+// Stack (LIFO: Last-In-First-Out, 후입선출)
+// 구조: 바닥이 막힌 상자 형태. 나중에 넣은 데이터가 먼저 나옴
+// 활용: 웹 브라우저 뒤로 가기, 편집기 되돌리기(Ctrl+Z), 함수 호출 스택 등
+
+template<typename T>
+class Stack
+{
+public:
+    // 데이터 삽입 (Push)
+    void push(const T& value)
+    {
+        // 벡터의 맨 뒤에 추가 (Stack의 Top에 해당)
+        Container.push_back(value);
+    }
+
+    // 데이터 삭제 (Pop)
+    void pop()
+    {
+        // 벡터의 맨 뒤 요소 제거
+        Container.pop_back();
+    }
+
+    // 최상위 데이터 확인 (Top/Peek)
+    T& top()
+    {
+        // 벡터의 마지막 요소 반환
+        return Container.back();
+    }
+
+    // 상태 확인
+    bool empty() { return Container.empty(); }
+    int size() { return Container.size(); }
+
+private:
+    // 어댑터 패턴(Adapter Pattern):
+    // 실제 데이터 저장은 vector가 담당하고, Stack은 인터페이스만 제공함
+    vector<T> Container;
+};
+
+int main()
+{
+    // [1] STL stack 사용
+    {
+        stack<int> s;
+
+        // 삽입 (Push)
+        s.push(1);
+        s.push(2);
+        s.push(3);
+
+        // 순회 (Stack은 인덱스 접근 불가, Top부터 하나씩 꺼내야 함)
+        while (s.empty() == false)
+        {
+            // 최상위 원소 확인
+            int data = s.top();
+
+            // 최상위 원소 삭제 (반환하지 않음)
+            s.pop();
+
+            cout << "STL Stack: " << data << endl;
+        }
+        // 출력 순서: 3 -> 2 -> 1
+    }
+
+    cout << endl;
+
+    // [2] 직접 구현한 Stack 사용
+    {
+        Stack<int> s;
+
+        s.push(1);
+        s.push(2);
+        s.push(3);
+
+        while (s.empty() == false)
+        {
+            int data = s.top();
+            s.pop();
+
+            cout << "Custom Stack: " << data << endl;
+        }
+    }
+}
+```
+---
+## 2. 이론 정리 (Study Notes)
+
+### 스택 (Stack)의 정의 및 특징
+* **정의**: 데이터를 차곡차곡 쌓아 올린 형태의 선형 자료구조
+* **LIFO (Last-In-First-Out)**: 가장 나중에 들어온 데이터가 가장 먼저 나가는 구조
+* **컨테이너 어댑터 (Container Adapter)**: `std::stack`은 독자적인 메모리 구조를 갖는 것이 아니라, `vector`, `deque`, `list` 등의 컨테이너를 내부적으로 감싸서 스택의 인터페이스(`Push`/`Pop`)만 제공하는 형태
+
+### 주요 연산과 시간 복잡도
+스택의 주요 연산은 특정 위치(Top)에서만 발생하므로 매우 효율적
+
+| 연산 | 함수명 | 설명 | 시간 복잡도 |
+| :---: | :--- | :--- | :---: |
+| **삽입** | `push()` | Top 위치에 데이터를 추가함 | $O(1)$ |
+| **삭제** | `pop()` | Top 위치의 데이터를 제거함 | $O(1)$ |
+| **조회** | `top()` | Top 위치의 데이터를 반환함 | $O(1)$ |
+| **확인** | `empty()` | 스택이 비어있는지 확인함 | $O(1)$ |
+
+> **Note:** `std::vector`를 기반으로 구현 시, `push_back`은 재할당(Reallocation)이 발생하지 않는 한 $O(1)$을 보장
+
+### 스택 vs 큐 (Stack vs Queue) 간단 비교
+* **Stack**: 입구가 하나인 상자 (후입선출)
+* **Queue**: 양쪽이 뚫린 터널 (선입선출, First-In-First-Out)
+
+## 3. 종합 의견 (Review)
+
+### 핵심 요약 및 주의사항
+* **Top과 Pop의 구분**: C++ STL `stack`에서 `pop()`은 데이터를 제거만 하고 반환하지 않음 (`void` 반환). 데이터를 확인하려면 반드시 `top()`을 먼저 호출
+* **Empty 체크 필수**: 빈 스택(`empty() == true`)인 상태에서 `top()`이나 `pop()`을 호출하면 런타임 에러가 발생하므로, 반드시 `while(!s.empty())` 또는 `if`문으로 방어 코드를 작성
+* **기반 컨테이너**: 위 예제는 `vector`를 사용했지만, 중간 삽입/삭제가 없는 스택의 특성상 `vector` 외에도 `deque`나 `list`를 기반으로 구현할 수 있음
+
+### Tip
+* **메모리 구조 이해**: 함수의 매개변수나 지역 변수가 저장되는 메모리 영역이 **Stack** 영역임. 자료구조 스택과 동작 원리가 동일함 (함수가 종료되면 최근에 선언된 변수부터 메모리에서 해제됨)
+* **활용**: DFS(깊이 우선 탐색), 괄호 짝 맞추기 검사, 후위 표기법 계산 등에서 필수적으로 사용

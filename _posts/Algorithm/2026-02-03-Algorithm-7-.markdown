@@ -1,0 +1,210 @@
+---
+layout: post
+title: "[Algorithm 07] 큐(Queue)의 개념과 원형 큐(Circular Queue) 구현"
+date: 2026-02-03
+categories: [Dev, Algorithm]
+tags: [C++, DataStructure, Queue, CircularQueue, FIFO]
+use_math: true
+---
+
+# [Algorithm] 큐(Queue)와 원형 큐(Circular Queue)의 구현
+
+## 1. 소스 코드 (Source Code)
+
+### 1.1 ArrayQueue (원형 큐)와 ListQueue 구현 비교
+배열을 재활용하기 위한 **원형 큐(Circular Queue)** 방식과 연결 리스트를 활용한 방식 비교
+
+```cpp
+#include <iostream>
+#include <vector>
+#include <list>
+#include <stack>
+#include <algorithm> // max 사용을 위해 추가
+using namespace std;
+
+// Queue (FIFO: First-In-First-Out, 선입선출)
+// 구조: 입구(Back/Rear)와 출구(Front)가 구분된 파이프 형태
+// 활용: 대기열(Buffer), 너비 우선 탐색(BFS), 작업 스케줄링 등
+
+// [1] 배열 기반의 원형 큐 (Circular Queue)
+// 일반적인 배열로 큐를 구현하면 앞쪽 공간이 남더라도 데이터를 뒤로 밀어야 하는 비효율 발생
+// 이를 해결하기 위해 시작(Front)과 끝(Back)이 연결된 원형 구조를 사용함
+template<typename T>
+class ArrayQueue
+{
+public:
+    ArrayQueue()
+    {
+
+    }
+
+    void push(const T& value)
+    {
+        // 공간 부족 시 증설 (Doubling Strategy)
+        if (Size == QueueContainer.size())
+        {
+            // 용량을 2배로 늘림 (최소 1)
+            int newSize = max(1, Size * 2);
+            vector<T> newData;
+            newData.resize(newSize);
+
+            // [데이터 정렬 및 복사]
+            // 원형으로 꼬여있는 데이터 인덱스를 0번부터 순차적으로 펴서 복사함
+            // 이유: 단순히 resize만 하면 원형 구조의 인덱스 매핑이 깨지기 때문
+            for (int i = 0; i < Size; i++)
+            {
+                // (Front + i) % Capacity 공식을 통해 실제 데이터 위치 계산
+                int index = (Front + i) % QueueContainer.size();
+                newData[i] = QueueContainer[index];
+            }
+
+            // 새로운 데이터로 교체 및 포인터 초기화
+            QueueContainer.swap(newData);
+            Front = 0;
+            Back = Size;
+        }
+
+        // 데이터 삽입
+        QueueContainer[Back] = value;
+
+        // 원형 구조 유지를 위한 모듈러 연산
+        // Back이 배열의 끝에 도달하면 다시 0번 인덱스로 순환
+        Back = (Back + 1) % QueueContainer.size();
+        Size++;
+    }
+
+    void pop()
+    {
+        // Front 위치 이동
+        Front = (Front + 1) % QueueContainer.size();
+        Size--;
+    }
+
+    T& front()
+    {
+        return QueueContainer[Front];
+    }
+
+    bool empty() { return Size == 0; }
+    int size() { return Size; }
+
+private:
+    vector<T> QueueContainer;
+
+    int Front = 0; // 맨 앞 데이터의 인덱스
+    int Back = 0;  // 다음 데이터가 들어갈 인덱스
+    int Size = 0;  // 현재 데이터 개수
+};
+
+// [2] 연결 리스트 기반 큐 (List Queue)
+// std::list를 감싸서 인터페이스만 제공 (Adapter Pattern)
+// 메모리 불연속성으로 인해 캐시 적중률은 낮으나, 구현이 매우 단순함
+template<typename T>
+class ListQueue
+{
+public:
+    void push(const T& value)
+    {
+        QueueContainer.push_back(value); // 리스트 미구현 시 O(1)
+    }
+
+    void pop()
+    {
+        QueueContainer.pop_front();      // 리스트 맨 앞 삭제 O(1)
+    }
+
+    T& front()
+    {
+        return QueueContainer.front();
+    }
+
+    bool empty() { return QueueContainer.empty(); }
+    int size() { return QueueContainer.size(); }
+
+private:
+    list<T> QueueContainer;
+};
+
+int main()
+{
+    // ListQueue 테스트
+    {
+        cout << "--- List Queue ---" << endl;
+        ListQueue<int> q;
+
+        for (int i = 0; i < 10; i++)
+        {
+            q.push(i);
+        }
+
+        while (q.empty() == false)
+        {
+            int value = q.front();
+            q.pop();
+            cout << value << " ";
+        }
+
+        cout << endl;
+    }
+
+    cout << endl;
+
+    // ArrayQueue 테스트
+    {
+        cout << "--- Array Queue (Circular) ---" << endl;
+        ArrayQueue<int> q;
+
+        for (int i = 0; i < 10; i++)
+        {
+            q.push(i);
+        }
+
+        while (q.empty() == false)
+        {
+            int value = q.front();
+            q.pop();
+            cout << value << " ";
+        }
+        cout << endl;
+    }
+}
+```
+---
+## 2. 이론 정리 (Study Notes)
+
+### 큐 (Queue)의 개념
+* **정의**: 먼저 넣은 데이터가 먼저 나오는 **선입선출(FIFO: First-In-First-Out)** 방식의 선형 자료구조
+* **구조**:
+  * **Front (Head)**: 데이터가 나가는 출구 (가장 오래된 데이터)
+  * **Rear (Back/Tail)**: 데이터가 들어오는 입구 (가장 최근 데이터)
+
+### 배열 큐 vs 원형 큐 (Circular Queue)
+* **일반 배열 큐의 문제점**:
+  * `pop`을 할 때마다 데이터를 앞당기면 $O(N)$ 비용이 발생
+  * 데이터를 앞당기지 않고 `Front` 인덱스만 이동하면, 앞쪽의 **빈 공간(Wasted Space)**을 재사용할 수 없음
+* **원형 큐의 해결책**:
+  * 배열의 끝과 시작을 연결하여 빈 공간을 재활용
+  * **모듈러 연산(Modulo Arithmetic)**을 핵심적으로 사용
+    $$Index_{next} = (Index_{current} + 1) \pmod{Capacity}$$
+
+### 구현 방식 비교
+
+| 특징 | Array Queue (Circular) | List Queue |
+| :--- | :--- | :--- |
+| **기반 컨테이너** | `std::vector` (동적 배열) | `std::list` (이중 연결 리스트) |
+| **데이터 접근** | 인덱스 연산 (빠름) | 포인터 추적 (상대적 느림) |
+| **메모리 효율** | 연속된 공간 (Cache Hit 우수) | 불연속 공간 (Node 오버헤드 존재) |
+| **증설 비용** | **높음** (재할당 + 전체 복사) | **없음** (노드만 추가하면 됨) |
+| **구현 난이도** | 높음 (Front/Back/Size 관리 필요) | 낮음 (`push_back`/`pop_front` 래핑) |
+
+## 3. 종합 의견 (Review)
+
+### 핵심 요약 및 주의사항
+* **원형 큐의 재할당**: `ArrayQueue`에서 공간이 꽉 찼을 때 단순 `resize`를 하면 `Front`가 `Back`보다 뒤에 있는(역전된) 상태가 그대로 복사되어 데이터 순서가 꼬이게 됨
+* **선형화(Linearize)**: 따라서 반드시 `Front`부터 데이터를 순서대로 읽어서 새로운 배열의 0번 인덱스부터 차례대로 다시 배치하는 작업이 필수
+* **인덱스 관리**: `Back`은 '마지막 데이터의 위치'를 가리키게 할 수도 있고, '다음 데이터가 들어갈 빈 위치'를 가리키게 할 수도 있음. 구현 시 일관성을 유지하는 것이 중요함 (위 코드는 '다음 빈 위치' 방식)
+
+### Tip
+* **STL `std::queue`의 비밀**: C++ 표준 라이브러리의 `std::queue`는 기본적으로 `std::deque`(덱)을 기반 컨테이너로 사용
+  * `vector`의 빠른 접근 속도와 `list`의 효율적인 앞/뒤 삽입 삭제 장점을 결합한 자료구조이기 때문
+* **모듈러 연산 최적화**: `%` 연산은 생각보다 비용이 큼. 큐의 크기(Capacity)를 $2^n$ 형태로 유지하면, 비트 연산(`& (Capacity - 1)`)으로 대체하여 속도를 최적화할 수 있음
