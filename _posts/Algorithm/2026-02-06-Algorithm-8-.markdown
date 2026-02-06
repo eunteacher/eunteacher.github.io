@@ -1,0 +1,184 @@
+---
+layout: post
+title: "[Algorithm 08] 자료구조별 시간 복잡도와 스택을 활용한 미로 최적화"
+date: 2026-02-06
+categories: [Dev, Algorithm]
+tags: [C++, TimeComplexity, Stack, PathFinding, Optimization]
+use_math: true
+---
+
+# [Algorithm] 자료구조 효율성 비교 및 미로 경로 최적화
+
+## 1. 이론 정리 : 선형 자료구조와 시간 복잡도
+알고리즘 문제 해결 시 상황에 맞는 적절한 자료구조를 선택하는 것이 중요.
+주요 선형 자료구조의 연산별 시간 복잡도는 다음과 같음
+
+| 자료구조 | 접근 (Access) | 탐색 (Search) | 삽입 (Insertion) | 삭제 (Deletion) | 비고 |
+| :--- | :---: | :---: | :---: | :---: | :--- |
+| **배열 (Array)** | $O(1)$ | $O(N)$ | $O(N)$ | $O(N)$ | 인덱스 접근 빠름, 크기 고정 |
+| **동적 배열 (Vector)** | $O(1)$ | $O(N)$ | $O(N)$ | $O(N)$ | 크기 유동적, 재할당 비용 존재 (Amortized $O(1)$ 삽입) |
+| **연결 리스트 (List)** | $O(N)$ | $O(N)$ | $O(1)$ | $O(1)$ | 임의 접근 불가, 중간 삽입/삭제 효율적 |
+| **스택 (Stack)** | $O(1)^*$ | $O(N)$ | $O(1)$ | $O(1)$ | LIFO 구조, Top에서만 연산 수행 (*Top 접근 한정) |
+| **큐 (Queue)** | $O(1)^*$ | $O(N)$ | $O(1)$ | $O(1)$ | FIFO 구조, Front/Back에서만 연산 수행 |
+
+> **Note:** 스택과 큐는 특정 위치(Top/Front/Rear)에서의 연산만 허용되므로 해당 위치 기준 $O(1)$임
+
+### 1.2 시간 복잡도 상세 분석 (Why?)
+
+#### **1. 배열 (Array) & 동적 배열 (Vector)**
+* **접근(Access) - $O(1)$:**
+  * 메모리 상에 데이터가 **연속적**으로 저장.
+  * `시작 주소 + (데이터 크기 * 인덱스)` 공식을 통해 단 한 번의 연산으로 해당 위치를 계산할 수 있음
+* **중간 삽입/삭제 - $O(N)$:**
+  * 데이터가 연속되어야 하므로, 중간에 값을 넣거나 빼면 뒤에 있는 모든 데이터를 한 칸씩 밀거나(Shift Right) 당겨야(Shift Left) 함
+  * 최악의 경우(맨 앞 삽입/삭제) $N$개의 데이터를 이동시켜야 하므로 $O(N)$이 소요
+* **Vector의 맨 뒤 삽입 - Amortized $O(1)$:**
+  * 평소에는 $O(1)$이지만, 공간(Capacity)이 꽉 차면 **재할당(Reallocation)** 및 **전체 복사**가 발생하여 $O(N)$이 걸림. 이를 평균 내면 $O(1)$로 간주
+
+#### **2. 연결 리스트 (Linked List)**
+* **접근(Access) - $O(N)$:**
+  * 메모리에 데이터가 흩어져 있고 포인터로 연결
+  * $N$번째 데이터를 찾으려면 첫 노드(Head)부터 포인터를 타고 $N$번 이동해야 하므로 $O(N)$이 소요
+* **중간 삽입/삭제 - $O(1)$:**
+  * 삽입/삭제할 위치의 노드만 알고 있다면(Iterator 등), 앞뒤 노드의 **포인터 연결만 변경**하면 됨
+  * 배열처럼 데이터를 밀거나 당기는 이동 과정이 필요 없음
+
+#### **3. 스택 (Stack) & 큐 (Queue)**
+* **삽입/삭제 - $O(1)$:**
+  * **Stack:** 구조상 입구와 출구가 `Top` 하나로 제한됨. 항상 맨 위에서만 작업하므로 데이터 개수($N$)와 무관하게 즉시 처리 가능
+  * **Queue:** `Front`(삭제)와 `Rear`(삽입)가 분리되어 관리됨. 맨 앞을 빼거나 맨 뒤에 넣는 작업은 포인터나 인덱스 조정만으로 가능하므로 $O(1)$임
+
+---
+
+## 2. 소스 코드 (Source Code)
+
+### 2.1 우수법(Right-Hand Rule)과 경로 최적화 구현
+기본적인 우수법 알고리즘은 막다른 길에 다다르면 왔던 길을 되돌아 나오기 때문에, 불필요한 왕복 경로가 포함됨. 이를 **스택(Stack)**을 활용하여 최적화하는 로직
+
+```cpp
+#include <iostream>
+#include <vector>
+#include <stack>
+#include <algorithm>
+using namespace std;
+
+void Player::Init(Board* InBoard)
+{
+    Position = InBoard->GetEnterPos();
+    MazeBoard = InBoard;
+
+    // 현재 위치 및 경로 초기화
+    Pos CurrentPosition = Position;
+    Path.clear();
+    Path.push_back(CurrentPosition);
+
+    // 목적지 설정
+    Pos Destination = InBoard->GetExitPos();
+
+    // 방향 벡터 (상, 좌, 하, 우)
+    Pos Front[4] =
+    {
+        Pos{-1, 0}, // Up
+        Pos{0, -1}, // Left
+        Pos{1, 0},  // Down
+        Pos{0, 1},  // Right
+    };
+
+    // 1. 우수법(Right-Hand Rule)을 통한 길 찾기
+    // 목적지에 도착할 때까지 루프
+    while (CurrentPosition != Destination)
+    {
+        // [1] 현재 방향 기준 '오른쪽' 확인
+        // 방향 전환 공식: (Current - 1 + Max) % Max
+        int32 newDirection = (Direction - 1 + Dir_Count) % Dir_Count;
+
+        if (CanGo(CurrentPosition + Front[newDirection]))
+        {
+            // 오른쪽으로 회전 후 전진
+            Direction = newDirection;
+            CurrentPosition += Front[newDirection];
+            Path.push_back(CurrentPosition);
+        }
+        // [2] 현재 방향으로 '직진' 확인
+        else if (CanGo(CurrentPosition + Front[Direction]))
+        {
+            // 방향 유지 후 전진
+            CurrentPosition += Front[Direction];
+            Path.push_back(CurrentPosition);
+        }
+        // [3] 갈 곳이 없으면 '왼쪽'으로 회전 (반시계)
+        else
+        {
+            Direction = (Direction + 1) % Dir_Count;
+        }
+    }
+
+    // 2. 스택(Stack)을 활용한 경로 최적화 (불필요한 되돌아가기 제거)
+    // 원리: 내가 가려는 다음 경로(Path[i+1])가 방금 스택에 넣은 위치(Top)와 같다면, 이는 왔던 길을 되돌아가는 것이므로 스택에서 제거(Pop)
+    stack<Pos> Stack;
+
+    for (int i = 0; i < Path.size() - 1; i++)
+    {
+        // 되돌아가는 상황 감지: Stack의 Top(직전 위치) == 다음 이동할 위치
+        if (Stack.empty() == false && Stack.top() == Path[i + 1])
+        {
+            Stack.pop(); // 되돌아가는 경로이므로 이전 기록 삭제
+        }
+        else
+        {
+            Stack.push(Path[i]); // 새로운 경로이므로 저장
+        }
+    }
+
+    // 목적지(마지막 위치) 처리
+    if (Path.empty() == false)
+    {
+        Stack.push(Path.back());
+    }
+
+    // 스택의 내용을 최종 경로 벡터로 변환
+    vector<Pos> optimizedPath;
+    while (Stack.empty() == false)
+    {
+        optimizedPath.push_back(Stack.top());
+        Stack.pop();
+    }
+
+    // 스택은 LIFO 구조이므로 역순으로 저장되어 있음 -> 다시 뒤집어줌
+    std::reverse(optimizedPath.begin(), optimizedPath.end());
+
+    Path = optimizedPath;
+}
+```
+---
+## 3. 이론 정리 (Study Notes)
+
+### 스택을 이용한 경로 최적화 원리
+* **문제 상황**: 우수법(Right-Hand Rule)은 막다른 길(Dead End)을 만나면 진입했던 경로를 그대로 되돌아 나옴
+  * **경로 예시**: $A \rightarrow B \rightarrow C$ (막힘) $\rightarrow B \rightarrow A \rightarrow D$
+  * **실제 유효 경로**: $A \rightarrow D$ ($B$와 $C$는 불필요한 방문)
+* **해결 알고리즘**:
+  1. 이동 경로를 순차적으로 탐색함
+  2. 스택의 최상단(`Top`)이 '다음에 이동할 위치'와 같다면, 이는 **"방금 왔던 곳으로 되돌아간다"**는 의미임
+  3. 이 경우, 새로운 경로를 추가하는 대신 스택의 `Top`을 제거(`Pop`)하여 갔던 기록을 취소함
+
+### 최적화 전후 비교 시각화
+
+| 단계 | 이동 경로 (Input Path) | 스택 상태 (Stack) | 동작 설명 |
+| :---: | :--- | :--- | :--- |
+| 1 | $A \rightarrow B$ | `[A]` | A 푸시 |
+| 2 | $A \rightarrow B \rightarrow C$ | `[A, B]` | B 푸시 |
+| 3 | $A \rightarrow B \rightarrow C \rightarrow B$ | `[A, B, C]` | C 푸시 |
+| 4 | $A \rightarrow B \rightarrow C \rightarrow B$ | `[A, B]` | **Backtracking 감지!** (Top C 삭제, B는 무시) |
+| 5 | ... $\rightarrow C \rightarrow B \rightarrow A$ | `[A]` | **Backtracking 감지!** (Top B 삭제, A는 무시) |
+| 6 | ... $\rightarrow B \rightarrow A \rightarrow D$ | `[A, D]` | D 푸시 (최종 경로 형성) |
+
+## 4. 종합 의견 (Review)
+
+### 핵심 요약 및 주의사항
+* **스택의 활용성**: 스택(Stack)은 함수 호출 스택, 웹 브라우저 뒤로 가기 등 **"이전 상태로 되돌리기(Undo)"**가 필요한 로직에 최적화된 자료구조
+* **데이터 정제**: `Path.size() - 1`까지만 루프를 도는 이유는 $i$와 $i+1$을 비교하기 위함이며, 마지막 목적지 데이터가 누락되지 않도록 루프 종료 후 별도 처리가 필요
+
+### Tip
+* **std::reverse**: 스택에서 데이터를 꺼내 `vector`에 담으면 역순(도착점 $\rightarrow$ 시작점)이 되므로, `std::reverse` 함수를 사용하여 순서를 올바르게 뒤집어야 함
+* **디버깅**: 경로가 이상하게 잡힐 경우, `optimizedPath`에 값을 넣을 때마다 좌표를 로그로 찍어보면 스택의 `Push/Pop` 시점을 명확히 파악할 수 있음

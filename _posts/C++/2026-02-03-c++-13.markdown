@@ -1,7 +1,7 @@
 ---
 layout: post
 title: "[C++ 13] 반복문 심화 실습: 별 찍기와 구구단"
-date: 2026-01-24
+date: 2026-02-03
 categories: [Dev, C++]
 tags: [C++, Loop, NestedLoop, Practice]
 use_math: true
