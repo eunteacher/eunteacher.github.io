@@ -1,0 +1,117 @@
+---
+layout: post
+title: '[C++ 16] 함수의 정의와 호출(Function Call) 메커니즘'
+date: 2026-02-15
+categories: [Dev, C++]
+tags: [C++, Function, Parameter, Return, Modularization]
+use_math: true
+---
+
+# [C++] 함수(Function)의 구조와 모듈화 프로그래밍
+
+## 1. 소스 코드 (Source Code)
+
+
+```cpp
+#include <iostream>
+using namespace std;
+
+/**
+ * @brief 1. 매개변수와 반환값이 없는 함수
+ * - void: 반환할 데이터가 없음을 의미 (Empty)
+ * - 입력(Input)도 없고 출력(Output)도 없는 가장 단순한 형태
+ */
+void PrintHelloWorld()
+{
+    cout << "Hello World" << endl;
+    // return; // void 함수에서는 return 생략 가능 (자동으로 제어권 반환)
+}
+
+/**
+ * @brief 2. 매개변수가 있는 함수
+ * @param Num 외부에서 전달받을 정수값
+ */
+void PrintNumber(int Num)
+{
+    // 전달받은 인자(Argument)를 출력
+    cout << "입력된 숫자: " << Num << endl;
+}
+
+/**
+ * @brief 3. 반환값이 있는 함수
+ * @param Num 연산할 원본 데이터
+ * @return 입력값에 2를 곱한 결과 (int)
+ */
+int MultiplyBy2(int Num)
+{
+    // 호출한 곳으로 연산 결과를 돌려줌
+    return Num * 2;
+}
+
+/**
+ * @brief 4. 다중 매개변수 함수
+ * @param a 피연산자 1
+ * @param b 피연산자 2
+ * @return 두 수의 곱셈 결과
+ */
+int MultiplyBy(int a, int b)
+{
+    return a * b;
+}
+
+int main()
+{
+    // [함수 호출]
+    // 정의된 기능을 실행하고, 필요 시 결과값을 받음
+
+    PrintHelloWorld();
+
+    PrintNumber(10);
+
+    // 반환값이 있는 함수는 결과값을 바로 출력하거나 변수에 저장 가능
+    cout << "2배 연산 결과: " << MultiplyBy2(4) << endl;
+    cout << "곱셈 연산 결과: " << MultiplyBy(10, 10) << endl;
+
+    return 0;
+}
+```
+---
+## 2. 이론 정리 (Study Notes)
+
+### 2.1 함수의 기본 구조
+함수는 입력을 받아 처리를 수행하고 출력을 반환하는 '블랙박스' 모델을 따름
+
+
+
+$$f(x) = y \quad \iff \quad \text{ReturnType FunctionName(Parameter)}$$
+
+| 구성 요소 | 설명 | 비고 |
+| :--- | :--- | :--- |
+| **반환 타입 (Return Type)** | 함수 수행 후 호출자에게 돌려줄 데이터의 자료형임  | 없을 경우 `void` 사용함  |
+| **함수 이름 (Name)** | 함수의 기능을 식별하는 명칭임  | 동사 형태로 짓는 것이 관례임  |
+| **매개변수 (Parameter)** | 함수 내부에서 사용할 입력 데이터를 받는 변수임  | 0개 이상 가능함  |
+| **함수 몸체 (Body)** | 실제 연산이 수행되는 중괄호 `{}` 블록임  | 지역 변수 선언 가능함  |
+
+### 2.2 함수 사용의 이점
+* **코드 재사용성 (Reusability):** 반복되는 로직을 하나로 묶어 필요할 때마다 호출하여 사용함
+* **유지보수 용이성 (Maintainability):** 기능 수정 시 함수 내부만 변경하면 되므로 전체 코드 수정이 불필요
+* **추상화 (Abstraction):** 내부 구현을 몰라도 함수의 이름과 매개변수만 알면 기능을 사용할 수 있음
+
+### 2.3 매개변수와 인자
+* **매개변수 (Parameter):** 함수 정의부에 선언된 변수 (예: `int Num`)
+* **인자 (Argument):** 함수 호출 시 실제로 전달하는 값 (예: `10`, `4`)
+
+---
+
+## 3. 종합 의견 (Review)
+
+### 핵심 요약 및 주의사항
+* **타입 일치:** 반환 타입이 `int`라면 반드시 `return` 문 뒤에 정수형 데이터가 와야 함
+* **반환 오류:** `void` 함수에서 값을 반환하려 하거나, `int` 함수에서 반환을 누락하면 컴파일 에러가 발생
+* **단일 책임 원칙:** 하나의 함수는 가급적 하나의 기능만 수행하도록 설계
+* **설계 주의:** 여러 기능이 섞여 있으면 함수 이름 짓기가 어렵고 재사용성이 떨어짐
+
+### Tip
+* **함수 원형 (Prototype):** C++ 컴파일러는 위에서 아래로 해석하므로, `main` 함수 아래에 함수를 정의할 경우 상단에 선언부(Signature)를 미리 작성해야 함
+* **Naming Convention:** * **PascalCase:** 함수 이름은 대문자로 시작함 (예: `PrintNumber`)
+* **동사+명사:** 기능을 명확히 설명함 (예: `GetScore`, `SetPlayerName`)
