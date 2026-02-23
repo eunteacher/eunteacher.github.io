@@ -1,0 +1,99 @@
+---
+layout: post
+title: '[C++ 18] 변수의 생명 주기와 값 전달(Call by Value)의 원리'
+date: 2026-02-23
+categories: [Dev, C++]
+tags: [C++, VariableScope, StackFrame, CallByValue, MemoryStructure]
+use_math: true
+---
+
+# [C++] 전역/지역 변수의 유효 범위와 데이터 복사 메커니즘
+
+전역 변수와 지역 변수의 메모리 적재 위치 및 생명 주기를 비교하고, 함수 호출 시 발생하는 값 전달 방식의 한계를 스택 프레임 관점에서 분석
+
+## 1. 소스 코드 (Source Code)
+
+```cpp
+#include <iostream>
+using namespace std;
+
+/**
+ * [전역 변수 (Global Variable)]
+ * - 데이터 영역(Data Segment)에 할당되어 프로그램 종료 시까지 생존함
+ * - 코드 어느 곳에서나 접근 가능하나, 의존성이 높아져 유지보수가 어려울 수 있음
+ */
+int GlobalValue = 0;
+
+void PrintGlobalValue()
+{
+    // 전역 변수는 함수 스코프에 제한받지 않고 접근 및 수정 가능함
+    cout << "PrintGlobalValue() : " << GlobalValue << endl;
+    GlobalValue++;
+}
+
+/**
+ * [값 전달 방식의 함수 (Call by Value)]
+ * @param hp 호출부의 데이터를 '복사'하여 생성된 지역 변수
+ */
+void IncreaseHp(int hp)
+{
+    // 매개변수로 넘어온 복사본의 값을 증가시킴 (원본에 영향 없음)
+    hp += 1;
+}
+
+int main()
+{
+#pragma region 전역 변수 테스트
+    PrintGlobalValue();
+    cout << "Main() : " << GlobalValue << endl;
+    GlobalValue++;
+#pragma endregion
+
+#pragma region 지역 변수 및 값 전달 테스트
+    // [지역 변수 (Local Variable)]
+    // - 스택(Stack) 영역에 할당되며 중괄호 {} 블록을 벗어나면 소멸함
+    int LocalValue = 0;
+    LocalValue++;
+
+    int hp = 1;
+    cout << "Before Call IncreaseHp(), hp == " << hp << endl;
+
+    // 함수 호출 시 hp의 '값'만 복사되어 전달됨 (Stack Frame 생성)
+    IncreaseHp(hp);
+
+    // 호출 후에도 main의 hp 값은 변하지 않고 1을 유지함
+    cout << "After Call IncreaseHp(), hp == " << hp << endl;
+#pragma endregion
+
+    return 0;
+}
+```
+---
+## 2. 이론 정리 (Study Notes)
+
+### 2.1 변수의 종류별 메모리 특성 비교
+
+| 구분         | 전역 변수 (Global)               | 지역 변수 (Local)                    |
+|:-----------|:-----------------------------|:---------------------------------|
+| **메모리 영역** | 데이터 영역 (Data/BSS/ROData)     | 스택 영역 (Stack)                    |
+| **생명 주기**  | 프로그램 시작 시 생성 ~ 종료 시 소멸       | 블록(`{}`) 진입 시 생성 ~ 탈출 시 소멸       |
+| **접근 범위**  | 프로그램 전체 (외부 파일은 `extern` 필요) | 선언된 블록 내부로 제한됨                   |
+| **초기화**    | 별도 명시 없으면 0으로 자동 초기화         | 초기화하지 않으면 쓰레기값(Garbage Value) 보유 |
+
+### 2.2 값 전달(Call by Value) 및 스택 프레임
+* 함수 호출 시 인자(Argument)를 전달할 때, 원본 데이터 자체가 아닌 **값의 복사본**이 함수의 매개변수 스택 메모리에 생성
+* 호출된 함수의 실행이 완료되어 제어권을 반환하면 해당 함수의 스택 프레임은 메모리에서 자동으로 소멸
+
+---
+
+## 3. 종합 의견 (Review)
+
+### 핵심 요약 및 주의사항
+* **원본 보존의 원칙**: `Call by Value` 방식은 함수 내부의 연산이 호출부의 원본 데이터를 보호한다는 장점이 있으나, 의도한 수정이 반영되지 않는 논리적 오류의 원인이 됨
+* **메모리 효율성**: 전역 변수는 프로그램 실행 내내 메모리를 점유하며, 관리가 어렵고 의존성을 높이므로 사용에 주의가 필요
+* **지역 변수 유효 범위**: 지역 변수는 선언된 `{}` 스코프를 벗어나면 스택 프레임과 함께 소멸하므로, 해당 주소를 외부로 반환하는 행위는 매우 위험
+
+### Tip
+* **원본 수정이 필요한 경우**: 함수 내부에서 외부 변수의 값을 변경하려면 값 전달이 아닌 **참조 전달(Call by Reference)**이나 **주소 전달(Call by Address)**을 사용
+* **전역 변수 최소화**: 전역 변수 대신 `const` 상수나 `enum`을 활용하고, 상태 값은 캡슐화하여 전달하는 것이 유지보수와 디버깅에 유리
+* **스택 오버플로우 방지**: 지역 변수는 스택 영역을 사용하므로, 대용량 배열 선언 시 스택 메모리 한계를 초과하지 않도록 힙(Heap) 영역 활용을 권장

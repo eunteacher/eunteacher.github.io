@@ -1,0 +1,140 @@
+---
+layout: post
+title: '[Algorithm 12] BFS를 활용한 미로 최단 경로 탐색 및 경로 역추적'
+date: 2026-02-23
+categories: [Dev, Algorithm]
+tags: [C++, BFS, PathFinding, Maze, Algorithm]
+use_math: true
+---
+
+# [Algorithm] BFS 기반 미로 최단 경로 알고리즘 구현
+
+큐(Queue) 자료구조의 너비 우선 탐색 특성을 활용하여 미로의 시작점부터 목적지까지의 최단 경로를 산출하고, 부모 노드 추적을 통해 실제 이동 경로를 복원하는 로직 분석
+
+## 1. 소스 코드 (Source Code)
+
+```cpp
+
+/**
+ * BFS(Breadth-First Search)를 이용한 최단 경로 탐색 함수
+ */
+void Player::Bfs()
+{
+    Pos pos = Position;
+    Pos dest = MazeBoard->GetExitPos();
+
+    // 상하좌우 이동을 위한 방향 벡터 정의
+    Pos Front[4] =
+    {
+        Pos{-1, 0}, // Up
+        Pos{0, -1}, // Left
+        Pos{1, 0},  // Down
+        Pos{0, 1},  // Right
+    };
+
+    const int32 size = MazeBoard->GetSize();
+
+    // 중복 방문 방지를 위한 2차원 발견 체크 배열
+    vector<vector<bool>> Discovered(size, vector<bool>(size, false));
+
+    // 경로 역추적을 위한 부모 노드 기록 (Key: 자식 위치, Value: 부모 위치)
+    // Parent[Next] = Current; -> Next 지점은 Current 지점에 의해 발견됨을 의미
+    map<Pos, Pos> Parent;
+
+    queue<Pos> q;
+    q.push(pos);
+    Discovered[pos.y][pos.x] = true;
+    Parent[pos] = pos; // 시작점의 부모는 자기 자신으로 설정하여 기점 표시
+
+    while (q.empty() == false)
+    {
+        pos = q.front();
+        q.pop();
+
+        // 목적지 도달 시 탐색 조기 종료
+        if (pos == dest)
+        {
+            break;
+        }
+
+        for (int32 dir = 0; dir < 4; dir++)
+        {
+            Pos nextPos = pos + Front[dir];
+
+            // 맵 경계 밖이거나 벽인 경우 탐색 제외
+            if (CanGo(nextPos) == false)
+            {
+                continue;
+            }
+
+            // 이미 예약된(발견된) 경로는 최단 거리가 보장되므로 무시
+            if (Discovered[nextPos.y][nextPos.x])
+            {
+                continue;
+            }
+
+            q.push(nextPos);
+            Discovered[nextPos.y][nextPos.x] = true;
+            Parent[nextPos] = pos; // 경로 기록
+        }
+    }
+
+    // 최종 경로 복원 (Backtracking)
+    Path.clear();
+    pos = dest;
+
+    while (true)
+    {
+        Path.push_back(pos);
+
+        // 시작점에 도달하면 역추적 종료
+        if (pos == Parent[pos])
+        {
+            break;
+        }
+
+        pos = Parent[pos];
+    }
+
+    // 목적지부터 수집된 경로를 시작점부터 순서대로 뒤집음
+    std::reverse(Path.begin(), Path.end());
+}
+```
+---
+
+## 2. 이론 정리 (Study Notes)
+
+### BFS 기반 최단 경로 탐색 원리
+* **너비 확장:** 시작 노드로부터 거리가 $d$인 모든 노드를 방문한 뒤 거리 $d+1$인 노드들을 방문함. 가중치가 없는 그래프에서 처음 발견된 경로는 반드시 최단 경로임을 보장
+* **경로 역추적 (Path Reconstruction):** 각 노드를 발견(Discover)하는 시점에 해당 노드를 큐에 넣은 '직전 노드'를 부모로 기록함. 목적지 도달 후 루트 노드까지 거슬러 올라가며 경로를 복원
+
+### 성능 분석 및 특징
+
+| 구분 | 인접 행렬 기반 (격자 맵) | 비고 |
+| :--- | :--- | :--- |
+| **시간 복잡도** | $O(V + E)$ | $V$: 격자 크기 ($N^2$), $E$: 4방향 간선 |
+| **공간 복잡도** | $O(V)$ | `Discovered` 배열 및 `Parent` 맵 저장 비용 |
+| **특징** | 최단 거리 보장 | 가중치가 1로 동일한 격자 환경에 최적화 |
+
+**최단 거리 수식:**
+목표 노드 $v$에 도달했을 때의 탐색 깊이는 다음과 같음
+$$dist(start, v) = \min \{ \text{edge count from start to } v \}$$
+
+* $dist(start, v)$: 시작점($start$)에서 목표점($v$)까지의 최단 거리를 의미
+* $\text{edge count}$: 시작점에서 목표점까지 가기 위해 거쳐야 하는 간선(길)의 개수
+* $\min \{ ... \}$: 가능한 여러 가지 경로 중에서 **그 값이 가장 작은 것(최솟값)**을 선택한다는 뜻
+
+
+**결론**: 시작점에서 목적지까지 갈 수 있는 여러 가지 방법 중, **가장 적은 칸수를 지나가는 방법**이 곧 최단 거리라는 말
+
+## 3. 종합 의견 (Review)
+
+### 핵심 요약 및 주의사항
+* **최단 경로의 전제 조건:** BFS는 모든 간선의 가중치가 동일할 때만 최단 경로를 보장함. 간선마다 비용이 다른 경우 다익스트라(Dijkstra) 또는 A* 알고리즘을 사용해야 함
+* **방문(Visited) vs 발견(Discovered):** 큐에 넣는 시점에 `Discovered` 체크를 수행하여 동일 노드가 큐에 중복 삽입되는 것을 방지하고 불필요한 연산을 막아야 함
+* **맵 활용:** `std::map`을 사용하여 부모 관계를 저장할 수 있으나 좌표가 정수형이고 범위가 명확하다면 2차원 배열 `Pos Parent[size][size]`를 사용하는 것이 성능상 더 유리
+
+### Tip
+* **std::reverse 필수:** 부모 노드를 추적하여 경로를 생성하면 `[목적지 -> ... -> 시작점]` 순서가 됨. 반드시 순서를 뒤집어주어야 실제 이동 로직에 적용 가능
+* **메모리 최적화:** 대규모 맵에서는 `std::map<Pos, Pos>`의 오버헤드가 클 수 있으므로 인덱스 연산을 통한 1차원 또는 2차원 배열 할당을 권장
+* **조기 종료:** 모든 맵을 탐색할 필요 없이 `pos == dest` 조건문을 통해 목적지를 찾는 즉시 `break` 하는 것이 실행 시간을 단축하는 핵심

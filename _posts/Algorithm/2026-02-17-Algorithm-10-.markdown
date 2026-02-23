@@ -1,0 +1,129 @@
+---
+layout: post
+title: '[Algorithm 10] 그래프(Graph) 탐색: DFS(Depth First Search)의 개념과 구현'
+date: 2026-02-17
+categories: [Dev, Algorithm]
+tags: [C++, Algorithm, Graph, DFS, Recursion]
+use_math: true
+---
+
+# [Algorithm] 그래프 깊이 우선 탐색 (DFS)
+
+그래프의 모든 정점을 방문하는 알고리즘 중 하나로, 한 방향으로 갈 수 있는 경로가 있는 한 최대한 깊게 탐색을 진행하다가 더 이상 갈 곳이 없으면 가장 마지막 갈림길로 돌아와 다른 경로를 탐색하는 방식
+
+
+
+## 1. 소스 코드 (Source Code)
+
+```cpp
+#include <iostream>
+#include <vector>
+
+using namespace std;
+
+// 그래프 구성을 위한 전역 변수 설정
+struct Vertex { };
+vector<Vertex> Vertices;
+vector<vector<int>> Adjacent; // 인접 행렬 또는 인접 리스트 정보를 담는 컨테이너
+vector<bool> Visited; // 정점 방문 여부를 체크하는 배열
+
+/**
+ * 그래프 데이터 생성 함수
+ * 인접 행렬(Adjacency Matrix) 방식을 사용하여 간선 정보를 기록
+ */
+void CreateGraph()
+{
+	Vertices.resize(6);
+
+	// 인접 행렬 방식: i에서 j로 가는 간선이 있으면 1, 없으면 0
+	Adjacent = vector<vector<int>>
+	{
+		{ 0, 1, 0, 1, 0, 0 }, // 0번 정점: 1, 3 연결
+		{ 1, 0, 1, 1, 0, 0 }, // 1번 정점: 0, 2, 3 연결
+		{ 0, 0, 0, 0, 0, 0 }, // 2번 정점: 고립
+		{ 0, 0, 0, 0, 1, 0 }, // 3번 정점: 4 연결
+		{ 0, 0, 0, 0, 0, 0 }, // 4번 정점: 고립
+		{ 0, 0, 0, 0, 1, 0 }, // 5번 정점: 4 연결
+	};
+}
+
+/**
+ * DFS (Depth First Search) 핵심 로직
+ * 재귀 호출(Recursion)을 이용하여 깊이 있게 탐색을 수행
+ * @param here 현재 방문 중인 정점 번호
+ */
+void Dfs(int here)
+{
+	// 1) 현재 정점 방문 표시 및 로직 수행
+	Visited[here] = true;
+	cout << "Visited : " << here << endl;
+
+	// 2) 인접한 모든 정점을 순회하며 탐색
+	// 인접 행렬 버전: 모든 정점(6개)을 전수 조사
+	for (int there = 0; there < 6; there++)
+	{
+		// 연결되어 있지 않은 정점은 무시
+		if (Adjacent[here][there] == 0)
+		{
+			continue;
+		}
+
+		// 아직 방문하지 않은 정점이 있다면 해당 방향으로 깊게 진입
+		if (Visited[there] == false)
+		{
+			Dfs(there);
+		}
+	}
+}
+
+/**
+ * 그래프의 모든 정점을 탐색하기 위한 함수
+ * 끊어진 그래프(Disconnected Graph)의 경우에도 모든 노드 방문을 보장
+ */
+void DfsAll()
+{
+	Visited = vector<bool>(6, false);
+
+	// 모든 정점을 루프 돌며 방문하지 않은 곳을 시작점으로 DFS 수행
+	for (int i = 0; i < 6; i++)
+	{
+		if (Visited[i] == false)
+		{
+			Dfs(i);
+		}
+	}
+}
+
+int main()
+{
+	CreateGraph();
+	DfsAll();
+
+	return 0;
+}
+```
+## 2. 이론 정리 (Study Notes)
+
+### DFS의 특징 및 동작 원리
+* **스택(Stack) 구조 활용**: 재귀 함수 호출을 통해 암시적인 스택(System Stack)을 사용하여 Backtracking을 구현
+* **탐색 순서**: 한 노드에서 연결된 경로를 끝까지 타고 내려갔다가, 더 이상 갈 곳이 없으면 직전 갈림길로 복귀
+
+
+
+### 구현 방식에 따른 시간 복잡도
+| 방식 | 시간 복잡도 | 비고 |
+| :--- | :--- | :--- |
+| **인접 행렬 (Adjacency Matrix)** | $O(V^2)$ | 모든 정점에 대해 전체 정점을 검사해야 함 |
+| **인접 리스트 (Adjacency List)** | $O(V + E)$ | 실제 연결된 간선만 검사하므로 일반적으로 더 효율적임 |
+
+> $V$: 정점(Vertex)의 수, $E$: 간선(Edge)의 수
+
+## 3. 종합 의견 (Review)
+
+### 핵심 요약 및 주의사항
+* **방문 체크(Visited) 필수**: 그래프에 사이클(Cycle)이 존재할 경우, 방문 체크를 하지 않으면 무한 루프에 빠져 스택 오버플로우가 발생할 수 있음
+* **고립된 정점 처리**: 그래프가 하나로 연결되어 있지 않고 여러 부분으로 쪼개져 있는 경우, 단순히 `Dfs(0)`만으로는 모든 정점을 방문할 수 없으므로 `DfsAll()` 처럼 모든 정점을 검사하는 과정이 필요
+
+### Tip
+* **재귀 vs 스택**: 코테나 실무에서 깊이가 너무 깊어지는 그래프(수만 개 이상의 노드)를 다룰 때는 재귀 대신 `std::stack`을 이용한 반복문 형태의 DFS를 사용하는 것이 안전
+* **적용 분야**: 미로 찾기, 사이클 검사, 위상 정렬(Topological Sort) 등에 주로 활용
