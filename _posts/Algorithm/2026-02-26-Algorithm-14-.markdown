@@ -1,0 +1,160 @@
+---
+layout: post
+title: '[Algorithm 14] 트리(Tree) 자료구조의 개념 및 기본 구현'
+date: 2026-02-26
+categories: [Dev, DataStructure, C++]
+tags: [C++, Tree, DataStructure, Recursion, shared_ptr]
+use_math: true
+---
+
+# [Algorithm] 트리(Tree) 자료구조 기초 구현 및 분석
+
+계층적 데이터를 표현하는 트리(Tree) 자료구조의 기본 개념을 이해하고, C++ `shared_ptr`을 활용한 노드 구성 및 순회 알고리즘을 구현
+
+## 1. 소스 코드 (Source Code)
+
+```cpp
+#include <iostream>
+#include <vector>
+#include <string>
+#include <memory>
+using namespace std;
+
+// 스마트 포인터를 활용한 노드 참조 타입 정의 (메모리 누수 방지)
+using NodeRef = shared_ptr<struct Node>;
+
+// 트리의 기본 단위인 노드(Node) 구조체 정의
+struct Node
+{
+    Node() {}
+    Node(const string& data) : data(data) {}
+
+    string data;
+    // N-ary 트리를 구성하기 위한 자식 노드 컨테이너
+    vector<NodeRef> children;
+};
+
+// 트리 생성 및 초기화 함수
+NodeRef CreateTree()
+{
+    // 루트 노드 생성
+    NodeRef root = make_shared<Node>("1");
+
+    // 디자인팀 서브트리(Subtree) 구성
+    {
+        NodeRef node = make_shared<Node>("2");
+        root->children.push_back(node);
+        node->children.push_back(make_shared<Node>("5"));
+        node->children.push_back(make_shared<Node>("6"));
+        node->children.push_back(make_shared<Node>("7"));
+    }
+
+    // 프로그래밍팀 서브트리 구성
+    {
+        NodeRef node = make_shared<Node>("3");
+        root->children.push_back(node);
+        node->children.push_back(make_shared<Node>("8"));
+        node->children.push_back(make_shared<Node>("9"));
+        node->children.push_back(make_shared<Node>("10"));
+    }
+
+    // 아트팀 서브트리 구성
+    {
+        NodeRef node = make_shared<Node>("4");
+        root->children.push_back(node);
+        node->children.push_back(make_shared<Node>("11"));
+        node->children.push_back(make_shared<Node>("12"));
+    }
+
+    return root;
+}
+
+// 전위 순회(Preorder Traversal) 방식을 응용한 트리 구조 출력 함수
+void PrintTree(NodeRef root, int depth)
+{
+    // 트리의 깊이(Depth)에 비례하여 들여쓰기 수행
+    for (int i = 0; i < depth; i++)
+    {
+        cout << "-";
+    }
+
+    cout << root->data << endl;
+
+    // 자식 노드들을 재귀적으로 순회하며 깊이 증가
+    for (NodeRef& child : root->children)
+    {
+        PrintTree(child, depth + 1);
+    }
+}
+
+// 트리의 최대 높이(Height)를 계산하는 재귀 함수
+int GetHeight(NodeRef root)
+{
+    int height = 1;
+
+    // 모든 자식 노드를 순회하며 가장 깊은 서브트리의 높이를 산출
+    for (NodeRef& child : root->children)
+    {
+        height = max(height, GetHeight(child) + 1);
+    }
+
+    return height;
+}
+
+int main()
+{
+    // 트리 초기화
+    NodeRef root = CreateTree();
+
+    // 루트부터 탐색하며 계층 구조 출력
+    PrintTree(root, 0);
+
+    // 트리의 높이 계산 및 출력
+    int height = GetHeight(root);
+    cout << "Tree Height : " << height << endl;
+
+    return 0;
+}
+```
+---
+## 2. 이론 정리 (Study Notes)
+
+
+
+[Image of Tree Data Structure]
+
+
+트리(Tree)는 노드(Node)와 간선(Edge)으로 이루어진 비순환형 그래프(Acyclic Graph)의 일종으로, 데이터의 계층적 구조를 표현하는 데 특화된 자료구조
+
+### 트리 주요 용어 및 구성 요소
+
+| 용어 | 설명 | 비고 |
+| :--- | :--- | :--- |
+| **노드 (Node)** | 트리를 구성하는 기본 데이터 요소 | 루트, 리프, 내부 노드 등으로 구분됨 |
+| **간선 (Edge)** | 노드와 노드를 연결하는 선 | 계층 관계(부모-자식)를 표현함 |
+| **루트 (Root)** | 트리 구조의 최상위에 위치한 단일 노드 | 트리 탐색의 진입점 역할을 수행함 |
+| **리프 (Leaf)** | 자식 노드가 없는 최하단의 단말 노드 | 터미널(Terminal) 노드라고도 불림 |
+| **깊이 (Depth)** | 루트에서 특정 노드까지 도달하기 위해 거치는 간선의 수 | 루트 노드의 깊이는 0 또는 1로 정의됨 |
+| **높이 (Height)** | 가장 깊숙히 있는 노드의 깊이 | 트리의 최대 깊이를 의미함 |
+| **서브트리 (Subtree)** | 트리의 특정 노드와 그 자손들로 이루어진 부분 트리 | 트리의 재귀적 속성을 명확히 보여줌 |
+
+### 트리의 높이(Height) 산출 수식
+
+트리가 갖는 재귀적 속성을 활용하여, 특정 노드 $v$의 높이를 다음과 같은 수식으로 정의
+
+$$Height(v) = 1 + \max_{u \in children(v)} Height(u)$$
+
+자식 노드가 없는 리프 노드에 도달할 경우 하위 서브트리의 높이가 0이 되므로, 재귀 호출을 통해 최종적인 트리의 최대 높이가 산출
+
+## 3. 종합 의견 (Review)
+
+### 핵심 요약 및 주의사항
+
+* 트리는 본질적으로 재귀적인(Recursive) 속성을 띄므로, 구조 순회나 탐색 로직 작성 시 재귀 함수를 활용하는 것이 직관적이고 구현이 용이함
+* 트리 구조에서 자식 노드가 부모 노드를 가리키는 포인터가 추가로 필요한 경우, 양방향 모두 `shared_ptr`을 사용하면 순환 참조(Circular Reference)로 인한 메모리 누수가 발생하므로 부모 참조에는 반드시 `weak_ptr`을 사용
+* 단순 데이터 계층화뿐만 아니라 이진 탐색 트리(BST), 힙(Heap), 트라이(Trie) 등 다양한 고도화된 자료구조를 파생시키는 핵심 기반 지식
+
+### Tip
+
+* 동적 할당된 노드들의 메모리 생명주기를 안전하게 관리하기 위해 원시 포인터(`Node*`) 대신 스마트 포인터(`std::shared_ptr`)를 사용하는 것이 모던 C++의 권장 방식
+* 트리의 깊이가 비정상적으로 깊어지는 편향 트리(Skewed Tree) 환경에서는 재귀 호출 방식이 스택 오버플로우(Stack Overflow)를 유발할 수 있으므로, 실무에서는 스택(Stack)이나 큐(Queue)를 결합한 반복문 형태의 순회 방식도 적극적으로 고려

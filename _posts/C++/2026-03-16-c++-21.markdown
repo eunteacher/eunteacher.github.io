@@ -1,0 +1,208 @@
+---
+layout: post
+title: '[C++ 21] Text RPG 실습을 통한 절차지향 프로그래밍의 이해'
+date: 2026-03-02
+categories: [Dev, C++]
+tags: [C++, GameDev, ProceduralProgramming, RPG, Logic]
+use_math: true
+---
+
+# [C++] 기초 문법을 활용한 텍스트 기반 RPG 구현
+
+함수와 조건문, 반복문을 활용하여 플레이어의 직업 선택, 필드 조우, 전투 로직을 포함한 기초적인 Text RPG 프레임워크를 구축함
+
+## 1. 소스 코드 (Source Code)
+
+```cpp
+#include <iostream>
+#include <time.h>
+using namespace std;
+
+/**
+ * [전역 변수 선언]
+ * - 플레이어와 몬스터의 상태를 저장하기 위해 전역 데이터 영역에 할당함
+ * - 프로그램 전체에서 접근 가능하도록 설계함
+ */
+int hp = 0;
+int att = 0;
+int def = 0;
+
+int m_hp = 0;
+int m_att = 0;
+int m_def = 0;
+
+/**
+ * @brief 로비 입장 및 캐릭터 생성 함수
+ * - 사용자 입력에 따라 전역 변수(HP, ATT, DEF)를 초기화함
+ */
+void JoinLobby()
+{
+	cout << "------로비에 입장------" << endl;
+	cout << "직업 선택 (1)기사 (2)궁수 (3)마법사" << endl;
+	cout << ">";
+
+	int Input;
+
+	while (true)
+	{
+		cin >> Input;
+
+		switch (Input)
+		{
+		case 1:
+			cout << "기사 생성중.." << endl;
+			hp = 100; att = 20; def = 15;
+			break;
+		case 2:
+			cout << "궁수 생성중.." << endl;
+			hp = 75; att = 25; def = 10;
+			break;
+		case 3:
+			cout << "마법사 생성중.." << endl;
+			hp = 50; att = 30; def = 5;
+			break;
+		default:
+			cout << "잘못된 입력임 다시 선택해주세요" << endl;
+			cout << ">";
+			break;
+		}
+
+		if (Input >= 1 && Input < 4) break;
+	}
+}
+
+/**
+ * @brief 필드 입장 및 몬스터 스폰 함수
+ * - rand() 함수를 활용하여 1~3 사이의 난수를 발생시켜 무작위 몬스터를 생성함
+ */
+void JoinField()
+{
+	cout << "----------------------" << endl;
+	cout << "필드에 입장했습니다" << endl;
+	cout << "[Player] HP: " << hp << " ATT: " << att << " DEF: " << def << endl;
+
+	int random = (rand() % 3) + 1; // 1: 해골, 2: 슬라임, 3: 오크
+	switch (random)
+	{
+	case 1:
+		m_hp = 50; m_att = 20; m_def = 10;
+		cout << "해골 출현! (HP: 50)" << endl;
+		break;
+	case 2:
+		m_hp = 30; m_att = 25; m_def = 5;
+		cout << "슬라임 출현! (HP: 30)" << endl;
+		break;
+	case 3:
+		m_hp = 60; m_att = 30; m_def = 5;
+		cout << "오크 출현! (HP: 60)" << endl;
+		break;
+	}
+}
+
+/**
+ * @brief 전투 로직 처리 함수
+ * @return 0: 승리, 1: 패배
+ * - 플레이어 선공 기반의 턴제 전투를 시뮬레이션함
+ */
+int JoinBattle()
+{
+	while (true)
+	{
+		// 플레이어 공격
+		int damage = att - m_def;
+		if (damage < 0) damage = 0;
+		m_hp -= damage;
+
+		if (m_hp <= 0)
+		{
+			cout << "전투 승리!" << endl;
+			return 0;
+		}
+
+		// 적 공격
+		damage = m_att - def;
+		if (damage < 0) damage = 0;
+		hp -= damage;
+
+		if (hp <= 0)
+		{
+			cout << "플레이어 사망.." << endl;
+			return 1;
+		}
+
+		cout << "적 HP: " << m_hp << " | 나의 HP: " << hp << endl;
+	}
+}
+
+int main()
+{
+	// 난수 시드 초기화
+	srand((unsigned int)time(NULL));
+
+	bool IsRestart = true;
+
+	while (true)
+	{
+		if (IsRestart)
+		{
+			JoinLobby();
+			IsRestart = false;
+		}
+
+		JoinField();
+
+		cout << "1) 전투 2) 도주" << endl;
+		int select;
+		cin >> select;
+
+		if (select == 1)
+		{
+			int result = JoinBattle();
+			if (result == 0) continue; // 다음 몬스터 조우
+			if (result == 1)
+			{
+				IsRestart = true; // 게임 재시작
+				continue;
+			}
+		}
+		else
+		{
+			cout << "게임을 종료함" << endl;
+			break;
+		}
+	}
+	return 0;
+}
+```
+---
+
+## 2. 이론 정리 (Study Notes)
+
+### 2.1 전투 데미지 계산 메커니즘
+본 실습에서는 공격력에서 방어력을 차감하는 단순 감산식을 사용
+
+$$Damage = \text{max}(0, \text{Attacker.Att} - \text{Defender.Def})$$
+
+| 요소 | 설명 |
+| :--- | :--- |
+| **공격력 (ATT)** | 타격 시 상대에게 가하는 기본 위력임 |
+| **방어력 (DEF)** | 상대의 공격력을 상쇄하여 피해를 줄이는 수치임 |
+| **체력 (HP)** | 0 이하가 될 경우 객체의 사망(프로그램 종료/재시작)을 판정함 |
+
+### 2.2 사용된 주요 프로그래밍 개념
+* **전역 변수 (Global Variables):** `hp`, `att` 등 함수의 외부에서 선언되어 프로그램 종료 시까지 메모리(Data 영역)에 유지
+* **난수 생성 (Random Numbers):** `srand(time(NULL))`를 통해 매 실행마다 다른 시드값을 부여하고 `rand() % N`으로 범위 내 난수를 생성
+* **제어 흐름 (Control Flow):** `while(true)` 무한 루프 내에서 `continue`와 `break`를 사용하여 게임의 상태(로비, 필드, 전투)를 전이시킴
+
+---
+
+## 3. 종합 의견 (Review)
+
+### 핵심 요약 및 주의사항
+* **입력 예외 처리:** `cin` 입력 시 숫자 이외의 문자가 들어오거나 범위를 벗어난 값에 대한 무한 루프 방지 로직이 필요
+* **전역 변수 오염:** 전역 변수는 관리가 용이하나 규모가 커질 경우 의도치 않은 값 변경으로 인한 버그 발생 위험이 큼
+* **데미지 공식의 한계:** 방어력이 공격력보다 높을 경우 체력이 회복되는 현상을 방지하기 위해 0 이하 방어 처리가 필수
+
+### Tip
+* **구조체(struct) 활용:** 현재 개별 전역 변수로 관리되는 `hp`, `att`, `def`를 `Stat` 구조체로 묶으면 데이터를 훨씬 체계적으로 관리할 수 있음
+* **모듈화:** `JoinBattle()`의 반환값을 `enum`으로 정의하면 0, 1과 같은 매직 넘버 대신 `VICTORY`, `DEFEAT` 등 명확한 의미 전달이 가능

@@ -1,0 +1,119 @@
+---
+layout: post
+title: '[C++ 20] 함수 오버로딩, 기본 매개변수 및 재귀함수의 이해'
+date: 2026-02-26
+categories: [Dev, C++]
+tags: [C++, Function, Overloading, Recursion, StackOverflow]
+use_math: true
+---
+
+# [C++] 함수 심화: 오버로딩, 디폴트 매개변수, 재귀와 스택 메모리
+
+다양한 조건의 함수 정의 기법(오버로딩, 기본값)을 알아보고, 재귀 호출 시 발생하는 메모리 스택 구조의 특성과 오버플로우 현상을 분석
+
+## 1. 소스 코드 (Source Code)
+
+```cpp
+#include <iostream>
+using namespace std;
+
+// 1. 함수 오버로딩 (Function Overloading)
+// - 동일한 이름의 함수를 매개변수 타입이나 개수를 다르게 하여 중복 정의함
+// - 반환 형식(Return Type)만 다를 경우에는 오버로딩이 불가능함
+int Add(int a, int b)
+{
+    return a + b;
+}
+
+float Add(float a, float b)
+{
+    return a + b;
+}
+
+// 2. 기본 매개변수 (Default Parameter)
+// - 매개변수에 기본값을 지정하면 호출 시 생략이 가능함
+// - 조심해야 할 점은 기본값 지정은 항상 오른쪽(마지막) 매개변수부터 순차적으로 이루어져야 함
+void SetPlayerInformation(int hp, int mp, int power = 10, int guildId = 0)
+{
+    // 로직 수행 생략
+}
+
+// 3. 재귀 함수 (Recursive Function)와 스택 오버플로우
+// - 함수 내부에서 자기 자신을 다시 호출하는 구조 (예: 팩토리얼 연산)
+// - n! = n * (n - 1)!
+int Factorial(int n)
+{
+    // 명확한 탈출 조건(Base Case)이 없으면 무한 루프에 빠짐
+    if (n <= 1)
+    {
+        return 1;
+    }
+    return n * Factorial(n - 1);
+}
+
+int main()
+{
+    // [오버로딩 테스트]
+    // 매개변수 타입에 따라 적절한 함수가 자동 바인딩됨
+    int resultInt = Add(1, 2);
+    cout << "정수 덧셈: " << resultInt << endl;
+
+    float resultFloat = Add(1.5f, 2.1f);
+    cout << "실수 덧셈: " << resultFloat << endl;
+
+    // [기본 매개변수 테스트]
+    // power와 guildId는 지정된 기본값(10, 0)으로 자동 대입됨
+    SetPlayerInformation(100, 40);
+
+    // [재귀 함수 테스트]
+    int factor = Factorial(5);
+    cout << "5! 결과: " << factor << endl;
+
+    // [스택 오버플로우 유발 예시]
+    // 너무 큰 값을 넣으면 함수가 과도하게 호출되어 스택 메모리가 가득 차서 터짐
+    // Factorial(100000000);
+
+    return 0;
+}
+```
+---
+## 2. 이론 정리 (Study Notes)
+
+
+
+### 함수 오버로딩 (Function Overloading) 성립 조건
+
+함수의 이름이 같더라도 매개변수의 시그니처가 다르면 다른 함수로 취급하여 컴파일러가 알아서 분기 처리
+
+| 조건 | 오버로딩 가능 여부 | 비고 |
+| :--- | :--- | :--- |
+| **매개변수 개수가 다름** | 가능 | `Add(int a)`, `Add(int a, int b)` |
+| **매개변수 타입이 다름** | 가능 | `Add(int a, int b)`, `Add(float a, float b)` |
+| **반환 타입만 다름** | 불가능 | 컴파일 에러 발생 (호출 시 모호함) |
+
+### 기본 매개변수 (Default Parameter) 규칙
+
+기본값을 설정할 때는 반드시 매개변수 목록의 가장 오른쪽 끝에서부터 왼쪽으로 채워나가야 하고,
+이는 함수 호출 시 전달되는 인자가 왼쪽에서 오른쪽으로 순서대로 매핑되기 때문임
+
+
+
+### 재귀 함수와 스택 오버플로우 (Stack Overflow)
+
+* 팩토리얼과 같은 재귀적 연산을 구현할 때 유용하며 수학적 점화식을 그대로 코드로 옮길 수 있음
+  $$n! = n \times (n - 1)!$$
+* 함수가 호출될 때 메모리의 스택(Stack) 영역에 스택 프레임(Stack Frame)이 독립적인 공간으로 할당
+* 재귀 함수(Recursive Function)를 구현할 때 명확한 탈출 조건(Base Case)이 없거나 호출 깊이가 너무 깊으면, 스택 프레임이 무한히 쌓여 스택 메모리 한계를 초과하는 스택 오버플로우(Stack Overflow) 에러가 발생
+
+## 3. 종합 의견 (Review)
+
+### 핵심 요약 및 주의사항
+
+* **기본 매개변수 선언 위치**: 기본 매개변수는 함수의 원형(선언부)과 구현부(정의부) 중 한 곳에만 지정해야 하며, 보통 헤더 파일의 선언부에 작성하는 것이 관례
+* **오버로딩 모호성**: 정수와 실수를 오버로딩할 때, 리터럴 값에 접미사(`f`)를 붙이지 않으면 컴파일러가 형변환 우선순위를 판단하지 못해 모호성 에러가 발생할 수 있음
+* **탈출 조건 필수**: 재귀 함수 설계 시 무한 루프를 막기 위한 기저 조건(Base Case)을 함수 최상단에 배치
+
+### Tip
+
+* 실무에서 반복 횟수가 매우 큰 로직을 처리할 때는 스택 오버플로우 위험이 있는 재귀 함수보다는 `for`나 `while`을 이용한 반복문(Iteration)으로 대체하는 것이 성능과 안정성 측면에서 압도적으로 유리
+* 매개변수가 많은 함수의 경우, 기본 매개변수를 무분별하게 사용하기보다는 구조체(Struct)나 클래스(Class)로 연관된 데이터를 묶어서 전달하는 것이 가독성을 높이는 방법
