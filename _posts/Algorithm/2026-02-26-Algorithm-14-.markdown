@@ -2,7 +2,7 @@
 layout: post
 title: '[Algorithm 14] 트리(Tree) 자료구조의 개념 및 기본 구현'
 date: 2026-02-26
-categories: [Dev, DataStructure, C++]
+categories: [Dev, Algorithm]
 tags: [C++, Tree, DataStructure, Recursion, shared_ptr]
 use_math: true
 ---

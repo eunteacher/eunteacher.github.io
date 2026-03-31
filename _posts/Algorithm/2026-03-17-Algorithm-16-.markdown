@@ -1,0 +1,191 @@
+---
+layout: post
+title: '[Algorithm 16] 우선순위 큐(Priority Queue)와 힙(Heap)의 구현 및 분석'
+date: 2026-03-17
+categories: [Dev, Algorithm]
+tags: [C++, Algorithm, DataStructure, Heap, PriorityQueue]
+use_math: true
+---
+
+# [Algorithm] 우선순위 큐(Priority Queue)와 힙(Heap) 트리 구현
+
+완전 이진 트리 기반의 힙(Heap) 구조를 활용하여 우선순위에 따라 데이터를 관리하는 커스텀 우선순위 큐 구현 및 원리 분석
+
+## 1. 소스 코드 (Source Code)
+
+```cpp
+#include <iostream>
+#include <vector>
+#include <list>
+#include <stack>
+#include <queue>
+using namespace std;
+
+/**
+ * 템플릿 기반 커스텀 우선순위 큐 클래스
+ * @tparam T 데이터 타입
+ * @tparam Container 내부 저장소 컨테이너 (기본값: vector)
+ * @tparam Predicate 비교 연산자 (기본값: less, 최대 힙 구성)
+ */
+template<typename T, typename Container = vector<T>, typename Predicate = less<T>>
+class PriorityQueue
+{
+public:
+	/**
+	 * 새로운 데이터를 힙에 삽입
+	 * 상향식 힙화(Up-heap) 과정을 통해 부모-자식 간의 우선순위 유지
+	 */
+	void push(const T& data)
+	{
+		// 1) 완전 이진 트리의 속성을 유지하기 위해 가장 마지막 위치에 추가
+		Heap.push_back(data);
+
+		// 2) 부모 노드와 비교하며 위치를 조정하는 상향식 갱신 시작
+		int now = static_cast<int>(Heap.size()) - 1;
+
+		while (now > 0)
+		{
+			// 부모 노드의 인덱스 산출: (index - 1) / 2
+			int next = (now - 1) / 2;
+
+			// 설정된 비교 조건(Predicate)에 부합하지 않으면 위치 확정 후 종료
+			if (Predicate(Heap[now], Heap[next]))
+			{
+				break;
+			}
+
+			// 부모와 현재 노드의 데이터 교체
+			::swap(Heap[now], Heap[next]);
+			now = next;
+		}
+	}
+
+	/**
+	 * 우선순위가 가장 높은 데이터(루트 노드)를 삭제
+	 * 하향식 힙화(Down-heap) 과정을 통해 힙 구조 재정렬
+	 */
+	void pop()
+	{
+		// 1) 루트 노드에 가장 마지막 데이터 복사 후 마지막 요소 제거
+		Heap[0] = Heap.back();
+		Heap.pop_back();
+
+		int now = 0;
+
+		// 2) 자식 노드들과 비교하며 아래로 이동하는 하향식 갱신 수행
+		while (true)
+		{
+			int left = 2 * now + 1;
+			int right = 2 * now + 2;
+
+			// 왼쪽 자식이 없는 경우 리프 노드에 도달한 것이므로 종료
+			if (left >= (int)Heap.size())
+			{
+				break;
+			}
+
+			int next = now;
+
+			// 왼쪽 자식과 우선순위 비교
+			if (Predicate(Heap[next], Heap[left]))
+			{
+				next = left;
+			}
+
+			// 오른쪽 자식이 존재하고, 현재까지 선택된 후보보다 우선순위가 높으면 교체
+			if (right < (int)Heap.size() && Predicate(Heap[next], Heap[right]))
+			{
+				next = right;
+			}
+
+			// 자식 노드들보다 현재 노드의 우선순위가 높으면 갱신 종료
+			if (next == now)
+			{
+				break;
+			}
+
+			::swap(Heap[now], Heap[next]);
+			now = next;
+		}
+	}
+
+	// 힙의 최상단(루트) 데이터 반환
+	T& top()
+	{
+		return Heap[0];
+	}
+
+	// 비어있는지 확인
+	bool empty()
+	{
+		return Heap.empty();
+	}
+
+private:
+	Container Heap = {};       // 데이터를 저장할 동적 배열
+	Predicate Predicate = {};   // 우선순위 결정 기준
+};
+
+
+int main()
+{
+	// greater<int>를 사용하여 최소값부터 출력되는 최소 힙(Min-Heap) 구성
+	PriorityQueue<int, vector<int>, greater<int>> pq;
+
+	pq.push(100);
+	pq.push(300);
+	pq.push(200);
+	pq.push(500);
+	pq.push(400);
+
+	// 힙 정렬 원리에 따라 오름차순으로 데이터 출력
+	while (pq.empty() == false)
+	{
+		int value = pq.top();
+		pq.pop();
+
+		cout << value << endl;
+	}
+
+	return 0;
+}
+```
+---
+## 2. 이론 정리 (Study Notes)
+
+### 우선순위 큐(Priority Queue)와 힙(Heap)의 관계
+* **추상 자료구조(ADT)**: 데이터를 삽입한 순서에 상관없이 우선순위가 높은 요소가 먼저 나가는 논리적 구조임
+* **힙(Heap) 트리**: 우선순위 큐를 가장 효율적으로 구현하기 위해 고안된 완전 이진 트리 기반의 자료구조임
+* **특징**: 노드의 삽입과 삭제가 빈번한 환경에서 성능 우위를 가짐
+
+
+### 힙의 주요 성능 지표
+
+| 작업 구분 | 시간 복잡도 | 비고 |
+| :--- | :--- | :--- |
+| **삽입 (Push)** | $O(\log N)$ | 트리의 깊이만큼 상향식 비교(Up-heap) 수행 |
+| **삭제 (Pop)** | $O(\log N)$ | 루트 교체 후 하향식 재정렬(Down-heap) 수행 |
+| **최상단 확인 (Top)** | $O(1)$ | 루트 노드에 직접 접근하여 즉시 반환 |
+| **공간 복잡도** | $O(N)$ | 연속된 메모리(배열)를 사용하여 데이터 저장 |
+
+### 배열 기반 인덱스 계산 공식
+별도의 포인터 없이 배열 인덱스 산술만으로 부모와 자식 노드 간의 이동이 가능함
+
+* **현재 인덱스가 $i$인 경우**:
+  * **부모 노드 인덱스**: $Parent(i) = \lfloor (i - 1) / 2 \rfloor$
+  * **왼쪽 자식 인덱스**: $LeftChild(i) = 2i + 1$
+  * **오른쪽 자식 인덱스**: $RightChild(i) = 2i + 2$
+
+---
+
+## 3. 종합 의견 (Review)
+
+### 핵심 요약 및 주의사항
+* **완전 이진 트리 속성 유지**: 힙은 반드시 마지막 레벨까지 왼쪽부터 채워진 형태여야 함. 따라서 `pop` 연산 시 마지막 노드를 루트로 옮긴 뒤 재정렬하는 과정이 구조 유지의 핵심임
+* **비교 연산자(Predicate)의 활용**: `std::less`는 부모가 자식보다 작을 때 교체하여 **최대 힙(Max Heap)**을 구성하고, `std::greater`는 **최소 힙(Min Heap)**을 구성하게 됨
+* **데이터 안정성(Stability) 부재**: 힙은 형제 노드 간의 정렬 순서를 보장하지 않는 '느슨한 정렬' 상태임. 특정 데이터를 탐색하거나 순차 정렬이 필요한 경우에는 적합하지 않음
+
+### Tip
+* **std::priority_queue 적극 권장**: 실제 프로젝트에서는 직접 구현보다는 검증된 STL의 `std::priority_queue`를 사용하는 것이 안전하며, 다익스트라(Dijkstra) 등의 최단 경로 알고리즘에서 필수적으로 활용됨
+* **메모리 재할당 방지**: `vector` 기반으로 구현할 경우 `reserve()`를 통해 미리 메모리를 할당하면 삽입 시 발생하는 동적 할당 비용을 최적화할 수 있음
+* **커스텀 정렬 조건**: `Predicate`에 람다(Lambda) 식이나 구조체 연산자 오버로딩을 전달하여 거리 순, 비용 순 등 복잡한 우선순위 기준을 유연하게 설정 가능함

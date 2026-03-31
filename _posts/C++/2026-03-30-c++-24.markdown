@@ -1,0 +1,132 @@
+---
+layout: post
+title: '[C++ 24] 함수 매개변수 전달 방식: 값(Value), 주소(Address), 참조(Reference)'
+date: 2026-03-30
+categories: [Dev, C++]
+tags: [C++, Pointer, Reference, CallByValue, CallByReference, Memory]
+use_math: true
+---
+
+# [C++] 값, 주소, 참조 전달 방식과 메모리 최적화 원리
+
+함수 호출 시 인자를 전달하는 세 가지 주요 방식의 메모리 할당 차이와 포인터 및 참조자의 로우레벨 동작 원리를 분석
+
+## 1. 소스 코드 (Source Code)
+
+```cpp
+#include <iostream>
+using namespace std;
+
+// 데이터 크기가 큰 구조체 가정
+struct StatInfo
+{
+    int hp;      // 시작 주소 + 0
+    int attack;  // 시작 주소 + 4
+    int defence; // 시작 주소 + 8
+};
+
+// 1. 주소 전달 방식 (Call by Address)
+// - 매개변수로 포인터를 사용하여 원본 데이터의 주소값을 전달받음
+// - 복사 비용이 거의 발생하지 않으며 원본 데이터의 직접 수정이 가능함
+void CreateMonster(StatInfo* Info)
+{
+    Info->hp = 100;
+    Info->attack = 10;
+    Info->defence = 5;
+}
+
+// 2. 값 전달 방식 (Call by Value)
+// - 함수 호출 시 인자로 넘어온 데이터를 스택 메모리에 통째로 복사함
+// - 함수 내부에서 값을 변경해도 원본 데이터에는 영향을 주지 않음
+void CreateMonster(StatInfo Info)
+{
+    Info.hp = 100;
+    Info.attack = 10;
+    Info.defence = 5;
+}
+
+// [출력 함수] 값 전달
+// - StatInfo 구조체가 1000바이트라면 호출 시마다 1000바이트의 메모리 복사 비용 발생
+void PrintInfoByCopy(StatInfo Info)
+{
+    cout << "hp : " << Info.hp << '\n';
+}
+
+// [출력 함수] 주소 전달
+// - 아키텍처에 따라 4바이트 또는 8바이트의 주소값만 복사되므로 메모리 효율이 높음
+void PrintInfoByPtr(StatInfo* Info)
+{
+    cout << "hp : " << Info->hp << '\n';
+}
+
+// 3. 참조 전달 방식 (Call by Reference)
+// - C++에 도입된 기능으로 원본 변수에 새로운 별명(Alias)을 부여하여 접근함
+// - 로우레벨(어셈블리)에서는 포인터와 동일하게 작동하나 문법적으로 직관적이고 안전함
+void PrintInfobyRef(StatInfo& Info)
+{
+    cout << "hp : " << Info.hp << '\n';
+}
+
+int main()
+{
+    StatInfo Info;
+
+    // 주소 연산자(&)를 통해 원본 메모리의 시작 주소를 넘김
+    CreateMonster(&Info);
+
+    PrintInfoByCopy(Info);
+    PrintInfoByPtr(&Info);
+    PrintInfobyRef(Info);
+
+#pragma region 참조와 포인터의 비교
+    int number = 1;
+
+    // 포인터 방식: 주소를 저장하는 바구니를 생성하고 역참조(*)를 통해 원본 접근
+    int* ptr = &number;
+    *ptr = 2;
+
+    // 참조 방식: number라는 기존 메모리 공간에 ref라는 다른 이름을 부여
+    // 문법적으로 값 전달처럼 편리하게 사용하면서 주소 전달처럼 원본을 조작함
+    int& ref = number;
+    ref = 3;
+
+    cout << "최종 number 값: " << number << '\n';
+#pragma endregion
+
+    return 0;
+}
+```
+---
+## 2. 이론 정리 (Study Notes)
+
+매개변수 전달 방식은 함수의 안정성과 성능(오버헤드)을 결정짓는 핵심 요소
+
+### 매개변수 전달 방식 비교
+
+| 전달 방식 | 동작 원리 | 메모리 복사량 | 원본 수정 여부 | 특징 및 장단점 |
+| :--- | :--- | :--- | :--- | :--- |
+| **값 전달 (Value)** | 변수의 실제 값을 복사하여 전달 | 데이터 타입의 전체 크기 | 불가능 | 복사본을 사용하므로 원본 훼손의 위험이 없으나 구조체 등 대용량 데이터 전달 시 성능 저하가 심함 |
+| **주소 전달 (Address)** | 변수의 메모리 시작 주소를 전달 | 포인터 크기 (4B or 8B) | 가능 | 원본 제어가 가능하고 메모리 효율이 좋으나 널 포인터(`nullptr`) 참조 위험이 존재함 |
+| **참조 전달 (Reference)** | 변수에 또 다른 식별자(별명)를 부여 | 포인터 크기와 동일 | 가능 | 주소 전달의 성능적 이점과 값 전달의 문법적 편의성을 결합한 모던 C++의 표준 방식임 |
+
+### 메모리 할당 비용 비교 수식
+
+대형 구조체(예: $1000$바이트)를 매개변수로 넘길 때 발생하는 메모리 복사 비용은 다음과 같이 수식화할 수 있음
+
+* **값 전달의 복사 비용:**
+  $$Cost_{value} = \text{sizeof}(Object)$$
+* **주소 및 참조 전달의 복사 비용:**
+  $$Cost_{ptr/ref} = \frac{\text{System Bit Architecture}}{8} \text{ (bytes)}$$
+
+따라서 데이터 크기가 커질수록 $Cost_{value}$는 선형적으로 증가하지만 $Cost_{ptr/ref}$는 항상 $O(1)$의 고정 비용을 가짐
+
+## 3. 종합 의견 (Review)
+
+### 핵심 요약 및 주의사항
+* **참조자의 선언과 초기화:** 포인터와 달리 참조자(`&`)는 선언과 동시에 반드시 유효한 변수로 초기화되어야 하며 중간에 참조 대상을 변경할 수 없음
+* **로우레벨의 본질:** 컴파일된 어셈블리 코드 관점에서는 포인터와 참조자가 완벽히 동일한 주소 참조 로직으로 동작함
+* **안전성 문제:** 포인터는 `nullptr` 검사가 누락될 경우 치명적인 런타임 에러를 유발할 수 있으나 참조자는 `NULL` 상태를 가질 수 없어 문법적으로 안전함
+
+### Tip
+* **읽기 전용 참조 (const Reference):** 큰 구조체를 넘길 때 복사 비용을 줄이고 싶지만 원본 데이터의 수정은 막고 싶다면 `const StatInfo& Info` 형태로 넘기는 것이 C++ 최적화의 기본 관행임
+* **포인터와 참조자의 선택 기준:** 소유권을 이전하거나 `nullptr` 상태가 논리적으로 필요한 경우(예: 아직 타겟팅할 몬스터가 없는 상태)에는 포인터를 사용하고 그 외의 일반적인 원본 조작 및 성능 최적화에는 참조자를 사용하는 것을 권장함
