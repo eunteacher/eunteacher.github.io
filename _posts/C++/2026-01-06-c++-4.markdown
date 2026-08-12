@@ -7,106 +7,286 @@ tags: [C++, 부동소수점]
 use_math : true
 ---
 
-# [C++] 실수형 데이터와 부동 소수점의 원리
+정수 타입은 일정한 범위 안의 정수를 정확하게 표현한다. 소수점이 있는 값이나 매우 큰 범위의 값을 표현할 때는 일반적으로 `float`와 `double` 같은 부동소수점 타입을 사용한다.
 
-소수점이 있는 숫자(실수)를 컴퓨터가 저장하는 방식인 **부동 소수점(Floating Point)**의 개념과 메모리 구조(IEEE 754), 그리고 정밀도 문제에 대해 정리
+부동소수점은 넓은 범위를 표현하는 대신 많은 실수를 정확한 값이 아닌 가장 가까운 표현값으로 저장한다. 이번 글에서는 IEEE 754 형식과 오차가 생기는 이유, 실수를 비교할 때 고려할 기준을 살펴본다.
 
----
+## `float`와 `double`
 
-## 1. 소스 코드 (Source Code)
+```cpp
+float attackSpeed = 1.25f;
+double elapsedTime = 123.125;
+```
 
-`float`와 `double`의 선언과, 실수가 메모리에 어떻게 비트 단위로 저장되는지 분석한 코드
+일반적인 Visual Studio 환경에서 `float`는 32비트, `double`은 64비트 IEEE 754 형식을 사용한다. 정확한 구현 특성은 `sizeof`와 `numeric_limits`로 확인할 수 있다.
 
 ```cpp
 #include <iostream>
-using namespace std;
+#include <limits>
+
+std::cout << sizeof(float) << '\n';
+std::cout << sizeof(double) << '\n';
+std::cout << std::numeric_limits<float>::is_iec559 << '\n';
+```
+
+실수 리터럴은 접미사가 없으면 `double` 타입이다.
+
+```cpp
+1.0      // double
+1.0f     // float
+1.0L     // long double
+```
+
+float 변수에 값을 넣으려는 의도라면 `f` 접미사를 붙여 불필요한 double 리터럴 변환을 피하고 타입을 분명히 나타낼 수 있다.
+
+## 부동소수점이 값을 표현하는 방식
+
+정규화된 이진 부동소수점 값은 개념적으로 다음 요소로 구성된다.
+
+$$
+Value = (-1)^{Sign} \times Significand \times 2^{Exponent}
+$$
+
+일반적인 IEEE 754 binary32와 binary64 형식은 부호, 지수, fraction 필드로 나뉜다.
+
+| 형식 | C++에서 흔한 타입 | 부호 | 지수 | Fraction | 정밀도 |
+| :--- | :--- | ---: | ---: | ---: | :--- |
+| binary32 | `float` | 1비트 | 8비트 | 23비트 | 약 6~9 유효 십진 자릿수 |
+| binary64 | `double` | 1비트 | 11비트 | 52비트 | 약 15~17 유효 십진 자릿수 |
+
+정규화된 값에서는 유효숫자 맨 앞의 1을 저장하지 않고 암묵적으로 사용하므로 실제 정밀도는 fraction 필드보다 한 비트 더 크다. 지수 필드가 모두 0이거나 모두 1인 경우에는 0, subnormal, 무한대, NaN 같은 특별한 값이 표현된다.
+
+## `-3.375f`는 정확히 표현할 수 있다
+
+10진수 `3.375`를 2진수로 바꾸면 다음과 같다.
+
+```text
+3     = 11₂
+0.375 = 0.011₂
+3.375 = 11.011₂
+```
+
+정규화하면:
+
+$$
+11.011_2 = 1.1011_2 \times 2^1
+$$
+
+binary32에서:
+
+- 부호: 음수이므로 1
+- 실제 지수: 1
+- 저장 지수: 1 + bias 127 = 128 = `10000000₂`
+- fraction: 선두 1 뒤의 `1011`과 나머지 0
+
+```text
+1 | 10000000 | 10110000000000000000000
+```
+
+`0.375`는 $3/8$이고 분모가 2의 거듭제곱이므로 이진수로 유한하게 표현된다. 따라서 `-3.375f`는 binary32에서 정확하게 표현할 수 있는 예다.
+
+## `0.1`은 왜 정확히 저장되지 않는가
+
+10진수의 `0.1`은 이진수로 표현하면 반복되는 무한 소수가 된다.
+
+```text
+0.1₁₀ = 0.00011001100110011...₂
+```
+
+float와 double은 유한한 비트만 저장할 수 있으므로 가장 가까운 표현 가능한 값으로 반올림한다.
+
+```cpp
+#include <iomanip>
+#include <iostream>
+
+double value = 0.1;
+std::cout << std::setprecision(17) << value << '\n';
+```
+
+일반적인 binary64 환경에서는 다음과 비슷한 값이 보인다.
+
+```text
+0.10000000000000001
+```
+
+“모든 실수는 부정확하다”는 뜻은 아니다. `0.5`, `0.25`, `3.375`처럼 이진수로 유한하게 표현할 수 있고 범위 안에 있는 값은 정확히 저장될 수 있다.
+
+## 연산할수록 오차가 드러날 수 있다
+
+각 입력이 반올림된 값이고 연산 결과도 다시 표현 가능한 값으로 반올림될 수 있다.
+
+```cpp
+double sum = 0.1 + 0.2;
+std::cout << std::setprecision(17) << sum << '\n';
+```
+
+결과는 정확한 0.3과 약간 다를 수 있다.
+
+```text
+0.30000000000000004
+```
+
+연산 순서도 결과에 영향을 줄 수 있다. 부동소수점 덧셈은 수학의 실수 덧셈과 달리 반올림 때문에 결합법칙이 항상 성립하지 않는다.
+
+```cpp
+double first = (a + b) + c;
+double second = a + (b + c);
+```
+
+값의 크기 차이가 크면 두 결과의 마지막 비트가 달라질 수 있다.
+
+## `==`가 항상 잘못된 것은 아니다
+
+다음 비교는 의도에 따라 올바를 수 있다.
+
+```cpp
+float value = 1.0f;
+bool exactlyOne = value == 1.0f;
+```
+
+`1.0f`는 정확하게 표현할 수 있고 value에 같은 값을 직접 대입했으므로 비교는 true다. 문제는 계산을 거친 근사값이 수학적으로 기대한 값과 정확히 같은 비트 표현일 것이라고 가정하는 경우다.
+
+```cpp
+double value = 0.1 + 0.2;
+bool equal = value == 0.3; // false일 수 있음
+```
+
+따라서 “실수에는 절대 `==`를 쓰지 않는다”보다 값이 어디서 왔고 정확한 일치가 실제 요구인지 판단해야 한다.
+
+## 절대 오차와 상대 오차
+
+근사 비교는 두 값의 차이가 허용 범위 안인지 확인한다.
+
+```cpp
+#include <cmath>
+
+bool NearlyEqual(double a, double b, double absoluteTolerance)
+{
+    return std::abs(a - b) <= absoluteTolerance;
+}
+```
+
+하지만 하나의 고정 epsilon은 값의 규모가 크게 달라질 때 적절하지 않을 수 있다. 큰 값에는 상대 오차를 함께 고려할 수 있다.
+
+```cpp
+#include <algorithm>
+#include <cmath>
+
+bool NearlyEqual(double a, double b,
+                 double absoluteTolerance,
+                 double relativeTolerance)
+{
+    double difference = std::abs(a - b);
+
+    if (difference <= absoluteTolerance)
+    {
+        return true;
+    }
+
+    double scale = std::max(std::abs(a), std::abs(b));
+    return difference <= scale * relativeTolerance;
+}
+```
+
+허용 오차는 무조건 `numeric_limits<T>::epsilon()`을 넣는 값이 아니다. 게임 좌표, 시간, 물리량 등 문제 영역에서 허용할 수 있는 실제 오차를 기준으로 정해야 한다.
+
+## `epsilon()`의 의미
+
+```cpp
+std::numeric_limits<float>::epsilon()
+```
+
+이는 일반적으로 1과 그다음 표현 가능한 float 값 사이의 차이를 나타낸다. 모든 크기의 값에 그대로 적용할 수 있는 만능 비교 허용치가 아니다.
+
+부동소수점 표현 간격은 값의 크기에 따라 변한다. 큰 수일수록 인접한 표현값 사이의 간격도 커질 수 있다.
+
+## 무한대와 NaN
+
+IEEE 754 형식은 일반 숫자 외에도 특별한 값을 표현할 수 있다.
+
+- 양의 무한대와 음의 무한대
+- NaN(Not a Number)
+- 양의 0과 음의 0
+- subnormal 값
+
+NaN은 자기 자신과도 같지 않다.
+
+```cpp
+#include <cmath>
+
+if (std::isnan(value))
+{
+    std::cout << "NaN입니다.\n";
+}
+```
+
+값이 유한한지 확인하려면 `std::isfinite`를 사용할 수 있다. 외부 입력이나 복잡한 수치 계산 결과를 사용할 때 유효성을 점검하는 데 도움이 된다.
+
+## `float`와 `double`을 선택하는 기준
+
+타입 선택을 “double이 항상 빠르다” 또는 “float가 항상 최적화된다”로 단정할 수 없다.
+
+- `float`: 메모리와 대역폭이 중요하고 요구 정밀도가 낮은 대규모 데이터에 유리할 수 있음
+- `double`: 더 넓은 정밀도가 필요한 누적 계산과 일반 수치 계산에 적합할 수 있음
+- GPU, SIMD, 플랫폼, 라이브러리에 따라 처리량 차이가 달라짐
+- 게임 엔진 API나 파일 포맷이 요구하는 타입과 맞춰야 변환을 줄일 수 있음
+
+좌표처럼 반복 연산이 누적되는 값은 오차 요구를 먼저 정하고 타입을 선택해야 한다. 실제 성능 차이는 대상 환경에서 측정해야 한다.
+
+## 전체 실습 코드
+
+```cpp
+#include <algorithm>
+#include <cmath>
+#include <iomanip>
+#include <iostream>
+#include <limits>
+
+bool NearlyEqual(double a, double b,
+                 double absoluteTolerance,
+                 double relativeTolerance)
+{
+    double difference = std::abs(a - b);
+
+    if (difference <= absoluteTolerance)
+    {
+        return true;
+    }
+
+    double scale = std::max(std::abs(a), std::abs(b));
+    return difference <= scale * relativeTolerance;
+}
 
 int main()
 {
-    // 실수형 데이터 타입
-    // 3.14, 23.123 등 소수점이 있는 숫자
-    float attackSpeed = 1.0f;       // 4바이트 (뒤에 f를 붙여 float임을 명시)
-    double dashSpeed = 123.123;     // 8바이트 (기본 실수형)
+    float exact = -3.375f;
+    double approximate = 0.1 + 0.2;
 
-    // 부동 소수점 원리
-    // 3.1415926535... 를 어떻게 저장할까?
-    // .을 유동적으로 움직여서 표현 (Floating Point)
-    // 3.141592... = 0.3141592... * 10^1 = 314.1592... * 10^-2
+    std::cout << "sizeof(float): " << sizeof(float) << '\n';
+    std::cout << "sizeof(double): " << sizeof(double) << '\n';
+    std::cout << "IEEE 754 float: "
+              << std::numeric_limits<float>::is_iec559 << '\n';
 
-    // 변환 실습: -3.375 저장하기
-    // 목표: -3.375를 컴퓨터가 저장하는 2진수(IEEE 754)로 변환
-    float Speed = -3.375f;
-
-    // 1단계) 2진수 변환
-    // 정수부: 3 -> 0b11
-    // 소수부: 0.375 -> 0.5(x) + 0.25(o) + 0.125(o) -> 0b0.011
-    // 합계: 0b11.011 (음수)
-
-    // 2단계) 정규화 (Normalization)
-    // 1.xxxx 형태가 되도록 소수점을 이동
-    // 0b1.1011 * 2^1
-
-    // 3단계) 메모리 비트 할당 (float 기준)
-    // - 부호(1bit): 음수이므로 1
-    // - 지수(8bit): 1(지수) + 127(Bias) = 128 -> 1000 0000
-    // - 유효숫자(23bit): 소수점 뒤 1011 -> 1011000... (나머지 0 채움)
-
-    // 예상 결과: 0b 1 10000000 10110000000000000000000
-
-    // 주의사항
-    // 실수는 '근사값'이다.
-    // 특히 수가 커질수록 오차 범위도 커짐
-    if (attackSpeed == 1.0f)
-    {
-        // 위험: 실수 2개를 등호(==)로 비교하는 것은 좋지 않음
-    }
+    std::cout << std::setprecision(17);
+    std::cout << "exact: " << exact << '\n';
+    std::cout << "0.1 + 0.2: " << approximate << '\n';
+    std::cout << "exact comparison: "
+              << (approximate == 0.3) << '\n';
+    std::cout << "near comparison: "
+              << NearlyEqual(approximate, 0.3, 1e-12, 1e-12) << '\n';
 
     return 0;
 }
 ```
 
----
-## 2. 이론 정리 (Study Notes)
+## 다음 학습: 문자와 인코딩
 
-### 1) 실수형 데이터 타입
-정수와 달리 소수점을 표현하기 위해 사용되는 타입
+- 일반적인 `float`와 `double`은 IEEE 754 이진 부동소수점 형식을 사용한다.
+- `3.375`처럼 이진수로 유한하게 표현되는 값은 정확히 저장될 수 있다.
+- `0.1`처럼 반복 이진 소수가 되는 값은 가장 가까운 표현값으로 반올림된다.
+- 계산을 거친 실수의 정확한 일치를 가정하면 문제가 생길 수 있다.
+- 근사 비교의 허용 오차는 값의 규모와 문제 영역을 고려해야 한다.
+- `numeric_limits<T>::epsilon()`은 모든 비교에 그대로 사용하는 만능 값이 아니다.
+- float와 double의 성능과 적합성은 대상 플랫폼과 데이터 요구에 따라 달라진다.
 
-* **float:** 4바이트 (32비트). 숫자 뒤에 `f`를 붙여서 초기화 (`3.14f`)
-* **double:** 8바이트 (64비트). C++의 기본 실수 타입. `float`보다 정밀도가 훨씬 높음
-
-### 2) 부동 소수점 (Floating Point)
-소수점이 고정되어 있지 않고 둥둥 떠다닌다(Float)는 의미. 숫자를 **가수(유효숫자)**와 **지수(크기)**로 나누어 표현하는 방식
-
-$$Value = (-1)^{Sign} \times 1.Mantissa \times 2^{Exponent-Bias}$$
-
-* **구조 (IEEE 754 표준):**
-  * **부호(Sign):** 양수(`0`) / 음수(`1`)
-  * **지수(Exponent):** 소수점의 위치. `Unsigned Byte`로 취급하며 **Bias(127)**을 더해서 저장
-  * **유효숫자(Mantissa):** 정규화된 소수점 아래 숫자들
-
-### 3) 저장 구조 비교 (32bit vs 64bit)
-
-| 타입 | 전체 크기 | 부호 | 지수 | 유효숫자 | Bias |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **float** | 32 bit | 1 bit | 8 bit | 23 bit | 127 |
-| **double** | 64 bit | 1 bit | 11 bit | 52 bit | 1023 |
-
-### 4) 변환 실습 상세 (-3.375)
-코드 주석에 있는 `-3.375`가 메모리에 저장되는 과정
-
-1.  **2진수 변환:** `3`(`11`) + `0.375`(`0.011`) = **`11.011`**
-2.  **정규화 (Normalization):** 가장 앞의 1 바로 뒤로 소수점 이동
-  * `1.1011` $\times$ $2^1$
-3.  **값 채우기:**
-  * **부호:** 음수니까 **1**
-  * **지수:** 실제 지수(`1`) + Bias(`127`) = `128` -> **1000 0000**
-  * **유효숫자:** 소수점 뒤 `1011`을 넣고 나머지는 0으로 채움 -> **1011000...**
-
----
-
-## 3. 종합 의견 (Review)
-
-* **실수는 근사값(Approximate):** 컴퓨터는 `0.1` 같은 숫자를 2진수로 완벽하게 표현할 수 없음 (무한 소수가 됨). 따라서 실수는 **정확한 값이 아닌 근사값**으로 저장됨을 명심해야 함
-* **비교 연산 주의:** 실수 두 개를 `==` 로 비교하는 것은 매우 위험. `attackSpeed == 1.0f`가 `false`가 나올 수도 있음
-  * **해결책:** 두 수의 차이가 아주 작은 값(**Epsilon**)보다 작은지로 판단해야 함 (`abs(a - b) < epsilon`)
-* **성능:** 과거에는 `float`가 빨랐으나, 최신 CPU는 `double` 연산에 최적화되어 있어 속도 차이가 미미함. 메모리가 부족한 게 아니라면 정밀도가 높은 `double` 사용을 권장하는 추세
+다음 글에서는 숫자 비트 패턴에 문자 의미를 부여하는 문자 집합과 UTF 인코딩을 살펴본다.

@@ -7,136 +7,481 @@ tags: [Assembly, Array, Addressing, Loop, Memory]
 use_math : true
 ---
 
-# [어셈블리] 배열 선언과 메모리 주소 접근 방식
+이전 글에서는 카운터를 증가시키며 같은 코드 블록을 반복했다. 이번에는 그 카운터를 배열 인덱스로 사용해 연속된 메모리를 순회한다.
 
-데이터의 묶음인 배열(Array)을 어셈블리에서 선언하는 방법과, 반복문을 통해 각 요소(Element)에 접근하는 주소 연산(`Base + Index * Scale`) 방식을 정리
+어셈블리에는 C++의 `array[i]`처럼 요소의 주소를 자동으로 계산해 주는 자료형 문법이 없다. 배열의 시작 주소, 요소 번호, 요소 크기를 이용해 접근할 메모리 주소를 직접 구성해야 한다.
 
----
+이번 글의 핵심은 **요소 인덱스와 바이트 오프셋을 구분하고, i번째 요소의 주소를 계산하는 방법**이다.
 
-## 1. 소스 코드 (Source Code)
+## 배열은 연속된 메모리다
 
-`db`와 `times`를 이용한 배열 선언, 그리고 반복문을 이용해 배열의 요소를 순회하는 두 가지 방법(주소 직접 가산 vs 인덱스 레지스터 활용)을 구현한 예제
+NASM에서는 데이터 정의 지시어 뒤에 값을 나열해 연속된 메모리를 만들 수 있다.
+
+```nasm
+section .data
+    byteArray db 1, 2, 3, 4, 5
+    wordArray dw 10, 20, 30, 40, 50
+```
+
+`byteArray`의 각 요소는 1바이트이고 `wordArray`의 각 요소는 2바이트다.
+
+```text
+byteArray
+주소    : +0  +1  +2  +3  +4
+요소    :  1   2   3   4   5
+인덱스  :  0   1   2   3   4
+
+wordArray (x86-64 리틀 엔디안)
+주소    : +0 +1 | +2 +3 | +4 +5 | +6 +7 | +8 +9
+바이트  : 0A 00 | 14 00 | 1E 00 | 28 00 | 32 00
+인덱스  :   0   |   1   |   2   |   3   |   4
+```
+
+바이트 배열에서는 인덱스가 1 증가할 때 주소도 1바이트 증가한다. 워드 배열에서는 다음 요소로 이동하려면 주소를 2바이트 증가시켜야 한다.
+
+## 배열 시작 주소와 첫 번째 값
+
+배열 레이블은 첫 번째 요소가 놓인 메모리 위치를 나타낸다.
+
+```nasm
+lea rsi, [rel byteArray]
+```
+
+이 명령을 실행하면 RSI에는 배열의 시작 주소가 들어간다. 첫 번째 요소의 값을 읽으려면 그 주소에 접근해야 한다.
+
+```nasm
+movzx eax, byte [rsi]
+```
+
+`byteArray`의 요소 크기는 1바이트이므로 메모리에서 1바이트만 읽은 뒤 EAX로 0 확장한다.
+
+다음 코드는 첫 번째 요소 하나를 읽는 코드가 아니다.
+
+```nasm
+mov rax, [byteArray]    ; byteArray 주소부터 8바이트 읽기
+```
+
+목적지가 RAX이므로 배열의 첫 요소를 포함해 총 8바이트를 읽는다. 배열 레이블이 `db`로 선언됐더라도 CPU가 자동으로 1바이트만 선택해 주지는 않는다.
+
+## 요소 인덱스와 바이트 오프셋
+
+배열을 순회할 때 사용하는 카운터는 두 가지 의미를 가질 수 있다.
+
+### 요소 인덱스
+
+요소 인덱스는 몇 번째 요소인지 나타낸다.
+
+```text
+0, 1, 2, 3, 4
+```
+
+워드 배열에서 인덱스 3의 주소를 계산하려면 요소 크기 2를 곱한다.
+
+```text
+주소 = 시작 주소 + 3 × 2
+     = 시작 주소 + 6바이트
+```
+
+### 바이트 오프셋
+
+바이트 오프셋은 시작 주소에서 실제로 몇 바이트 떨어졌는지 나타낸다.
+
+```text
+0, 2, 4, 6, 8
+```
+
+이미 바이트 단위의 거리이므로 주소식에서 요소 크기를 다시 곱하지 않는다.
+
+```nasm
+movzx edx, word [rsi + rcx]
+```
+
+같은 워드 배열을 순회하더라도 RCX가 `0, 1, 2, 3, 4`라면 요소 인덱스이고, `0, 2, 4, 6, 8`이라면 바이트 오프셋이다. 변수 이름이나 주석으로 의미를 분명히 구분해야 한다.
+
+## 유효 주소 계산식
+
+x86 메모리 피연산자는 다음 형태의 유효 주소(Effective Address)를 만들 수 있다.
+
+$$
+Address = Base + (Index \times Scale) + Displacement
+$$
+
+예를 들어 다음 주소식을 살펴본다.
+
+```nasm
+mov eax, [rsi + rcx * 4 + 8]
+```
+
+| 구성 요소 | 값 | 의미 |
+| :--- | :--- | :--- |
+| Base | RSI | 기준이 되는 시작 주소 |
+| Index | RCX | 요소 번호 등의 가변 인덱스 |
+| Scale | 4 | 인덱스 한 칸에 해당하는 바이트 크기 |
+| Displacement | 8 | 추가로 더하는 고정 바이트 거리 |
+
+배열에서 RSI가 시작 주소이고 각 요소가 4바이트라면 `RCX × 4`가 i번째 요소까지의 거리다. 마지막 `+8`은 배열 시작점에서 추가로 떨어진 위치나 구조체 내부 필드 오프셋처럼 고정된 위치를 나타낼 수 있다.
+
+이 주소 계산 방식은 배열 전용 문법이 아니다. 배열 요소, 구조체 필드, 스택 프레임의 지역 데이터 등 메모리 위치를 계산하는 여러 상황에서 사용된다.
+
+## Scale은 `1`, `2`, `4`, `8`만 가능하다
+
+x86 주소 지정 방식에서 하드웨어가 직접 지원하는 Scale은 네 가지다.
+
+```nasm
+[rsi + rcx * 1]
+[rsi + rcx * 2]
+[rsi + rcx * 4]
+[rsi + rcx * 8]
+```
+
+따라서 다음처럼 Scale 3을 직접 지정할 수는 없다.
+
+```nasm
+[rsi + rcx * 3]        ; 사용할 수 없는 주소식
+```
+
+요소 크기가 3바이트라면 인덱스에 3을 곱한 결과를 먼저 만들어야 한다.
+
+```nasm
+lea rdx, [rcx + rcx * 2]    ; RDX = RCX × 3
+mov al, [rsi + rdx]
+```
+
+또는 다음 요소로 이동할 때 포인터 자체를 3씩 증가시키는 방식을 사용할 수 있다.
+
+## 바이트 배열을 인덱스로 순회하기
+
+바이트 배열의 모든 요소를 더해 합계를 구한다.
+
+```nasm
+lea rsi, [rel byteArray]
+xor eax, eax                  ; EAX: 합계
+xor ecx, ecx                  ; RCX: 요소 인덱스
+
+BYTE_LOOP:
+    cmp ecx, BYTE_COUNT
+    jae BYTE_END
+
+    movzx edx, byte [rsi + rcx]
+    add eax, edx
+
+    inc ecx
+    jmp BYTE_LOOP
+
+BYTE_END:
+```
+
+각 요소가 1바이트이므로 인덱스와 바이트 오프셋이 같다. Scale 1은 생략할 수 있어 `[rsi + rcx]`로 표현한다.
+
+반복 종료 후 EAX에는 다음 합계가 남는다.
+
+```text
+1 + 2 + 3 + 4 + 5 = 15
+```
+
+배열 인덱스와 길이는 음수가 될 수 없는 값으로 다루고 있으므로 unsigned 조건인 `JAE`로 `index >= count`를 검사했다.
+
+## 워드 배열을 Scale로 순회하기
+
+워드 배열에서는 요소 인덱스에 2를 곱해 실제 바이트 거리를 만든다.
+
+```nasm
+lea rsi, [rel wordArray]
+xor eax, eax                  ; EAX: 합계
+xor ecx, ecx                  ; RCX: 요소 인덱스
+
+WORD_INDEX_LOOP:
+    cmp ecx, WORD_COUNT
+    jae WORD_INDEX_END
+
+    movzx edx, word [rsi + rcx * 2]
+    add eax, edx
+
+    inc ecx
+    jmp WORD_INDEX_LOOP
+
+WORD_INDEX_END:
+```
+
+RCX는 `0, 1, 2, 3, 4`로 증가하지만 실제 접근 주소는 다음처럼 2바이트씩 이동한다.
+
+```text
+index 0 → RSI + 0 × 2 → +0
+index 1 → RSI + 1 × 2 → +2
+index 2 → RSI + 2 × 2 → +4
+index 3 → RSI + 3 × 2 → +6
+index 4 → RSI + 4 × 2 → +8
+```
+
+반복 종료 후 EAX에는 `10 + 20 + 30 + 40 + 50 = 150`이 남는다.
+
+## 바이트 오프셋으로 순회하기
+
+이번에는 RCX에 요소 번호가 아니라 시작 주소에서 떨어진 바이트 거리를 저장한다.
+
+```nasm
+lea rsi, [rel wordArray]
+xor eax, eax                  ; EAX: 합계
+xor ecx, ecx                  ; RCX: 바이트 오프셋
+
+WORD_OFFSET_LOOP:
+    cmp ecx, WORD_BYTE_SIZE
+    jae WORD_OFFSET_END
+
+    movzx edx, word [rsi + rcx]
+    add eax, edx
+
+    add ecx, 2
+    jmp WORD_OFFSET_LOOP
+
+WORD_OFFSET_END:
+```
+
+RCX 자체가 `0, 2, 4, 6, 8`로 증가하므로 주소식에서 Scale을 곱하지 않는다. 종료 조건도 요소 개수 5가 아니라 전체 바이트 크기 10과 비교한다.
+
+## 포인터 자체를 증가시키기
+
+인덱스나 오프셋을 시작 주소에 계속 더하는 대신, 현재 요소를 가리키는 포인터 자체를 이동할 수도 있다.
+
+```nasm
+lea rsi, [rel wordArray]
+mov ecx, WORD_COUNT
+xor eax, eax
+
+test ecx, ecx
+jz WORD_POINTER_END
+
+WORD_POINTER_LOOP:
+    movzx edx, word [rsi]
+    add eax, edx
+
+    add rsi, 2
+    dec ecx
+    jne WORD_POINTER_LOOP
+
+WORD_POINTER_END:
+```
+
+RSI는 매 반복마다 다음 워드 요소의 주소로 이동한다.
+
+```text
+첫 반복: RSI = wordArray + 0
+둘째   : RSI = wordArray + 2
+셋째   : RSI = wordArray + 4
+```
+
+이 방식에서는 현재 요소의 번호가 별도로 남지 않는다. 반면 주소 계산은 `[rsi]`로 단순해진다.
+
+## 세 가지 순회 방식 비교
+
+워드 배열을 순회한 세 방식을 비교하면 다음과 같다.
+
+| 방식 | 반복 중 변하는 값 | 메모리 접근 | 장점 |
+| :--- | :--- | :--- | :--- |
+| 요소 인덱스 | `0, 1, 2, 3, 4` | `[base + index * 2]` | 요소 번호를 그대로 활용 가능 |
+| 바이트 오프셋 | `0, 2, 4, 6, 8` | `[base + offset]` | 실제 바이트 거리가 명확함 |
+| 포인터 증가 | 요소의 실제 주소 | `[pointer]` | 메모리 접근식이 단순함 |
+
+어느 방식이 항상 더 좋은 것은 아니다.
+
+- 반복 중 요소 번호가 필요하면 인덱스 방식이 자연스럽다.
+- 바이트 위치나 여러 크기의 필드를 다루면 오프셋 방식이 편리할 수 있다.
+- 현재 요소를 순서대로 한 번씩 처리한다면 포인터 증가 방식이 단순할 수 있다.
+
+## 배열 길이를 어셈블 시점에 계산하기
+
+배열 요소를 추가하거나 제거할 때 반복문의 숫자도 직접 고치면 길이가 어긋날 수 있다. NASM의 현재 위치 기호 `$`를 사용하면 데이터 선언에서 길이를 계산할 수 있다.
+
+```nasm
+section .data
+    byteArray db 1, 2, 3, 4, 5
+    BYTE_COUNT equ $ - byteArray
+
+    wordArray dw 10, 20, 30, 40, 50
+    WORD_BYTE_SIZE equ $ - wordArray
+    WORD_COUNT equ WORD_BYTE_SIZE / 2
+```
+
+`$`는 현재 어셈블 위치를 나타낸다.
+
+- `$ - byteArray`: byteArray 시작부터 현재 위치까지의 바이트 수
+- `$ - wordArray`: wordArray가 차지하는 전체 바이트 수
+- `WORD_BYTE_SIZE / 2`: 2바이트 요소의 개수
+
+`equ`는 값을 저장할 메모리를 만드는 것이 아니라 어셈블 시점에 사용할 상수 이름을 정의한다. 배열 선언이 바뀌면 요소 개수도 함께 다시 계산된다.
+
+같은 값으로 채운 공간이 필요하다면 `times`를 사용할 수 있다.
+
+```nasm
+filledWords times 5 dw 1
+```
+
+하지만 큰 0 초기화 공간을 예약하려는 목적이라면 초기값 바이트를 실행 파일에 저장하는 대신 `.bss`의 `resw`를 사용하는 편이 적합할 수 있다.
+
+```nasm
+section .bss
+    emptyWords resw 5
+```
+
+## 배열 범위 밖 접근
+
+인덱스 0부터 4까지 유효한 배열에서 인덱스 5를 읽으면 배열 다음 메모리에 접근한다.
+
+```nasm
+wordArray dw 10, 20, 30, 40, 50
+
+movzx eax, word [wordArray + 5 * 2]    ; 범위 밖 접근
+```
+
+어셈블리는 배열 길이를 추적해 이 접근을 막지 않는다.
+
+- 접근한 주소가 읽기 가능한 영역이면 다음 변수나 우연한 데이터를 읽을 수 있다.
+- 쓰기라면 배열 밖의 다른 데이터를 조용히 손상시킬 수 있다.
+- 접근할 수 없는 페이지라면 실행 중 예외가 발생할 수 있다.
+
+항상 즉시 충돌하는 것보다 잘못된 데이터가 정상 값처럼 사용되는 경우가 더 찾기 어려울 수 있다. 반복 조건은 `index < count`가 유지되도록 구성해야 한다.
+
+## 잘못된 요소 경계와 비정렬 접근
+
+워드 배열은 각 요소가 2바이트 경계로 이어진다.
+
+```text
+wordArray: 0A 00 | 14 00 | 1E 00 | ...
+주소       +0 +1 | +2 +3 | +4 +5
+```
+
+다음처럼 1바이트만 이동한 위치에서 워드를 읽으면 서로 다른 요소에 속한 바이트가 섞인다.
+
+```nasm
+movzx eax, word [wordArray + 1]
+```
+
+리틀 엔디안 기준으로 `+1`의 `0x00`과 `+2`의 `0x14`를 함께 읽어 `0x1400`으로 해석한다.
+
+x86-64에서는 이런 비정렬 메모리 접근이 일반적으로 허용되므로 반드시 예외가 발생하는 것은 아니다. 하지만 의도한 요소 경계를 벗어난 값을 읽게 되고, 특정 상황에서는 성능이나 원자성 측면의 차이도 생길 수 있다.
+
+문제의 핵심은 단순히 주소가 정렬되지 않았다는 사실보다 **배열의 요소 크기에 맞는 경계로 이동하지 않았다**는 점이다.
+
+## 2차원 배열도 메모리에서는 선형이다
+
+가로 9칸, 세로 4칸인 문자 맵을 하나의 연속된 데이터로 선언한다.
+
+```nasm
+MAP_WIDTH  equ 9
+MAP_HEIGHT equ 4
+
+map:
+    db '#########'
+    db '#  ###  #'
+    db '#       #'
+    db '#########'
+```
+
+각 행 끝에 NULL 문자를 넣지 않았기 때문에 한 행은 정확히 9바이트다. `(row, column)` 위치의 선형 인덱스는 다음과 같다.
+
+$$
+LinearIndex = row \times MAP\_WIDTH + column
+$$
+
+```nasm
+lea rsi, [rel map]
+mov ecx, 2                  ; row
+mov ebx, 3                  ; column
+
+imul edx, ecx, MAP_WIDTH    ; EDX = row × width
+mov al, [rsi + rdx + rbx]   ; map[row][column]
+```
+
+`MAP_WIDTH`가 9이므로 하드웨어 Scale에 직접 사용할 수 없다. 먼저 `row × 9`를 계산한 뒤 column을 더한다.
+
+행마다 NULL 문자를 넣었다면 실제 행 간격은 폭 9가 아니라 종료 문자까지 포함한 10바이트가 된다. 화면에 보이는 문자 수와 메모리에서 다음 행까지 이동할 stride를 구분해야 한다.
+
+## 전체 실습 코드
+
+다음 코드는 바이트 배열을 인덱스로 순회하고, 워드 배열을 포인터 증가 방식으로 순회한다.
 
 ```nasm
 %include "io64.inc"
 
 section .text
 global CMAIN
+
 CMAIN:
-    mov rbp, rsp        ; 디버깅을 위한 스택 프레임 설정
+    ; 바이트 배열: 요소 인덱스 방식
+    lea rsi, [rel byteArray]
+    xor eax, eax
+    xor ecx, ecx
 
-    ; 1. 배열과 주소의 이해
-    ; mov rax, a -> 'a'라는 변수의 [주소값]이 rax에 들어감
-    ; mov rax, [a] -> 주소 'a'에 있는 [실제 값]이 rax에 들어감
+BYTE_LOOP:
+    cmp ecx, BYTE_COUNT
+    jae BYTE_END
 
-    ; [Manual Debug] 배열 요소 직접 접근해보기
-    PRINT_HEX 1, [a]        ; a[0]
-    NEWLINE
-    PRINT_HEX 1, [a + 1]    ; a[1] (1바이트 뒤)
-    NEWLINE
-    PRINT_HEX 1, [a + 2]    ; a[2]
-    NEWLINE
+    movzx edx, byte [rsi + rcx]
+    add eax, edx
 
-    ; 2. 연습문제: a 배열(1byte 단위)의 모든 데이터 출력
-    ; 방법 1) 인덱스 레지스터를 직접 1씩 증가
-    xor ecx, ecx            ; 인덱스(i) = 0
+    inc ecx
+    jmp BYTE_LOOP
 
-LABEL_PRINT_A:
-    PRINT_HEX 1, [a + ecx]  ; [Base + Index]
-    NEWLINE
-    inc ecx                 ; i++
-    cmp ecx, 5              ; 배열 길이(5)와 비교
-    jne LABEL_PRINT_A
+BYTE_END:
+    ; 여기서 EAX = 15 확인
 
+    ; 워드 배열: 포인터 증가 방식
+    lea rsi, [rel wordArray]
+    mov ecx, WORD_COUNT
+    xor eax, eax
 
-    ; 3. 연습문제: b 배열(2byte 단위)의 모든 데이터 출력
-    ; b는 dw(2byte) 타입이므로 주소 계산 시 주의 필요
+    test ecx, ecx
+    jz WORD_END
 
-    ; 방법 1) 주소 포인터를 직접 증가시키는 방식
-    mov ebx, 0              ; 오프셋 레지스터
-    mov ecx, 10             ; 최대 바이트 크기 (5개 * 2byte = 10)
+WORD_LOOP:
+    movzx edx, word [rsi]
+    add eax, edx
 
-LABEL_LOOP_ARRAY_B_MANUAL:
-    PRINT_DEC 2, [b + ebx]
-    NEWLINE
-    add ebx, 2              ; 2바이트 데이터이므로 주소를 +2 해줌
-    cmp ebx, ecx
-    jl LABEL_LOOP_ARRAY_B_MANUAL
+    add rsi, 2
+    dec ecx
+    jne WORD_LOOP
 
-
-    ; 방법 2) 인덱스와 스케일 팩터(Scale Factor) 활용 [권장]
-    xor ecx, ecx            ; i = 0
-
-LABEL_PRINT_B_SCALE:
-    ; [시작 주소 + 인덱스 * 크기] 공식을 활용
-    PRINT_HEX 2, [b + ecx * 2]
-    NEWLINE
-    inc ecx                 ; i++
-    cmp ecx, 5              ; 요소 개수(5)만큼 반복
-    jne LABEL_PRINT_B_SCALE
-
+WORD_END:
+    ; 여기서 EAX = 150 확인
     xor rax, rax
     ret
 
 section .data
-    ; 1) 기본 배열 선언 (초기값 지정)
-    ; 1바이트 * 5개 = 5바이트 할당
-    a db 0x01, 0x02, 0x03, 0x04, 0x05
+    byteArray db 1, 2, 3, 4, 5
+    BYTE_COUNT equ $ - byteArray
 
-    ; 2) times 키워드 활용
-    ; 5개 공간을 잡고 모두 1(word)로 초기화
-    ; 5 * 2바이트 = 10바이트 할당
-    ; 메모리(리틀 엔디안): 01 00, 01 00, ...
-    b times 5 dw 1
-
-    ; 3) 2차원 배열 느낌의 데이터
-    ; 메모리상에서는 결국 일자로 쭉 나열됨
-    map1 db '#########', 0x00
-    map2 db '#  ###  #', 0x00
-    map3 db '#       #', 0x00
-    map4 db '#########', 0x00
-
+    wordArray dw 10, 20, 30, 40, 50
+    WORD_BYTE_SIZE equ $ - wordArray
+    WORD_COUNT equ WORD_BYTE_SIZE / 2
 ```
 
----
+마지막 `xor rax, rax`는 합계를 지운다. 디버거에서는 `BYTE_END`와 `WORD_END`에 중단점을 두고 EAX, RSI, RCX 값을 확인한다.
 
-## 2. 이론 정리 (Study Notes)
+## 디버거에서 확인할 것
 
-### 2.1 배열 (Array)의 선언
-동일한 데이터 타입의 연속된 집합. 어셈블리에서는 단순히 메모리를 연속으로 할당하는 행위에 불과함
+1. RSI가 각 배열의 첫 번째 요소 주소를 가리키는가?
+2. 바이트 배열에서 RCX와 실제 바이트 오프셋이 같은가?
+3. 워드 배열에서 인덱스에 Scale 2를 적용하면 주소가 2바이트씩 증가하는가?
+4. 바이트 오프셋 방식의 RCX는 `0, 2, 4, 6, 8`로 변하는가?
+5. 포인터 증가 방식에서 RSI 자체가 매번 2씩 증가하는가?
+6. 세 가지 방식으로 워드 배열을 더했을 때 모두 150이 되는가?
+7. `WORD_COUNT`와 `WORD_BYTE_SIZE`가 각각 5와 10으로 계산되는가?
+8. `wordArray + 1`에서 워드를 읽으면 두 요소의 바이트가 섞여 `0x1400`이 되는가?
+9. `(row=2, column=3)`의 주소가 `map + 21`로 계산되는가?
 
-* **기본 선언**: 콤마(`,`)로 값을 나열
-  * `a db 0x01, 0x02, ...`
-* **`times` 지시어**: 반복되는 값으로 초기화할 때 사용
-  * **문법**: `[변수명] times [반복횟수] [크기] [초기값]`
-  * **예시**: `b times 5 dw 1` $\rightarrow$ 2바이트(`dw`) 크기의 `1`을 5번 반복해서 생성
+## 다음 학습: 반복 코드를 함수로 분리하기
 
-### 2.2 주소 접근 방식 (Addressing Modes)
-배열의 요소(Element)에 접근하기 위해 메모리 주소를 계산하는 방법
+이번 글에서 확인한 핵심은 다음과 같다.
 
-* **공식**:
-  $$Address = Base + (Index \times Scale) + Displacement$$
-* **구성 요소**:
-  * **Base**: 배열의 시작 주소 (예: `a`, `b`)
-  * **Index**: 몇 번째 요소인지 나타내는 카운터 (예: `ecx`)
-  * **Scale**: 데이터 타입의 크기 (1, 2, 4, 8만 가능)
-* **예시 (Word 배열 접근)**:
-  * `mov ax, [b + ecx * 2]`
-  * `ecx`가 1 증가할 때마다, 실제 주소는 2바이트씩 건너뛰게 됨
+- 배열은 같은 크기의 요소가 연속된 메모리에 놓인 구조다.
+- 배열 레이블은 첫 번째 요소의 주소를 나타낸다.
+- 첫 요소를 읽을 때도 요소 크기에 맞는 접근이 필요하다.
+- 요소 인덱스와 바이트 오프셋은 서로 다른 값이다.
+- i번째 요소 주소는 `Base + Index × ElementSize`로 계산한다.
+- x86 주소식의 Scale은 `1`, `2`, `4`, `8`만 사용할 수 있다.
+- 배열은 인덱스, 바이트 오프셋, 포인터 증가 방식으로 순회할 수 있다.
+- 배열 범위를 벗어나도 즉시 예외가 발생하지 않을 수 있다.
+- x86-64의 비정렬 접근은 가능하지만 의도한 요소 경계를 벗어난 값을 읽을 수 있다.
+- 2차원 배열도 메모리에서는 선형이며 `row × width + column`으로 위치를 계산한다.
 
----
-
-## 3. 종합 의견 (Review)
-
-### 핵심 요약
-* **배열은 연속된 메모리**: C언어처럼 `a[i]`라는 문법이 자동으로 주소를 찾아주는 것이 아님. 프로그래머가 **(시작 주소 + 떨어진 거리)**를 직접 계산해야 함
-* **주소 vs 값**:
-  * `mov rax, a`: 배열의 **시작 주소**를 가져옴 (Pointer)
-  * `mov rax, [a]`: 배열의 **첫 번째 값**을 가져옴 (Value)
-* **단위의 중요성**: `dw`(2byte)나 `dd`(4byte) 배열을 다룰 때, 단순히 인덱스를 1씩 더해서 접근(`[b+ecx]`)하면 데이터가 엇갈리거나(Unaligned) 엉뚱한 값을 읽게 됨. 반드시 **데이터 크기(Scale)**를 고려해야 함
-
-### Tip
-* **2차원 배열**: 소스 코드의 `map` 예제처럼 2차원 배열도 메모리상에는 **1차원(선형)**으로 저장됨
-  * $y$행 $x$열에 접근하려면: `[Base + (y * 가로길이) + x]` 형태로 계산
-* **배열 범위**: 어셈블리어는 인덱스 범위를 체크해주지 않음 (`Out of bounds` 에러 없음). 반복문 조건(`cmp ecx, 5`)을 잘못 설정하면 다른 변수의 메모리를 침범하여 덮어쓸 위험이 있음
----
+다음 글에서는 반복해서 사용하는 코드 블록을 함수로 분리하고, `CALL`과 `RET`이 실행 흐름을 어떻게 이동시키는지 살펴본다.

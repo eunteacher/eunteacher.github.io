@@ -7,74 +7,217 @@ tags: [C++, Boolean, bool, 자료형, 메모리]
 use_math : true
 ---
 
-# [C++] 불리언(Boolean) 자료형의 이해
+`bool`은 참과 거짓이라는 두 상태를 표현하는 C++의 독립적인 기본 타입이다. 정수 0과 1로 비슷한 로직을 만들 수도 있지만, `bool`을 사용하면 값의 목적이 조건 판단이라는 사실이 타입에 드러난다.
 
-참(True)과 거짓(False)을 판별하는 논리형 데이터 **Boolean**의 개념과, 이것이 내부적으로 **왜 1바이트 정수**로 처리되는지에 대해 정리
+이번 글에서는 `bool`의 값, 정수와의 변환, 출력 방식, 객체 크기를 직접 확인한다.
 
----
-
-## 1. 소스 코드 (Source Code)
-
-`bool` 키워드를 사용하여 논리형 변수를 선언하고 값을 출력하는 예제
+## 두 가지 논리값
 
 ```cpp
+bool isAlive = true;
+bool canAttack = false;
+```
+
+`bool` 객체가 가질 수 있는 논리값은 `true`와 `false`다. 출력 스트림의 기본 설정에서는 각각 1과 0으로 표시된다.
+
+```cpp
+std::cout << isAlive << '\n';     // 1
+std::cout << canAttack << '\n';   // 0
+```
+
+사람이 읽기 좋은 단어로 출력하려면 `std::boolalpha`를 사용할 수 있다.
+
+```cpp
+std::cout << std::boolalpha;
+std::cout << isAlive << '\n';     // true
+std::cout << canAttack << '\n';   // false
+```
+
+`std::boolalpha`는 이후 같은 스트림의 bool 출력 방식에도 영향을 주는 조작자다. 다시 숫자로 출력하려면 `std::noboolalpha`를 사용한다.
+
+## 정수를 `bool`로 변환하면
+
+정수를 `bool`로 변환할 때는 0인지 아닌지가 기준이다.
+
+```cpp
+bool first = static_cast<bool>(0);     // false
+bool second = static_cast<bool>(1);    // true
+bool third = static_cast<bool>(-10);   // true
+bool fourth = static_cast<bool>(42);   // true
+```
+
+`true`가 “원래 정수 1을 저장한다”는 설명과는 구분해야 한다. 정수에서 bool로 변환하면 0은 `false`, 0이 아닌 모든 값은 `true`가 된다.
+
+반대로 bool을 정수로 변환하면 다음 값을 얻는다.
+
+```cpp
+int falseValue = static_cast<int>(false);  // 0
+int trueValue = static_cast<int>(true);    // 1
+```
+
+## 조건식은 `bool` 결과를 만든다
+
+비교 연산과 논리 연산의 결과 타입도 `bool`이다.
+
+```cpp
+int hp = 30;
+
+bool isDead = hp <= 0;
+bool isLowHealth = hp > 0 && hp < 50;
+```
+
+조건문은 bool 값을 직접 사용할 수 있다.
+
+```cpp
+if (isLowHealth)
+{
+    std::cout << "체력이 부족합니다.\n";
+}
+```
+
+다음처럼 1과 명시적으로 비교할 필요는 없다.
+
+```cpp
+if (isLowHealth == 1) // 불필요
+{
+}
+```
+
+bool의 의미 자체가 참과 거짓이므로 `if (isLowHealth)`가 의도를 더 직접적으로 표현한다. 반대 조건은 `!`를 사용할 수 있다.
+
+```cpp
+if (!isDead)
+{
+    std::cout << "아직 살아 있습니다.\n";
+}
+```
+
+## `bool`은 정수 타입과 별개의 타입이다
+
+`bool`은 C++의 integral type 범주에 포함되어 정수 변환과 승격에 참여하지만 `int`의 별칭은 아니다.
+
+```cpp
+#include <type_traits>
+
+static_assert(!std::is_same_v<bool, int>);
+```
+
+타입이 구분되기 때문에 함수 오버로딩에서도 다른 매개변수로 취급할 수 있다.
+
+```cpp
+void Print(int value);
+void Print(bool value);
+```
+
+어셈블리 결과에서 참과 거짓이 0과 1의 비트 패턴으로 나타날 수 있다는 사실과, C++ 언어에 `bool`이라는 별도의 타입이 존재한다는 사실을 구분해야 한다.
+
+## `sizeof(bool)`은 왜 보통 1인가
+
+현재 Visual Studio 환경에서는 일반적으로 다음 결과를 확인할 수 있다.
+
+```cpp
+std::cout << sizeof(bool) << '\n'; // 일반적으로 1
+```
+
+C++에서 `sizeof(bool)`은 1 이상이며, `sizeof`의 1은 C++의 1바이트를 뜻한다. 현재 환경에서는 `CHAR_BIT`가 8이므로 보통 8비트 저장 공간을 사용한다.
+
+참과 거짓만 표현한다면 정보 자체는 1비트면 충분하다. 하지만 독립된 객체는 주소를 통해 접근할 수 있어야 하고 C++ 메모리의 주소 지정 단위는 바이트다. 구현은 이런 요구와 ABI를 고려해 bool 객체 크기를 정한다.
+
+다만 표준이 모든 플랫폼에서 `sizeof(bool) == 1`을 보장하는 것은 아니다. 현재 구현의 결과는 코드로 확인해야 한다.
+
+## 객체 크기와 값의 표현은 다르다
+
+`sizeof(bool)`이 1이라고 해서 bool 객체의 모든 8비트를 자유롭게 사용할 수 있다는 뜻은 아니다. C++에서 관찰 가능한 값은 `true`와 `false` 두 가지다.
+
+또한 객체의 메모리 바이트를 임의로 수정해 표준적인 bool 값 표현이 아닌 상태를 만들고 bool로 읽는 코드는 올바른 사용이 아니다. 객체 표현의 세부 방식은 구현에 맡겨진 부분이므로 언어가 제공하는 대입과 변환을 통해 값을 다뤄야 한다.
+
+## bool 여러 개가 항상 1비트씩 압축되지는 않는다
+
+독립된 bool 객체 여러 개는 각각 주소 지정 가능한 객체이므로 일반적인 환경에서 각각 1바이트 이상을 차지할 수 있다.
+
+```cpp
+struct CharacterState
+{
+    bool isStunned;
+    bool isPoisoned;
+    bool isInvincible;
+};
+```
+
+구조체의 실제 크기는 멤버 크기뿐 아니라 정렬과 padding의 영향을 받는다. 상태를 비트 단위로 압축해야 한다면 다음과 같은 별도 표현을 고려할 수 있다.
+
+- unsigned 정수와 비트 마스크
+- `std::bitset`
+- `std::vector<bool>`의 특수화된 저장 방식
+- 직렬화 포맷에서 직접 정의한 비트 필드
+
+하지만 메모리를 줄이기 위해 무조건 bool을 압축하면 코드가 복잡해질 수 있다. 실제 요구와 데이터 규모를 먼저 확인해야 한다.
+
+## 이름에는 질문의 의미를 담는다
+
+bool 이름은 참이나 거짓으로 답할 수 있는 형태가 읽기 좋다.
+
+```cpp
+bool isRunning = false;
+bool canAttack = true;
+bool hasWeapon = true;
+```
+
+Unreal Engine 코드에서는 bool 멤버에 `b` 접두사를 붙이는 스타일을 사용한다.
+
+```cpp
+bool bIsRunning = false;
+bool bCanAttack = true;
+```
+
+이는 C++ 언어 규칙이 아니라 프로젝트와 프레임워크의 명명 규칙이다. 일반 C++ 코드에서는 팀의 스타일에 맞추되 이름만 읽어도 조건의 의미를 알 수 있게 하는 것이 중요하다.
+
+## 전체 실습 코드
+
+```cpp
+#include <climits>
 #include <iostream>
-using namespace std;
-
-// [Boolean]: 참(True)과 거짓(False)을 다루는 자료형
-// - 값: 0 (False), 0이 아닌 모든 수 (True, 주로 1)
-
-// 변수명 앞에 'b'를 붙이는 것은 불리언임을 명시하는 작명 규칙 (헝가리안 표기법/언리얼 스타일)
-bool bIsHighLevel = true;
-bool bIsPlayer = true;
-bool bIsMale = false;
+#include <type_traits>
 
 int main()
 {
-    // true는 정수 1로 변환되어 출력됨
-    cout << "bIsHighLevel: " << bIsHighLevel << endl;
+    bool isAlive = true;
+    bool canAttack = false;
 
-    // false는 정수 0으로 출력됨
-    cout << "bIsMale: " << bIsMale << endl;
+    std::cout << isAlive << ' ' << canAttack << '\n';
+    std::cout << std::boolalpha;
+    std::cout << isAlive << ' ' << canAttack << '\n';
 
+    bool fromZero = static_cast<bool>(0);
+    bool fromNegative = static_cast<bool>(-10);
+
+    std::cout << fromZero << '\n';
+    std::cout << fromNegative << '\n';
+
+    int hp = 30;
+    bool isLowHealth = hp > 0 && hp < 50;
+
+    if (isLowHealth)
+    {
+        std::cout << "체력이 부족합니다.\n";
+    }
+
+    std::cout << "sizeof(bool): " << sizeof(bool) << '\n';
+    std::cout << "CHAR_BIT: " << CHAR_BIT << '\n';
+
+    static_assert(!std::is_same_v<bool, int>);
     return 0;
 }
 ```
 
----
+## 다음 학습: 근사값을 표현하는 실수 타입
 
-## 2. 이론 정리 (Study Notes)
+- `bool`은 `true`와 `false`를 표현하는 독립적인 기본 타입이다.
+- 정수 0은 `false`, 0이 아닌 값은 `true`로 변환된다.
+- bool을 정수로 변환하면 `false`는 0, `true`는 1이 된다.
+- 비교와 논리 연산의 결과 타입은 bool이다.
+- `sizeof(bool)`은 현재 환경에서 직접 확인해야 한다.
+- 독립된 bool 객체가 자동으로 한 비트씩 압축되는 것은 아니다.
+- `b` 접두사는 Unreal의 명명 스타일이지 C++ 문법이 아니다.
 
-### 1) Boolean의 정의와 값
-* **개념:** 오직 **참(True)**과 **거짓(False)** 두 가지 상태만을 가지는 논리 자료형
-* **내부 값:**
-  * `true` → **1** (대표값)
-  * `false` → **0**
-
-### 2) Boolean은 사실 '정수'다?
-`bool` 타입을 공부할 때 가장 흥미로운 점은 내부적으로는 **1바이트 정수(Integer)**로 처리된다는 점
-
-* **왜 정수형에서 같이 안 배우고 따로 배울까?**
-  * **어셈블리 관점:** 어셈블리어에는 `bool`이라는 별도의 타입이 없음. `CMP`(비교) 명령어를 통해 결과가 0인지 아닌지를 판단
-  * **C++ 관점:** `int`를 써도 되지만, **"이 변수는 참/거짓 판별용이다"**라는 **의도(Semantics)**를 명확히 하기 위해 `bool`을 따로 제공 (가독성 향상)
-
-### 3) Boolean은 왜 1비트가 아니라 1바이트일까?
-참/거짓은 0과 1, 즉 **1비트(Bit)**만 있어도 표현할 수 있다. 하지만 C++에서 `bool`은 **1바이트(8비트)**를 차지
-
-* **이유:** CPU가 데이터를 주소(Address)로 접근할 때, **최소 단위가 바이트(Byte)**이기 때문입
-* **상세:**
-  * 우리가 메모리 주소를 가리킬 때 100번지, 101번지라고 하지, "100번지의 3번째 비트"라고 주소를 매기진 않음
-  * 어셈블리의 최소 레지스터 단위도 `al`(1바이트)
-  * 따라서 속도와 접근 효율성을 위해 1비트 정보를 저장하더라도 1바이트 공간을 사용
-
----
-
-## 3. 종합 의견 (Review)
-
-* **가독성(Readability):** `int isDead = 1;`보다 `bool bIsDead = true;`가 훨씬 직관적. 코드는 컴퓨터뿐만 아니라 사람이 읽는 것이기도 하므로 적절한 타입 사용이 중요
-* **작명 팁:** 불리언 변수는 질문 형태(`Is`, `Can`, `Has`)로 짓는 것이 관례
-  * `bIsRunning` (달리고 있는가?)
-  * `bCanAttack` (공격 가능한가?)
-
----
-
+다음 글에서는 정수로 정확히 표현하기 어려운 소수 값을 `float`와 `double`이 어떻게 근사해 저장하는지 살펴본다.

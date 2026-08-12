@@ -1,0 +1,165 @@
+---
+layout: post
+title: '[C++ 28] 로또 번호 생성기: 중복 제거와 정렬을 단계별로 검증하기'
+date: 2026-04-14
+categories: [Dev, C++]
+tags: [C++, Array, Algorithm, Sort, Random, Pointer]
+use_math: true
+---
+
+# [C++] 생성·중복 검사·정렬을 분리한 배열 실습
+
+C++의 배열과 참조(Reference)를 활용하여 중복되지 않는 6개의 행운 숫자를 생성하고, 선택 정렬(Selection Sort) 알고리즘을 통해 데이터를 정렬하는 과정을 구현함
+
+## 동작하는 첫 번째 구현
+
+```cpp
+#include <iostream>
+#include <cstdlib>
+#include <ctime>
+using namespace std;
+
+/**
+ * @brief 두 변수의 값을 서로 교환하는 함수
+ * @param a 교환할 첫 번째 정수의 참조
+ * @param b 교환할 두 번째 정수의 참조
+ */
+void Swap(int& a, int& b)
+{
+    int temp = a;
+    a = b;
+    b = temp;
+}
+
+/**
+ * @brief 선택 정렬(Selection Sort) 기반 오름차순 정렬 함수
+ * @param numbers 정렬할 배열의 시작 주소 (포인터 붕괴 현상 발생)
+ * @param count 배열의 전체 요소 개수
+ */
+void Sort(int numbers[], int count)
+{
+    for (int i = 0; i < count; i++)
+    {
+        for (int j = i + 1; j < count; j++)
+        {
+            // 앞의 요소가 뒤의 요소보다 크면 위치를 변경하여 오름차순 정렬
+            if (numbers[i] > numbers[j])
+            {
+                Swap(numbers[i], numbers[j]);
+            }
+        }
+    }
+}
+
+/**
+ * @brief 현재까지 뽑힌 숫자들 중 중복이 있는지 검사
+ * @param numbers 검사 대상 배열
+ * @param currentIndex 현재 검사할 인덱스 위치
+ * @param targetValue 새로 생성된 난수 값
+ * @return 중복이 없으면 true, 중복이 발견되면 false 반환
+ */
+bool IsUnique(int numbers[], int currentIndex, int targetValue)
+{
+    for (int i = 0; i < currentIndex; i++)
+    {
+        if (numbers[i] == targetValue)
+        {
+            return false; // 중복 발생
+        }
+    }
+    return true;
+}
+
+/**
+ * @brief 1~45 사이의 중복 없는 난수 6개를 생성하여 배열에 할당
+ * @param numbers 숫자를 저장할 크기 6의 배열
+ */
+void ChooseSixNumber(int numbers[])
+{
+    int i = 0;
+    while (i < 6)
+    {
+        // 1~45 범위의 난수 생성
+        int chosenNum = (rand() % 45) + 1;
+
+        // 기존에 생성된 숫자들과 비교하여 중복 여부 확인
+        if (IsUnique(numbers, i, chosenNum))
+        {
+            numbers[i] = chosenNum;
+            i++;
+        }
+    }
+}
+
+int main()
+{
+    // 매 실행마다 다른 난수 시퀀스를 위해 시드값 초기화
+    srand((unsigned int)time(NULL));
+
+    int numbers[6] = { 0 };
+    int size = sizeof(numbers) / sizeof(int); // 정적 배열의 크기 계산
+
+    cout << "--- 로또 번호 생성 시작 ---" << endl;
+
+    // 1. 중복 없는 번호 선택
+    ChooseSixNumber(numbers);
+
+    // 2. 가독성을 위한 오름차순 정렬
+    Sort(numbers, size);
+
+    // 3. 최종 결과 출력
+    for (int i = 0; i < size; i++)
+    {
+        cout << "[" << i + 1 << "번 번호]: " << numbers[i] << endl;
+    }
+
+    return 0;
+}
+```
+---
+## 각 함수가 보장해야 하는 조건
+
+### 매개변수 전달 방식 및 포인터·참조의 핵심 비교
+
+| 구분 | 값 전달 (Value)  | 주소 전달 (Address)  | 참조 전달 (Reference)  |
+| :--- | :--- | :--- | :--- |
+| **동작 원리** | 변수의 실제 값을 복사하여 전달  | 변수의 메모리 시작 주소를 전달  | 변수에 또 다른 식별자(별명)를 부여  |
+| **복사 비용** | 데이터 타입의 전체 크기 ($Cost = \text{sizeof}(Object)$)  | 시스템 아키텍처 크기 (4B 또는 8B)  | 주소 전달과 동일하게 포인터 크기만큼만 복사  |
+| **원본 수정** | 불가능 (복사본만 변경됨)  | 가능 (역참조를 통해 접근)  | 가능 (원본에 직접 접근)  |
+| **안전성** | 가장 안전함  | `nullptr` 참조 위험이 존재함  | `NULL` 상태를 가질 수 없어 문법적으로 안전함  |
+
+
+
+### 포인터와 참조의 특성 차이 요약
+
+* **포인터(Pointer)**: 메모리 주소를 저장하는 독립된 변수로, 선언 후 지연 할당이 가능하며 가리키는 대상을 자유롭게 변경할 수 있음
+* **참조(Reference)**: 기존 메모리 공간에 부여된 별명으로, 선언과 동시에 반드시 초기화해야 하며 생명주기 동안 참조 대상을 변경할 수 없음
+
+### const와 메모리 제어 수식
+
+포인터와 `const` 결합 시 위치에 따라 제어 권한이 결정됨
+* **데이터 상수화**: `const T* ptr` $\rightarrow$ 가리키는 **값**을 변경할 수 없음 (Read-Only)
+* **주소 상수화**: `T* const ptr` $\rightarrow$ 가리키는 **주소**를 변경할 수 없음
+
+---
+
+## 현재 구현의 정확성과 한계
+
+### 핵심 요약 및 주의사항
+
+* **참조자의 선언과 초기화**: 참조자는 선언 시 반드시 유효한 변수로 초기화되어야 하며, 초기화되지 않은 참조자는 컴파일 에러를 유발함
+* **인터페이스 의미**: 포인터와 참조가 비슷한 기계 코드를 만들 수 있어도 동일한 표현이나 비용을 표준이 보장하지는 않는다.
+* **범위 검증**: null 검사만으로 배열 길이는 확인할 수 없다. 포인터와 유효한 요소 수를 함께 계약으로 다룬다.
+* **배열의 붕괴(Array Decay)**: 배열을 함수 인자로 전달하면 배열 전체 크기 정보가 소실되고 첫 번째 요소의 시작 주소로 변환되므로 주의가 필요함
+
+### Tip
+
+* **읽기 전용 참조 (const Reference)**: 대용량 구조체를 전달할 때 복사 비용을 없애고 원본 수정을 방지하려면 `const T&` 방식을 사용하는 것이 C++ 최적화의 표준임
+* **선택 기준**: 논리적으로 '없음(Null)' 상태가 필요하다면 포인터를, 반드시 존재해야 하며 안정적인 접근이 필요하다면 참조를 사용하는 것이 권장됨
+* **현대적인 대안**: `std::array<int, 6>`, `std::shuffle`, `<random>`을 사용하면 크기와 의도를 타입에 보존할 수 있다.
+
+현재 `Sort`는 최소값 위치를 한 번 찾는 전형적인 선택 정렬과 달리 더 작은 값을 발견할 때마다 즉시 교환한다. 결과는 오름차순이지만 교환 횟수가 늘 수 있다. 또한 `rand() % 45`에는 작은 분포 편향이 있을 수 있다. 실제 구현에서는 1~45 배열을 `std::shuffle`한 뒤 앞의 6개를 고르면 중복 검사도 필요 없다.
+
+## 마무리
+
+생성 값은 1~45 범위인가, 앞서 뽑은 값과 다른가, 정렬 뒤 비감소 순서인가를 각각 검사하면 작은 프로그램도 테스트 가능한 구조가 된다.

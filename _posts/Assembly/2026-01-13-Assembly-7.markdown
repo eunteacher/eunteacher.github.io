@@ -7,128 +7,398 @@ tags: [Assembly, Branching, CMP, JMP, Optimization]
 use_math : true
 ---
 
-# [어셈블리] 분기문과 논리 연산 완전 정복
+지금까지 작성한 코드는 대부분 위에서 아래로 모든 명령어를 실행했다. 하지만 실제 프로그램은 조건에 따라 일부 코드를 실행하거나 건너뛰어야 한다.
 
-## 1. 소스 코드 (Source Code)
+C++에서는 `if`, `else` 같은 문법이 이 흐름을 표현해 주지만, CPU 수준에서는 연산 결과를 Flags에 기록한 뒤 조건 점프 명령어로 실행 위치를 변경한다.
 
-`CMP`와 `JMP` 계열 명령어를 사용한 흐름 제어(Flow Control)와 `DIV` 명령어를 활용한 홀수/짝수 판별 로직 구현
+```text
+비교 또는 연산
+    ↓
+RFLAGS 변경
+    ↓
+조건 점프가 Flags 해석
+    ↓
+다음에 실행할 명령어 결정
+```
+
+이번 글에서는 `CMP`와 `TEST`가 만든 Flags를 조건 점프가 어떻게 해석하는지 살펴본다.
+
+## `CMP`는 결과 대신 Flags를 남긴다
+
+`cmp destination, source`는 개념적으로 두 피연산자를 뺀다.
+
+```text
+destination - source
+```
+
+일반적인 `SUB`와 다른 점은 계산 결과를 destination에 저장하지 않는다는 것이다. 대신 결과의 특징을 RFLAGS에 기록한다.
+
+```nasm
+mov rax, 10
+mov rbx, 20
+
+cmp rax, rbx       ; 10 - 20을 계산하되 RAX에는 저장하지 않음
+```
+
+`CMP` 실행 후에도 RAX는 10이고 RBX는 20이다. 조건 판단에 필요한 ZF, CF, SF, OF 등의 상태만 달라진다.
+
+| 플래그 | 비교에서 확인하는 내용 |
+| :--- | :--- |
+| `ZF` | 뺄셈 결과가 0인지 확인 |
+| `CF` | 부호 없는 뺄셈에서 빌림이 발생했는지 확인 |
+| `SF` | 결과의 최상위 비트가 1인지 확인 |
+| `OF` | 부호 있는 뺄셈 결과가 표현 범위를 벗어났는지 확인 |
+
+조건 점프는 이 플래그를 하나씩 또는 조합해서 읽는다.
+
+## `JMP`와 조건 점프
+
+`jmp`는 조건 없이 지정한 레이블로 이동한다.
+
+```nasm
+jmp END
+```
+
+반면 조건 점프는 현재 Flags가 특정 조건을 만족할 때만 이동한다.
+
+```nasm
+cmp rax, rbx
+je EQUAL
+```
+
+`JE`는 ZF가 1일 때 `EQUAL` 레이블로 이동한다. `CMP`의 뺄셈 결과가 0이라는 것은 두 피연산자가 같다는 뜻이다.
+
+조건이 성립하지 않으면 점프하지 않고 바로 다음 명령어를 실행한다.
+
+## 레이블과 Fall-through
+
+레이블은 점프할 위치에 붙인 이름이며 그 자체가 실행되는 명령어는 아니다.
+
+```nasm
+mov eax, 10
+mov ebx, 20
+
+cmp eax, ebx
+jge GREATER_OR_EQUAL
+
+LESS:
+    mov ecx, 0
+    jmp END_COMPARE
+
+GREATER_OR_EQUAL:
+    mov ecx, 1
+
+END_COMPARE:
+```
+
+`10 >= 20`은 거짓이므로 `JGE`는 점프하지 않는다. CPU는 바로 아래의 `LESS` 블록으로 이어서 실행한다. 이처럼 점프가 발생하지 않았을 때 다음 주소의 코드를 계속 실행하는 흐름을 fall-through라고 부를 수 있다.
+
+`LESS` 블록 끝의 무조건 점프도 중요하다.
+
+```nasm
+jmp END_COMPARE
+```
+
+이 명령이 없다면 `mov ecx, 0`을 실행한 다음 아래의 `GREATER_OR_EQUAL` 블록까지 이어서 실행해 ECX가 다시 1로 바뀐다. 하나의 분기를 처리한 뒤 다른 분기 블록을 건너뛰기 위해 종료 레이블로 이동한다.
+
+## 조건의 반대를 검사해 블록 건너뛰기
+
+같은 `if` 흐름도 조건이 참일 때 본문으로 이동하거나, 조건이 거짓일 때 본문을 건너뛰는 형태로 구성할 수 있다.
+
+### 참일 때 본문으로 이동
+
+```nasm
+cmp eax, ebx
+je EQUAL
+
+; 같지 않을 때 실행
+jmp END_IF
+
+EQUAL:
+    ; 같을 때 실행
+
+END_IF:
+```
+
+### 거짓일 때 본문 건너뛰기
+
+```nasm
+cmp eax, ebx
+jne END_IF
+
+; 같을 때만 실행
+
+END_IF:
+```
+
+두 번째 형태는 조건의 반대인 `JNE`를 사용해 본문을 건너뛴다. 짧은 `if` 블록에서는 불필요한 점프와 레이블을 줄여 흐름을 단순하게 만들 수 있다.
+
+항상 한 형태가 더 빠르거나 옳은 것은 아니다. 실제 코드는 참·거짓 블록의 크기, 이후 흐름, 읽기 쉬운 배치를 고려해 구성한다.
+
+## 같음과 0은 같은 ZF를 확인한다
+
+다음 두 조건 점프는 모두 ZF가 1인지 확인한다.
+
+```nasm
+je EQUAL
+jz ZERO
+```
+
+기계어 수준에서는 같은 조건을 검사하지만 앞선 연산의 의미에 맞춰 이름을 선택할 수 있다.
+
+- 두 값을 `CMP`한 뒤 같음을 표현할 때: `JE`, `JNE`
+- 연산이나 `TEST` 결과가 0인지 표현할 때: `JZ`, `JNZ`
+
+| 조건 | 사용할 수 있는 이름 | 확인하는 Flags |
+| :--- | :--- | :--- |
+| 같음 또는 0 | `JE` / `JZ` | ZF = 1 |
+| 다름 또는 0이 아님 | `JNE` / `JNZ` | ZF = 0 |
+
+`JE`와 `JZ`, `JNE`와 `JNZ`는 각각 같은 조건을 나타내는 다른 이름이다.
+
+## 부호 있는 비교와 부호 없는 비교
+
+같음과 다름은 signed와 unsigned에서 차이가 없다. 하지만 크고 작음을 판단할 때는 값의 해석 방식에 맞는 조건 점프를 선택해야 한다.
+
+### 부호 있는 정수 비교
+
+| 조건 | 점프 | Flags 조건 |
+| :--- | :--- | :--- |
+| 큼 | `JG` | ZF = 0, SF = OF |
+| 크거나 같음 | `JGE` | SF = OF |
+| 작음 | `JL` | SF ≠ OF |
+| 작거나 같음 | `JLE` | ZF = 1 또는 SF ≠ OF |
+
+### 부호 없는 정수 비교
+
+| 조건 | 점프 | Flags 조건 |
+| :--- | :--- | :--- |
+| 초과 | `JA` | CF = 0, ZF = 0 |
+| 이상 | `JAE` | CF = 0 |
+| 미만 | `JB` | CF = 1 |
+| 이하 | `JBE` | CF = 1 또는 ZF = 1 |
+
+명령어 이름도 해석 방식을 구분하는 데 도움이 된다.
+
+- signed: Greater, Less
+- unsigned: Above, Below
+
+`JAE`는 `JNB`, `JB`는 `JNAE`처럼 같은 조건을 나타내는 다른 이름도 있지만, 여기서는 Above/Below 계열로 통일한다.
+
+## 같은 비트를 `-1`과 `255`로 비교하기
+
+AL에 `0xFF`, BL에 `1`을 넣고 비교한다.
+
+```nasm
+mov al, 0xFF
+mov bl, 1
+cmp al, bl
+```
+
+`CMP`는 AL과 BL의 자료형을 알지 못한다. 같은 비트 패턴을 빼고 Flags를 갱신할 뿐이다.
+
+하지만 이후 어떤 조건을 검사하느냐에 따라 해석이 달라진다.
+
+```text
+unsigned 해석: 255 > 1  → JA 조건 성립
+signed 해석  :  -1 < 1  → JL 조건 성립
+```
+
+같은 `CMP` 결과에서 두 조건을 직접 기록해 볼 수 있다.
+
+```nasm
+cmp al, bl
+seta dl             ; unsigned에서 AL > BL이면 DL = 1
+setl sil            ; signed에서 AL < BL이면 SIL = 1
+```
+
+이 비교에서는 DL과 SIL이 모두 1이 된다. `SETA`와 `SETL`은 Flags를 변경하지 않으므로 같은 `CMP` 결과를 연속해서 확인할 수 있다.
+
+핵심은 `CMP`가 signed용과 unsigned용으로 나뉘는 것이 아니라는 점이다. **같은 Flags를 어떤 조건 점프 또는 조건 명령으로 해석할지가 달라진다.**
+
+## 비교와 점프 사이에서 Flags를 덮어쓰지 않기
+
+조건 점프는 가장 최근에 갱신된 Flags를 읽는다.
+
+```nasm
+cmp rax, rbx
+add rcx, 1
+je EQUAL
+```
+
+이 코드의 `JE`는 `CMP`가 만든 ZF가 아니라 바로 앞의 `ADD`가 만든 ZF를 확인한다. 따라서 RAX와 RBX가 같은지 올바르게 판단하지 못한다.
+
+반면 다음 명령들은 Flags를 변경하지 않는다.
+
+```nasm
+cmp rax, rbx
+mov rcx, 10
+lea rdx, [rel data]
+je EQUAL
+```
+
+조건 점프가 반드시 `CMP` 바로 다음 줄에 있어야 하는 것은 아니다. 두 명령 사이에서 필요한 Flags가 다른 명령에 의해 덮어써지지 않아야 한다.
+
+함수 호출이나 출력 매크로는 내부에서 어떤 명령을 실행하고 어떤 레지스터와 Flags를 변경하는지 별도로 확인해야 한다. 보존이 명시되지 않았다면 비교 결과를 만든 뒤 먼저 분기를 수행하고, 출력은 결정된 블록 안에서 처리하는 편이 안전하다.
+
+## `TEST`로 값과 특정 비트 확인하기
+
+값이 0인지 확인할 때는 `CMP`를 사용할 수 있다.
+
+```nasm
+cmp eax, 0
+je ZERO
+```
+
+자기 자신과 `TEST`해도 값이 0인지 확인할 수 있다.
+
+```nasm
+test eax, eax
+jz ZERO
+```
+
+`TEST`는 두 피연산자를 AND한 결과를 저장하지 않고 Flags만 갱신한다. EAX가 0이면 AND 결과도 0이므로 ZF가 1이 된다.
+
+특정 비트가 켜졌는지도 같은 방식으로 검사할 수 있다.
+
+```nasm
+test eax, STATE_POISONED
+jz NOT_POISONED
+```
+
+- 다른 값과 비교: `CMP`
+- 현재 값이 0인지 확인: `TEST reg, reg`
+- 특정 비트 확인: `TEST reg, mask`
+
+`CMP reg, 0`과 `TEST reg, reg`는 모두 0 여부를 확인할 수 있지만 모든 Flags에 동일한 영향을 주는 것은 아니다. 단순한 속도 비교보다 어떤 조건을 표현하려는지에 맞춰 선택한다.
+
+## 최하위 비트로 홀짝 분기하기
+
+2진수에서 짝수는 최하위 비트가 0이고 홀수는 1이다.
+
+```text
+12 = 0000 1100 → 최하위 비트 0 → 짝수
+13 = 0000 1101 → 최하위 비트 1 → 홀수
+```
+
+따라서 나눗셈으로 몫과 나머지를 만들 필요 없이 최하위 비트만 검사할 수 있다.
+
+```nasm
+mov eax, 13
+
+test eax, 1
+jnz ODD
+
+EVEN:
+    mov ecx, 1
+    jmp END_CHECK
+
+ODD:
+    mov ecx, 0
+
+END_CHECK:
+```
+
+`TEST EAX, 1`은 EAX의 최하위 비트만 확인하며 EAX 자체는 변경하지 않는다.
+
+- 최하위 비트가 0이면 AND 결과가 0이므로 ZF = 1
+- 최하위 비트가 1이면 AND 결과가 0이 아니므로 ZF = 0
+- `JNZ`는 ZF가 0일 때 `ODD`로 이동
+
+이 방식은 단순히 `DIV`보다 빠르게 만들기 위한 요령이 아니다. 홀짝을 결정하는 정보가 최하위 비트 하나이므로 필요한 정보만 직접 검사한 것이다.
+
+## `SETcc`로 0 또는 1 만들기
+
+조건에 따라 실행 흐름을 나누는 대신, 비교 결과를 0 또는 1로 저장해야 할 때는 `SETcc` 계열을 사용할 수 있다.
+
+```nasm
+cmp rax, rbx
+sete cl             ; 같으면 CL = 1, 다르면 CL = 0
+movzx ecx, cl       ; CL 결과를 ECX로 0 확장
+```
+
+`SETcc`의 목적지는 1바이트 레지스터나 1바이트 메모리다. `SETE`, `SETNE`, `SETG`, `SETA`처럼 조건 점프와 같은 조건 접미사를 사용한다.
+
+`SETcc`가 모든 조건 분기보다 항상 빠른 것은 아니다. 코드 흐름 자체를 나눠야 한다면 점프가 필요하고, 단순한 boolean 값만 만들고 싶을 때 `SETcc`가 자연스러운 선택이 될 수 있다.
+
+## 전체 실습 코드
 
 ```nasm
 %include "io64.inc"
 
 section .text
 global CMAIN
+
 CMAIN:
-    mov rbp, rsp        ; 디버깅을 위한 스택 프레임 설정
+    ; signed 값의 if/else 흐름
+    mov eax, 10
+    mov ebx, 20
 
-    ; 1. 기본 분기문 (CMP, JMP) 학습
-    ; 두 숫자가 같으면 1, 다르면 0을 출력하는 로직
+    cmp eax, ebx
+    jge GREATER_OR_EQUAL
 
-    mov rax, 10
-    mov rbx, 10
+LESS:
+    mov ecx, 0
+    jmp END_COMPARE
 
-    cmp rax, rbx        ; dst(rax) - src(rbx) 연산 수행 (결과는 Flag Register에 저장)
+GREATER_OR_EQUAL:
+    mov ecx, 1
 
-    je LABEL_EQUAL      ; ZF=1이면(같으면) 점프
+END_COMPARE:
+    ; 같은 비트를 signed와 unsigned로 비교
+    mov al, 0xFF
+    mov bl, 1
+    cmp al, bl
 
-    ; [Else 블록] 같지 않은 경우
-    mov rcx, 0
-    jmp LABEL_EQUAL_END ; 비교 종료 지점으로 무조건 점프
+    seta dl             ; unsigned: 255 > 1, DL = 1
+    setl sil            ; signed: -1 < 1, SIL = 1
 
-LABEL_EQUAL:
-    ; [If 블록] 같은 경우
-    mov rcx, 1
+    ; 최하위 비트로 홀짝 판별
+    mov eax, 13
+    test eax, 1
+    jnz ODD
 
-LABEL_EQUAL_END:
-    PRINT_HEX 1, rcx    ; 결과 출력
-    NEWLINE
+EVEN:
+    mov ecx, 1
+    jmp END_CHECK
 
-    ; 2. 연습 문제: 홀수/짝수 판별
-    ; 입력받은 숫자가 짝수면 1, 홀수면 0 출력
+ODD:
+    mov ecx, 0
 
-    ; 2-1) 입력 및 나눗셈 연산
-    GET_DEC 1, ax       ; 사용자 입력 (Input)
-    PRINT_DEC 1, ax     ; 입력값 확인
-    NEWLINE
-
-    mov bl, 2
-    div bl              ; AX / BL 수행 -> 몫: AL, 나머지: AH
-
-    ; 2-2) 나머지 확인 (디버깅)
-    PRINT_STRING "Quotient: "
-    PRINT_DEC 1, al     ; 몫 출력
-    NEWLINE
-    PRINT_STRING "Remainder: "
-    PRINT_DEC 1, ah     ; 나머지 출력
-    NEWLINE
-
-    ; 2-3) 분기 처리
-    cmp ah, 0           ; 나머지가 0인지 비교
-    je LABEL_EVEN       ; 0이면 짝수(Even)로 점프
-
-    ; [Odd Case] 홀수 처리
-    mov al, 0
-    jmp LABEL_END_CHECK
-
-LABEL_EVEN:
-    ; [Even Case] 짝수 처리
-    mov al, 1
-
-LABEL_END_CHECK:
-    PRINT_STRING "Result(Even=1, Odd=0): "
-    PRINT_DEC 1, al
-    NEWLINE
-
-    xor rax, rax        ; 리턴값 0 초기화
+END_CHECK:
+    ; 결과를 확인한 다음 실행 환경에 0 반환
+    xor rax, rax
     ret
+
+section .data
+    data dq 0
 ```
 
----
-## 2. 이론 정리 (Study Notes)
+이 예제에서 ECX, DL, SIL은 각 실습 결과를 임시로 저장한다. 다음 실습이 같은 레지스터의 일부를 다시 사용할 수 있으므로 디버거에서는 각 블록이 끝나는 지점에서 결과를 확인한다.
 
-### 2.1 분기문 (Branching Statement)
-* **CMP (Compare)**: 두 피연산자를 비교하여 **플래그 레지스터(EFLAGS)**의 상태를 업데이트
-  * **실제 동작**: `dst - src`를 수행하되, 결과값은 저장하지 않고 플래그(ZF, SF, OF 등)만 변경
-* **JMP (Jump)**: 코드의 실행 흐름을 특정 주소(Label)로 강제 이동
+## 디버거에서 확인할 것
 
-### 2.2 조건부 점프 명령어 (Conditional Jump)
-`CMP` 명령의 결과(플래그 상태)에 따라 점프 여부를 결정
+1. `CMP` 전후로 비교 대상 레지스터의 값은 그대로 유지되는가?
+2. `10`과 `20`을 비교했을 때 `JGE`가 점프하지 않고 `LESS`로 이어지는가?
+3. `LESS` 끝의 `JMP`를 제거하면 두 분기 블록이 모두 실행되는가?
+4. `0xFF`와 `1`을 비교한 뒤 DL과 SIL이 모두 1이 되는가?
+5. `CMP`와 조건 점프 사이에 `ADD`를 넣으면 판단 기준이 달라지는가?
+6. `TEST EAX, 1`이 EAX를 변경하지 않고 ZF만 갱신하는가?
+7. 입력값 13이 `ODD` 레이블로 이동하는가?
+8. `SETE`가 조건에 따라 1바이트 결과를 0 또는 1로 만드는가?
 
-| 명령어 | 의미 (Meaning) | 조건 (Condition) | 비고 |
-| :--- | :--- | :--- | :--- |
-| `JMP` | Unconditional Jump | 무조건 점프 | `goto`와 동일 |
-| `JE` | Jump if Equal | `ZF = 1` | 같으면 점프 |
-| `JNE` | Jump if Not Equal | `ZF = 0` | 다르면 점프 |
-| `JG` | Jump if Greater | `ZF=0` and `SF=OF` | (부호 있는) 큼 |
-| `JGE` | Jump if Greater or Equal | `SF=OF` | (부호 있는) 크거나 같음 |
-| `JL` | Jump if Less | `SF != OF` | (부호 있는) 작음 |
-| `JLE` | Jump if Less or Equal | `ZF=1` or `SF!=OF` | (부호 있는) 작거나 같음 |
+## 다음 학습: 조건 분기에서 반복문으로
 
-### 2.3 나눗셈 연산 (DIV)
-레지스터 크기에 따라 피연산자의 위치와 저장되는 곳이 달라짐에 주의
+이번 글에서 확인한 핵심은 다음과 같다.
 
-* **수식**: $$Dividend \div Divisor = Quotient \cdots Remainder$$
-* **동작 원리**:
+- `CMP`는 뺄셈 결과를 저장하지 않고 RFLAGS만 갱신한다.
+- 조건 점프는 가장 최근에 변경된 Flags를 해석한다.
+- 점프하지 않으면 CPU는 바로 다음 명령어를 계속 실행한다.
+- `JE`와 `JZ`, `JNE`와 `JNZ`는 각각 같은 조건을 검사한다.
+- signed 비교는 `JG`, `JL` 계열을, unsigned 비교는 `JA`, `JB` 계열을 사용한다.
+- 같은 비트 패턴도 선택한 조건에 따라 signed 또는 unsigned로 다르게 해석된다.
+- `TEST`는 값을 변경하지 않고 0 또는 특정 비트 상태를 확인한다.
+- 홀짝은 최하위 비트 하나로 판단할 수 있다.
+- 단순한 boolean 결과는 `SETcc`로 만들 수도 있다.
 
-| 크기 (Size) | 피제수 (Dividend) | 제수 (Divisor, Operand) | 몫 (Quotient) | 나머지 (Remainder) |
-| :--- | :--- | :--- | :--- | :--- |
-| **Byte** | `AX` (16bit) | `reg8` (ex: `BL`) | `AL` | `AH` |
-| **Word** | `DX:AX` (32bit) | `reg16` (ex: `BX`) | `AX` | `DX` |
-| **Dword** | `EDX:EAX` (64bit) | `reg32` (ex: `EBX`) | `EAX` | `EDX` |
-
-> **주의**: `div bl`을 수행할 때 피제수는 `al`이 아니라 `ax`임. 따라서 `ah`에 쓰레기 값이 들어있으면 오버플로우나 엉뚱한 결과가 나올 수 있으므로, 연산 전 `ah`를 초기화하거나 `ax` 전체를 세팅
-
-## 3. 종합 의견 (Review)
-
-### 핵심 요약 및 주의사항
-* **플래그 레지스터 의존성**: 모든 조건 점프(`JE`, `JG` 등)는 직전의 산술 연산이나 `CMP` 명령어가 설정한 플래그 비트에 전적으로 의존함. 중간에 다른 연산이 끼어들면 의도치 않은 분기가 발생할 수 있음
-* **부호 유무의 구분**:
-  * **부호 없는 수(Unsigned)**: `JA` (Above), `JB` (Below) 사용
-  * **부호 있는 수(Signed)**: `JG` (Greater), `JL` (Less) 사용
-  * 이를 혼동하면 음수 비교 시 논리적 오류 발생
-
-### Tip
-* **최적화 (Optimization)**: 홀수/짝수 판별 시 `DIV` 명령어는 CPU 사이클을 많이 소모하는 무거운 연산임. 비트 연산을 활용하면 훨씬 빠름
-  * **변경 전**: `div bl` -> 나머지 확인
-  * **변경 후**: `test ax, 1` (또는 `and ax, 1`) -> `JZ` (짝수), `JNZ` (홀수)
-  * 최하위 비트가 0이면 짝수, 1이면 홀수라는 성질을 이용한 최적화 기법
+다음 글에서는 조건 점프를 이전 주소로 되돌려 같은 코드 블록을 여러 번 실행하는 반복문을 구현한다.

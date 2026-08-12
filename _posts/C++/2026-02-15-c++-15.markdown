@@ -1,17 +1,17 @@
 ---
 layout: post
-title: "[C++ 15] 열거형(enum)과 전처리 지시문(#define)의 이해"
+title: "[C++ 15] enum class와 매크로: 이름 있는 값의 선택 기준"
 date: 2026-02-10
 categories: [Dev, C++]
 tags: [C++, Enum, Preprocessor, Macro, Constant]
 use_math: true
 ---
 
-# [C++] 상수의 그룹화와 전처리 매크로의 활용
+# [C++] 연관된 값은 타입으로 묶고, 매크로는 좁게 사용한다
 
 연관된 상수를 그룹으로 관리하는 **열거형(Enum)**과 컴파일 이전에 코드를 치환하는 **전처리 지시문(Preprocessor Directive)**의 개념 및 차이점을 정리
 
-## 1. 소스 코드 (Source Code)
+## 같은 상수를 세 방식으로 표현하기
 
 가위바위보 상수를 `const`, `enum`, `#define` 세 가지 방식으로 정의하고, 메모리 적재 방식과 빌드 과정의 차이를 확인하는 예제
 
@@ -73,7 +73,7 @@ int main()
 }
 ```
 ---
-## 2. 이론 정리 (Study Notes)
+## 컴파일러가 이해하는 이름과 전처리 치환
 
 ### 2.1 상수 정의 방식 비교
 C++에서 상수를 정의하는 방법은 크게 세 가지가 있으며, 각각의 처리 시점과 특징이 다름
@@ -81,7 +81,7 @@ C++에서 상수를 정의하는 방법은 크게 세 가지가 있으며, 각�
 | 구분 | `const` | `enum` | `#define` |
 | :---: | :--- | :--- | :--- |
 | **처리 시점** | 컴파일 (Compiler) | 컴파일 (Compiler) | 전처리 (Preprocessor) |
-| **메모리** | 최적화 시 없음<br>(주소 참조 시 할당) | 별도 할당 없음<br>(정수 리터럴 취급) | 없음<br>(텍스트 치환) |
+| **핵심** | 타입이 있는 읽기 전용 객체 | 연관된 열거 값을 정의하는 타입 | 전처리 단계의 토큰 치환 |
 | **디버깅** | 용이함 (심볼 정보 있음) | 용이함 | 어려움 (심볼 정보 사라짐) |
 | **용도** | 타입이 명확한 단일 상수 | 연관된 상태값의 그룹화 | 조건부 컴파일, 단순 치환 |
 
@@ -100,11 +100,11 @@ $$
 \text{Source Code} (.cpp) \xrightarrow{\text{Preprocessor}} \text{Translation Unit} \xrightarrow{\text{Compiler}} \text{Object File} (.obj) \xrightarrow{\text{Linker}} \text{Executable} (.exe)
 $$
 
-1.  **전처리 (Preprocessing):** `#include` 파일 내용을 붙여넣고, `#define` 매크로를 실제 값으로 치환함
+1.  **전처리 (Preprocessing):** `#include`, 조건부 컴파일, 매크로 등을 처리해 컴파일할 소스를 만든다. 단순한 파일 복사라고만 이해하면 구현 세부를 놓칠 수 있다.
 2.  **컴파일 (Compilation):** 문법 검사를 수행하고 기계어 코드로 변환함
 3.  **링크 (Linking):** 분리된 여러 소스 코드와 라이브러리를 하나로 연결함
 
-## 3. 종합 의견 (Review)
+## 값에 의미와 범위를 부여하기
 
 ### 핵심 요약 및 주의사항
 * **매크로 사용 자제**: `#define`은 타입 체크를 하지 않고 단순 텍스트만 바꾸기 때문에, 예기치 않은 부작용(Side Effect)이 발생할 수 있음. 가능한 `const`나 `enum`을 사용하는 것이 모던 C++의 지향점임
@@ -114,4 +114,12 @@ $$
 * **Enum Class (Scoped Enum)**: C++11부터 도입된 `enum class`를 사용하면 이름 충돌을 방지하고 타입 안정성을 높일 수 있음
   * **기존 Enum**: `enum Color { RED }; enum Traffic { RED };` $\rightarrow$ **충돌 발생 (Redefinition)**
   * **Enum Class**: `enum class Color { RED };` $\rightarrow$ `Color::RED`로 접근하므로 안전함
+
+상수 값에는 `#define MAX_COUNT 10`보다 `constexpr int MaxCount = 10;`이 적합하다. `constexpr`는 타입과 스코프를 가지며 디버거와 컴파일러가 이해할 수 있다. 매크로는 헤더 가드, 조건부 컴파일처럼 전처리가 실제로 필요한 곳에 남겨 둔다.
+
+매크로 본문 끝에 세미콜론을 포함하면 호출부의 문법과 결합해 예상하지 못한 결과가 생긴다. 여러 문장을 담는 함수형 매크로는 인자 중복 평가 문제도 있으므로 가능하면 함수나 템플릿으로 대체한다.
+
+## 마무리
+
+`enum class`는 선택 가능한 값의 집합을 타입으로 만들고, `constexpr`는 이름 있는 상수를 표현한다. 둘은 단순 텍스트 치환인 매크로보다 컴파일러의 검사를 더 많이 받을 수 있다.
 * **헤더 파일 중복 방지**: 전처리 지시문인 `#pragma once`나 `#ifndef` 가드를 사용하여 헤더 파일이 중복으로 포함되는 것을 막아야 함

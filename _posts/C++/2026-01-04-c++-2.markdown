@@ -7,132 +7,460 @@ tags: [C++, 자료형, 정수, 오버플로우, 최적화]
 use_math : true
 ---
 
-# [C++] 정수형 변수의 종류와 메모리 최적화
+이전 글에서는 문자열을 바로 출력했다. 프로그램에서 값을 계속 사용하려면 메모리에 객체를 만들고 그 객체에 이름을 붙여 접근할 수 있어야 한다.
 
-C++ 학습의 첫 단계로, 데이터를 저장하는 **변수(Variable)**의 선언 방법과 다양한 정수형 타입들의 크기, 그리고 **오버플로우** 현상에 대해 정리
+C++의 정수 타입은 단순히 “작은 숫자”와 “큰 숫자”를 구분하는 이름이 아니다. 타입의 크기와 부호 여부는 표현할 수 있는 값의 범위, 연산 과정에서 일어나는 변환, 범위를 벗어났을 때의 동작에 영향을 준다.
 
----
+이번 글에서는 **현재 개발 환경의 정수 크기와 범위를 직접 확인하고**, signed와 unsigned 정수가 범위를 벗어났을 때 왜 서로 다른 규칙을 따르는지 살펴본다.
 
-## 1. 소스 코드 (Source Code)
+## 변수는 값을 저장하는 객체에 이름을 붙인다
 
-다양한 정수형 변수를 선언해 보고, 최대값을 넘겼을 때 발생하는 오버플로우 현상을 확인하는 예제
+기본적인 변수 정의는 타입, 이름, 초기값으로 구성된다.
 
 ```cpp
-#include <iostream>
-using namespace std;
-
-// 전역 변수 (Global Variable)
-// 초기값이 있으면 .data 영역, 없거나 0이면 .bss 영역에 저장됨
 int hp = 100;
+```
+
+- `int`: 객체가 어떤 정수 타입인지 지정
+- `hp`: 소스 코드에서 객체를 가리킬 이름
+- `100`: 객체를 만들 때 사용할 초기값
+
+이후에는 이름을 통해 값을 읽거나 변경할 수 있다.
+
+```cpp
+hp -= 10;
+std::cout << hp << '\n';
+```
+
+초기값이 아직 필요하지 않더라도 지역 정수 객체를 그대로 방치하기보다 값 초기화를 사용할 수 있다.
+
+```cpp
+int score{};            // 0으로 초기화
+short itemCount{};     // 0으로 초기화
+```
+
+초기화되지 않은 자동 저장 기간의 기본 정수 객체를 값으로 읽으면 올바른 프로그램 동작을 기대할 수 없다. 이번 글의 모든 변수는 사용 전에 명확히 초기화한다.
+
+## 기본 정수 타입의 크기
+
+C++에는 여러 기본 정수 타입이 있다.
+
+```cpp
+signed char smallValue{};
+short shortValue{};
+int value{};
+long long largeValue{};
+```
+
+Visual Studio를 사용하는 일반적인 Windows x64 환경에서는 흔히 다음 크기를 관찰할 수 있다.
+
+| 타입 | 일반적인 Windows x64 크기 | 최소 표준 범위 |
+| :--- | :---: | :--- |
+| `signed char` | 1바이트 | -127 이상 127 이하를 포함 |
+| `short` | 2바이트 | -32767 이상 32767 이하를 포함 |
+| `int` | 4바이트 | -32767 이상 32767 이하를 포함 |
+| `long long` | 8바이트 | 약 ±9.22×10¹⁸ 범위를 포함 |
+
+표의 실제 크기와 최소 보장은 서로 다른 개념이다. C++ 표준은 모든 플랫폼에서 `short`가 정확히 2바이트이고 `int`가 정확히 4바이트라고 고정하지 않는다. 대신 다음과 같은 크기 관계를 보장한다.
+
+```text
+sizeof(char) <= sizeof(short)
+             <= sizeof(int)
+             <= sizeof(long)
+             <= sizeof(long long)
+```
+
+`sizeof(char)`는 항상 1이다. 다만 C++에서 말하는 1바이트가 몇 비트인지는 구현 환경에 따라 달라질 수 있다.
+
+## `sizeof`와 `CHAR_BIT`로 직접 확인하기
+
+`sizeof`는 타입이나 객체가 차지하는 크기를 바이트 단위로 반환한다.
+
+```cpp
+#include <climits>
+#include <iostream>
 
 int main()
 {
-    // 정수형 타입의 종류와 크기
-    char a;             // 1 byte (-128 ~ 127)
-    short b;            // 2 byte (-32,768 ~ 32,767)
-    int c;              // 4 byte (약 -21억 ~ 21억)
-    long long d;        // 8 byte (매우 큼) (__int64)
+    int hp = 100;
 
-    // Unsigned (양수 전용)
-    unsigned char ua;       // 1 byte (0 ~ 255)
-    unsigned short ub;      // 2 byte (0 ~ 65,535)
-    unsigned int uc;        // 4 byte (0 ~ 42억)
-    unsigned long long ud;  // 8 byte
-
-    // 오버플로우 (Overflow) 테스트
-    b = 32767;              // short의 최대값 (0x7FFF)
-    b = b + 1;              // 1을 더함
-    cout << "b (Overflow) = " << b << "\n";
-
-    // 원인 분석:
-    // 0111 1111 1111 1111 (32767)
-    // +                 1
-    // -------------------
-    // 1000 0000 0000 0000 (-32768, 최상위 비트가 1이 됨)
-
-    // 언더플로우 (Underflow) 테스트
-    ub = 0;                 // unsigned short의 최소값
-    ub = ub - 1;            // 1을 뺌
-    cout << "ub (Underflow) = " << ub << "\n";
-    // 결과는 65535 (최대값)으로 돌아감
-
-    cout << "체력이 " << hp << " 남았습니다.\n";
+    std::cout << "CHAR_BIT: " << CHAR_BIT << '\n';
+    std::cout << "sizeof(short): " << sizeof(short) << '\n';
+    std::cout << "sizeof(int): " << sizeof(int) << '\n';
+    std::cout << "sizeof(long long): " << sizeof(long long) << '\n';
+    std::cout << "sizeof(hp): " << sizeof(hp) << '\n';
 
     return 0;
 }
 ```
 
----
-## 2. 이론 정리 (Study Notes)
+`CHAR_BIT`는 한 바이트를 구성하는 비트 수다. 현재 Windows x64 환경에서는 일반적으로 다음과 같은 결과를 확인할 수 있다.
 
-### 1) 변수 선언과 메모리 (Variable & Memory)
-프로그래밍은 본질적으로 **데이터(Data)를 저장하고 로직(Logic)으로 가공**하는 것
+```text
+CHAR_BIT: 8
+sizeof(short): 2
+sizeof(int): 4
+sizeof(long long): 8
+sizeof(hp): 4
+```
 
-* **변수 선언 문법:** `[타입] [이름] = [초기값];`
-* **전역 변수의 저장 위치:** (어셈블리 공부 내용과 연결)
-  * **.data 영역:** `int hp = 100;` 처럼 **0이 아닌 초기값**이 있는 경우
-  * **.bss 영역:** `int mp;` 처럼 초기값이 없거나 0인 경우
+`sizeof`의 결과 타입은 `std::size_t`다. 입문 단계에서는 결과 단위가 C++의 바이트이고, 타입뿐 아니라 실제 객체에도 사용할 수 있다는 점을 먼저 기억하면 된다.
 
-### 2) 정수형 데이터 타입 (Integer Types)
-왜 `int` 하나만 쓰지 않고 여러 타입이 존재할까? 상황에 맞는 크기를 골라 쓰기 위함
+## `numeric_limits`로 표현 범위 확인하기
 
-| 타입 (Type) | 크기 (Byte) | 비트 (Bit) | 표현 범위 (Signed) | 사용처 예시 |
-| :--- | :--- | :--- | :--- | :--- |
-| **char** | 1 | 8 | -128 ~ 127 | 문자, 작은 상태값 |
-| **short** | 2 | 16 | -32,768 ~ 32,767 | 아이템 개수, 스탯 |
-| **int** | 4 | 32 | 약 -21억 ~ 21억 | 일반적인 정수 연산 |
-| **long long** | 8 | 64 | 매우 큼 | 게임 머니, 경험치 |
-
-* **Signed (기본):** 음수와 양수 모두 표현. 최상위 비트(MSB)를 부호 비트로 사용
-* **Unsigned:** 양수만 표현 (`unsigned int` 등). 음수 영역만큼 양수 범위가 2배로 늘어남
-
-### 3) 오버플로우와 언더플로우
-
-변수가 담을 수 있는 범위를 넘어설 때 발생하는 현상. 값이 순환(Cycle)하는 특성을 가짐
-
-* **오버플로우 (Overflow):** 최대값을 넘어가면 가장 작은 값(음수)으로 돌아가 버리는 현상
-  > 예: `short` 32,767 + 1 = **-32,768**
-* **언더플로우 (Underflow):** 최소값보다 작아지면 가장 큰 값(양수)으로 돌아가 버리는 현상
-  > 예: `unsigned` 0 - 1 = **최대값(42억 or 65535 등)**
-
----
-
-## 3. 종합 의견 (Review)
-
-### 1) 왜 4바이트(int)로 통일하지 않는가?
-요즘 PC 성능이 좋으니 `int`만 써도 되지 않을까 싶지만, 개발 환경에 따라 다름
-* **콘솔/모바일:** 하드웨어 리소스(메모리)가 제한적이므로 최대한 아껴야 함
-* **온라인 게임:** 서버와 데이터를 주고받을 때 패킷 크기를 줄여야 함 (예: 동접 1만 명일 때 4바이트 대신 1바이트를 쓰면 데이터 전송량이 1/4로 줄어듦)
-
-### 2) Unsigned 사용에 대한 고찰
-> "체력이나 레벨은 음수가 없으니 무조건 `unsigned`를 써야 할까?"
-
-* **장점:** 표현 범위가 양수 쪽으로 2배 넓어짐
-* **단점:** 연산 과정에서 실수로 `0 - 1` 같은 상황이 발생하면 **엄청나게 큰 값**으로 변해버리는 버그(언더플로우)가 발생하기 쉬움
-* **결론:** 팀이나 개인의 코딩 스타일(Convention)에 따라 다르지만, **연산 안전성**을 위해 일반적인 수치는 그냥 `int`(signed)를 사용하는 경우도 많음
-
-### 3) 팁 (Tip)
-* **호환성:** C++ 표준에서는 `__int64` 대신 **`long long`**을 사용하는 것이 호환성에 좋음 (`__int64`는 마이크로소프트 전용 키워드)
-* **디버깅:** 게임 테스트 중 숫자가 갑자기 말도 안 되게 큰 값이 나오거나(언더플로우), 뜬금없이 음수가 나온다면(오버플로우) 데이터 타입의 범위를 확인하기!
-
----
-
-## 4. 심화 학습 (Deep Dive)
-
-### 1) 내 변수의 크기 확인하기 (`sizeof`)
-"정말 `int`가 4바이트일까?" 궁금하다면 `sizeof` 연산자로 직접 확인하기
+타입의 최솟값과 최댓값을 숫자로 직접 외우거나 코드에 반복해서 적을 필요는 없다. `<limits>`의 `std::numeric_limits`를 사용하면 현재 구현에서 지원하는 범위를 확인할 수 있다.
 
 ```cpp
-cout << "int size: " << sizeof(int) << " bytes" << endl;     // 4 bytes
-cout << "char size: " << sizeof(char) << " bytes" << endl;   // 1 byte
+#include <iostream>
+#include <limits>
+
+int main()
+{
+    std::cout << "int min: "
+              << std::numeric_limits<int>::min() << '\n';
+
+    std::cout << "int max: "
+              << std::numeric_limits<int>::max() << '\n';
+
+    std::cout << "unsigned int min: "
+              << std::numeric_limits<unsigned int>::min() << '\n';
+
+    std::cout << "unsigned int max: "
+              << std::numeric_limits<unsigned int>::max() << '\n';
+
+    return 0;
+}
 ```
-### 2) char는 문자가 아니라 '작은 정수'다
-`char` 타입에 `'A'`를 넣지만, 컴퓨터는 이를 아스키 코드 값인 정수 **65**로 저장 즉, `char`도 덧셈/뺄셈 연산이 가능
+
+일반적인 32비트 `int` 환경에서는 다음 범위를 볼 수 있다.
+
+```text
+int min: -2147483648
+int max: 2147483647
+unsigned int min: 0
+unsigned int max: 4294967295
+```
+
+코드가 실제로 컴파일되는 환경의 값을 사용하므로 플랫폼 가정을 줄일 수 있다.
+
+## Signed와 Unsigned
+
+정수 타입은 부호 있는 signed와 부호 없는 unsigned 형태로 사용할 수 있다.
 
 ```cpp
-char ch = 'A';            // 내부적으로 65 저장
-cout << (int)ch << endl;  // 65 출력 (형변환)
-
-ch = ch + 1;              // 65 + 1 = 66 ('B')
-cout << ch << endl;       // 'B' 출력
+int signedValue = -10;
+unsigned int unsignedValue = 10;
 ```
+
+- signed 정수: 음수, 0, 양수 표현
+- unsigned 정수: 음수를 표현하지 않고 0 이상의 값을 표현
+
+같은 비트 수라면 unsigned는 음수를 위해 사용하던 비트 패턴까지 0 이상의 값에 사용하므로 더 큰 양수를 표현할 수 있다.
+
+N비트 unsigned 정수의 값은 다음 범위를 가진다.
+
+$$
+0 \leq value \leq 2^N - 1
+$$
+
+중요한 차이는 표현 범위를 벗어난 연산에 대한 C++의 규칙이다.
+
+## Unsigned wraparound는 정의된 동작이다
+
+unsigned 정수 연산은 $2^N$을 기준으로 한 modulo 산술을 따른다.
+
+16비트 unsigned 값이 0일 때 1을 빼면 다음과 같이 계산된다.
+
+$$
+(0 - 1) \bmod 2^{16} = 65535
+$$
+
+이를 코드로 확인할 수 있다.
+
+```cpp
+#include <cstdint>
+#include <iostream>
+#include <limits>
+
+int main()
+{
+    std::uint16_t value = 0;
+    --value;
+
+    std::cout << "result: " << value << '\n';
+    std::cout << "uint16 max: "
+              << std::numeric_limits<std::uint16_t>::max() << '\n';
+
+    return 0;
+}
+```
+
+결과는 다음과 같다.
+
+```text
+result: 65535
+uint16 max: 65535
+```
+
+이 동작은 우연히 현재 컴퓨터에서 나타난 결과가 아니다. unsigned 정수 산술에 대해 C++이 정의한 규칙이다.
+
+일상적으로는 최대값을 넘어 0으로 돌아가는 현상까지 포함해 unsigned wraparound라고 부를 수 있다. 하지만 wraparound가 정의돼 있다는 사실이 프로그램의 논리에도 항상 올바르다는 뜻은 아니다. 아이템 개수가 0인데 감소해서 65535가 된다면 언어 규칙상 유효해도 게임 로직에는 버그일 수 있다.
+
+## Signed overflow는 Undefined Behavior다
+
+signed 정수의 산술 결과가 해당 타입의 표현 범위를 벗어나면 C++에서는 undefined behavior가 발생한다.
+
+```cpp
+int value = std::numeric_limits<int>::max();
+++value;    // undefined behavior
+```
+
+일반적인 2의 보수 컴퓨터에서 실행했을 때 최솟값처럼 보일 수 있지만 C++ 표준은 그 결과를 보장하지 않는다. 컴파일러는 올바른 프로그램에서는 signed overflow가 발생하지 않는다는 전제로 코드를 최적화할 수 있다.
+
+따라서 다음과 같이 설명하면 안 된다.
+
+```text
+signed 최대값 + 1 = signed 최소값으로 항상 순환
+```
+
+하드웨어의 비트 연산 결과와 C++ 언어가 프로그램에 보장하는 동작은 구분해야 한다.
+
+## `short + short`가 항상 `short` 연산은 아니다
+
+작은 정수 타입은 산술 연산 전에 정수 승격(Integer Promotion)을 거칠 수 있다.
+
+```cpp
+short value = 32767;
+value = value + 1;
+```
+
+일반적인 32비트 `int` 환경에서 계산 과정은 다음과 같다.
+
+```text
+short value
+    ↓ int로 승격
+int 32767 + int 1
+    ↓
+int 32768
+    ↓ short에 대입하기 위한 변환
+```
+
+덧셈 자체는 `int` 범위 안이므로 이 지점에서 signed `int` overflow가 발생한 것은 아니다. 문제는 `32768`을 표현할 수 없는 `short`로 다시 변환하는 단계다.
+
+범위 밖의 정수를 signed 타입으로 변환했을 때 결과는 구현에 따라 달라질 수 있다. 따라서 이 코드를 signed overflow가 항상 `-32768`로 순환한다는 증거로 사용할 수 없다.
+
+`char`와 `short`처럼 작은 타입을 사용하더라도 많은 산술 표현식이 `int`로 계산될 수 있다는 점을 기억해야 한다.
+
+## 범위를 넘기 전에 검사하기
+
+signed overflow를 발생시킨 뒤 결과를 확인하는 방식은 안전한 실습이 아니다. 연산 전에 범위를 검사해야 한다.
+
+1을 증가시키는 간단한 경우는 다음처럼 확인할 수 있다.
+
+```cpp
+#include <iostream>
+#include <limits>
+
+int main()
+{
+    int value = std::numeric_limits<int>::max();
+
+    if (value == std::numeric_limits<int>::max())
+    {
+        std::cout << "더 이상 증가시킬 수 없습니다.\n";
+    }
+    else
+    {
+        ++value;
+    }
+
+    return 0;
+}
+```
+
+임의의 양수 `amount`를 더할 때는 최대값과의 차이를 먼저 확인할 수 있다.
+
+```cpp
+if (amount > 0 &&
+    value > std::numeric_limits<int>::max() - amount)
+{
+    std::cout << "overflow 가능\n";
+}
+else
+{
+    value += amount;
+}
+```
+
+음수 덧셈까지 일반화하려면 최솟값 방향도 별도로 검사해야 한다. 이번 글에서는 범위를 벗어난 연산을 먼저 실행하지 않는다는 원칙에 집중한다.
+
+## 정확한 비트 폭이 필요할 때
+
+일반적인 계산에는 `int`가 자연스러운 기본 선택인 경우가 많다. 반면 파일 형식, 네트워크 프로토콜, 하드웨어 레지스터처럼 데이터 크기가 정확히 정해져 있다면 `<cstdint>`의 고정 폭 정수 타입을 고려할 수 있다.
+
+```cpp
+#include <cstdint>
+
+std::int8_t signed8{};
+std::uint8_t unsigned8{};
+std::int16_t signed16{};
+std::uint16_t unsigned16{};
+std::int32_t signed32{};
+std::uint32_t unsigned32{};
+std::int64_t signed64{};
+std::uint64_t unsigned64{};
+```
+
+이름의 숫자는 비트 폭을 나타낸다. 해당 구현이 정확한 폭의 정수 타입을 제공할 수 있을 때 이러한 타입들이 정의된다.
+
+`std::uint8_t`와 `std::int8_t`는 문자 타입의 별칭일 수 있어 스트림에 바로 출력하면 숫자가 아닌 문자처럼 보일 수 있다. 숫자 값으로 출력하려면 더 큰 정수 타입으로 변환할 수 있다.
+
+```cpp
+std::uint8_t value = 65;
+std::cout << static_cast<unsigned int>(value) << '\n';
+```
+
+## Signed와 Unsigned를 섞을 때
+
+signed와 unsigned 값을 같은 표현식에서 사용하면 usual arithmetic conversions에 따라 공통 타입으로 변환된 뒤 연산될 수 있다.
+
+```cpp
+int signedValue = -1;
+unsigned int unsignedValue = 1;
+
+std::cout << (signedValue < unsignedValue) << '\n';
+```
+
+일반적인 32비트 `int`와 `unsigned int` 환경에서는 `signedValue`가 unsigned로 변환될 수 있다. `-1`에 대응하는 값은 매우 큰 unsigned 값이 되므로 직관과 달리 비교 결과가 false가 될 수 있다.
+
+```text
+사람의 직관: -1 < 1  → true
+변환 이후   : 큰 unsigned 값 < 1 → false
+```
+
+이 때문에 단순히 “음수가 필요 없으니 unsigned를 사용한다”는 기준만으로 타입을 선택하면 비교와 뺄셈에서 예상하지 못한 문제가 생길 수 있다. 특히 컨테이너 크기에서 사용하는 `std::size_t`와 일반 `int` 인덱스를 비교할 때 주의해야 한다.
+
+## 작은 타입이 항상 최적화는 아니다
+
+작은 정수 타입을 사용하면 언제나 메모리와 성능이 좋아진다고 단정할 수 없다.
+
+### 도움이 될 수 있는 경우
+
+- 매우 큰 배열에서 요소 하나의 크기를 줄일 때
+- 캐시 한 줄에 더 많은 데이터를 담아야 할 때
+- 파일 또는 프로토콜 형식이 정확한 비트 폭을 요구할 때
+- 직렬화 결과의 필드 크기를 직접 설계할 때
+
+### 확인해야 하는 요소
+
+- 구조체의 정렬과 padding 때문에 기대만큼 크기가 줄지 않을 수 있음
+- 작은 정수 타입도 산술 전에 `int`로 승격될 수 있음
+- 메모리 구조를 그대로 네트워크에 보내지 않는다면 직렬화 형식이 실제 패킷 크기를 결정
+- 작은 타입이라고 CPU 연산이 반드시 더 빠른 것은 아님
+- 값의 실제 범위보다 지나치게 작은 타입은 변환과 범위 오류를 늘릴 수 있음
+
+타입은 먼저 값의 의미와 필요한 범위를 만족해야 한다. 크기 최적화는 실제 데이터 배치와 성능을 측정한 뒤 판단하는 편이 좋다.
+
+## `char`도 정수 타입이다
+
+`char`는 문자 표현에 사용하는 정수 타입이다.
+
+```cpp
+char character = 'A';
+```
+
+현재 사용하는 ASCII 호환 실행 문자 집합에서는 `'A'`의 값이 65다.
+
+```cpp
+std::cout << static_cast<int>(character) << '\n';
+```
+
+`char`는 산술 표현식에서 정수 승격을 거칠 수 있다.
+
+```cpp
+character = static_cast<char>(character + 1);
+std::cout << character << '\n';    // 일반적인 환경에서 B
+```
+
+C++의 기본 실행 문자 집합에서는 숫자와 영문 알파벳 문자가 각각 순서대로 연속되도록 보장되므로 이런 학습 예제를 만들 수 있다.
+
+다만 plain `char`가 signed인지 unsigned인지는 구현에 따라 달라질 수 있다.
+
+```cpp
+char implementationDependent{};
+signed char signedByte{};
+unsigned char unsignedByte{};
+```
+
+정확한 부호 범위가 중요하다면 `signed char` 또는 `unsigned char`처럼 의도를 명시해야 한다. 문자 데이터를 표현할 때는 일반적인 `char`를 사용한다.
+
+## 전체 실습 코드
+
+다음 코드는 undefined behavior를 발생시키지 않으면서 현재 환경의 정수 특성과 unsigned wraparound를 확인한다.
+
+```cpp
+#include <climits>
+#include <cstdint>
+#include <iostream>
+#include <limits>
+
+int main()
+{
+    int hp = 100;
+
+    std::cout << "CHAR_BIT: " << CHAR_BIT << '\n';
+    std::cout << "sizeof(short): " << sizeof(short) << '\n';
+    std::cout << "sizeof(int): " << sizeof(int) << '\n';
+    std::cout << "sizeof(long long): " << sizeof(long long) << '\n';
+
+    std::cout << "int min: "
+              << std::numeric_limits<int>::min() << '\n';
+    std::cout << "int max: "
+              << std::numeric_limits<int>::max() << '\n';
+
+    std::uint16_t itemCount = 0;
+    --itemCount;
+
+    std::cout << "uint16 wraparound: " << itemCount << '\n';
+
+    if (hp < std::numeric_limits<int>::max())
+    {
+        ++hp;
+    }
+
+    char character = 'A';
+    std::cout << "character: " << character << '\n';
+    std::cout << "character value: "
+              << static_cast<int>(character) << '\n';
+
+    return 0;
+}
+```
+
+## 디버거에서 확인할 것
+
+1. 현재 환경에서 `CHAR_BIT`와 각 타입의 `sizeof` 결과는 얼마인가?
+2. `numeric_limits<int>`가 보여주는 최솟값과 최댓값은 무엇인가?
+3. `std::uint16_t`의 0에서 1을 빼면 65535가 되는가?
+4. unsigned wraparound 결과가 `numeric_limits<std::uint16_t>::max()`와 같은가?
+5. signed 최대값에서는 증가 코드가 실행되지 않는가?
+6. `short` 덧셈 표현식의 피연산자가 디버거와 타입 분석에서 `int`로 승격되는가?
+7. `-1`과 unsigned 1을 비교했을 때 예상과 다른 결과가 나오는가?
+8. `character`를 정수로 변환하면 현재 환경에서 65가 출력되는가?
+
+## 다음 학습: 참과 거짓을 표현하는 `bool`
+
+이번 글에서 확인한 핵심은 다음과 같다.
+
+- 정수 타입의 크기는 표현 가능한 값의 범위에 영향을 준다.
+- 기본 정수 타입의 정확한 크기는 구현에 따라 달라질 수 있다.
+- 현재 환경의 크기는 `sizeof`, 범위는 `numeric_limits`로 확인할 수 있다.
+- 작은 정수 타입의 산술은 정수 승격을 거쳐 `int`로 수행될 수 있다.
+- unsigned 연산은 $2^N$을 기준으로 순환하도록 정의돼 있다.
+- signed 정수 산술의 범위 초과는 undefined behavior다.
+- signed와 unsigned를 섞으면 예상하지 못한 변환이 일어날 수 있다.
+- 정확한 비트 폭이 필요하면 `<cstdint>`의 고정 폭 타입을 고려할 수 있다.
+- 작은 타입이 항상 메모리나 연산 성능에 유리한 것은 아니다.
+- plain `char`의 signed 여부는 구현에 따라 달라진다.
+
+다음 글에서는 두 가지 논리 상태를 표현하는 `bool`을 사용하고, 정수와 `bool` 사이의 변환 규칙과 실제 객체 크기를 살펴본다.
