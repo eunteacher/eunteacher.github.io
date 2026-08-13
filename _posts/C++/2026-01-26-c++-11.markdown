@@ -7,164 +7,865 @@ tags: [C++, If, Switch, ControlFlow, Branching]
 use_math: true
 ---
 
-# [C++] 조건에서 실제 실행 경로로 이어지는 과정
+앞에서는 비교 연산자와 논리 연산자로 `bool` 조건을 만드는 방법을 살펴봤다. 조건을 계산하는 것만으로는 프로그램의 행동이 달라지지 않는다. 조건 결과에 따라 실제로 실행할 코드를 선택해야 한다.
 
-조건에 따라 프로그램의 실행 경로를 나누는 `if`와 `switch`를 살펴보고, 단순 문법보다 조건의 순서와 누락된 경우를 어떻게 다룰지에 집중한다.
+분기문(Branching statement)은 프로그램의 실행 흐름을 여러 경로로 나눈다. 이번에는 범위와 복합 조건을 처리하는 `if`, 하나의 상태값에 따라 경로를 고르는 `switch`를 살펴본다.
 
----
+## `if`는 조건이 참일 때만 블록을 실행한다
 
-## `if`가 적합한 조건, `switch`가 적합한 상태
+가장 단순한 `if`문은 조건식과 실행할 문장으로 구성된다.
 
-### 1) 분기문의 필요성
-* 데이터를 메모리에 할당하고 가공하는 것만으로는 부족함. 가공된 데이터의 상태에 따라 **"무엇을 할지"** 결정해야 함
-* 프로그램의 실행 흐름을 조건에 따라 여러 갈래로 나누는 문법
+```cpp
+int hp = 0;
 
-### 2) if 문 (If Statement)
-* **if:** 조건식이 `true`일 때만 내부 코드를 실행
-* **else:** `if`의 조건이 `false`일 때 실행
-* **else if:** 여러 조건을 순차적으로 검사할 때 사용. 가독성을 높이고 중첩된 `if-else`를 피할 수 있음
+if (hp <= 0)
+{
+    std::cout << "몬스터를 처치했습니다.\n";
+}
+```
 
-### 3) switch 문 (Switch Statement)
-* **특징:** 하나의 값을 여러 상수 경우와 비교하는 구조를 명확히 표현한다. 실제로 점프 테이블을 사용할지는 컴파일러가 결정한다.
-* **제약:** 괄호 `()` 안에는 정수 계열(정수, 문자, 열거형)만 올 수 있음 (실수 불가)
-* **break:** 해당 `case` 실행 후 `switch`를 빠져나온다. 의도적으로 다음 `case`를 실행할 때는 `[[fallthrough]]`로 의도를 표시할 수 있다.
+실행 순서는 다음과 같다.
 
----
+```text
+hp <= 0 계산
+     │
+     ├── true  → 중괄호 안의 코드 실행
+     │
+     └── false → 중괄호 안의 코드 건너뜀
+```
 
-## HP 분기와 선택지 분기
+조건식은 `bool` 결과를 직접 만들 수도 있고 `bool`로 변환 가능한 값을 사용할 수도 있다.
 
-몬스터의 상태(HP)에 따른 전투 로직과 가위바위보 예제를 통해 `if`와 `switch`의 차이를 확인
+```cpp
+bool isDead = hp <= 0;
+
+if (isDead)
+{
+    std::cout << "몬스터를 처치했습니다.\n";
+}
+```
+
+정수도 조건으로 사용할 수 있다.
+
+```cpp
+int remainingPotionCount = 3;
+
+if (remainingPotionCount)
+{
+    std::cout << "사용할 수 있는 포션이 있습니다.\n";
+}
+```
+
+0은 `false`, 0이 아닌 값은 `true`로 변환된다. 하지만 개수를 조건으로 사용하는 것보다 질문을 직접 적는 편이 의미가 분명하다.
+
+```cpp
+if (remainingPotionCount > 0)
+{
+    std::cout << "사용할 수 있는 포션이 있습니다.\n";
+}
+```
+
+## 실행문이 하나여도 중괄호를 사용한다
+
+`if` 뒤에 실행할 문장이 하나뿐이라면 중괄호를 생략할 수 있다.
+
+```cpp
+if (hp <= 0)
+    std::cout << "몬스터를 처치했습니다.\n";
+```
+
+하지만 나중에 문장을 추가할 때 실수하기 쉽다.
+
+```cpp
+if (hp <= 0)
+    std::cout << "몬스터를 처치했습니다.\n";
+    reward += 100;
+```
+
+들여쓰기만 보면 두 문장 모두 조건에 포함된 것처럼 보이지만 실제 `if`에 속한 문장은 첫 번째 출력문뿐이다. `reward += 100`은 조건과 관계없이 실행된다.
+
+```cpp
+if (hp <= 0)
+{
+    std::cout << "몬스터를 처치했습니다.\n";
+    reward += 100;
+}
+```
+
+중괄호는 현재 문장 수와 관계없이 실행 범위를 코드에 명확히 표시한다.
+
+## `else`는 조건이 거짓일 때 실행한다
+
+두 경로 중 하나를 반드시 선택해야 한다면 `if`와 `else`를 사용한다.
+
+```cpp
+if (hp <= 0)
+{
+    std::cout << "몬스터를 처치했습니다.\n";
+}
+else
+{
+    std::cout << "몬스터가 반격했습니다.\n";
+}
+```
+
+`if`와 `else`는 상호 배타적이다. 한 번의 조건 판단에서 둘 중 하나만 실행된다.
+
+```text
+hp <= 0
+   │
+   ├── true  → 처치 경로
+   │
+   └── false → 반격 경로
+```
+
+조건이 참이면 `else`는 검사할 별도의 조건 없이 건너뛴다.
+
+## 독립된 `if`와 `else if`는 의미가 다르다
+
+여러 개의 `if`를 연속해서 작성하면 각 조건을 독립적으로 검사한다.
+
+```cpp
+if (hp <= 20)
+{
+    std::cout << "체력이 낮습니다.\n";
+}
+
+if (isPoisoned)
+{
+    std::cout << "독 피해를 받습니다.\n";
+}
+```
+
+체력이 낮고 독에 걸렸다면 두 블록이 모두 실행된다. 두 상태는 동시에 성립할 수 있으므로 독립된 `if`가 자연스럽다.
+
+`else if`는 앞의 조건이 거짓일 때만 다음 조건을 검사한다.
+
+```cpp
+if (hp <= 0)
+{
+    std::cout << "몬스터가 죽었습니다.\n";
+}
+else if (hp <= 20)
+{
+    std::cout << "몬스터가 도망칩니다.\n";
+}
+else
+{
+    std::cout << "몬스터가 공격합니다.\n";
+}
+```
+
+이 구조에서는 세 경로 중 하나만 실행된다.
+
+```text
+hp <= 0 ?
+   ├── true  → 죽음
+   └── false → hp <= 20 ?
+                  ├── true  → 도망
+                  └── false → 공격
+```
+
+조건이 서로 동시에 성립할 수 있고 각각의 동작이 모두 필요하다면 독립된 `if`를 사용한다. 여러 조건 중 첫 번째로 만족한 경로 하나만 선택해야 한다면 `if`·`else if`·`else`를 사용한다.
+
+## 조건의 순서가 결과를 바꾼다
+
+`else if` 체인은 위에서 아래로 검사하다가 처음 `true`가 된 블록 하나를 실행하고 끝난다. 따라서 더 구체적이거나 우선순위가 높은 조건을 먼저 배치해야 한다.
+
+```cpp
+if (hp <= 20)
+{
+    std::cout << "몬스터가 도망칩니다.\n";
+}
+else if (hp <= 0)
+{
+    std::cout << "몬스터가 죽었습니다.\n";
+}
+```
+
+`hp`가 0이라면 `hp <= 20`도 참이다. 첫 번째 블록이 실행된 뒤 체인이 끝나므로 죽은 몬스터가 도망치는 결과가 된다.
+
+```cpp
+if (hp <= 0)
+{
+    std::cout << "몬스터가 죽었습니다.\n";
+}
+else if (hp <= 20)
+{
+    std::cout << "몬스터가 도망칩니다.\n";
+}
+```
+
+더 좁고 우선순위가 높은 사망 조건을 먼저 검사해야 한다.
+
+범위 조건을 나열할 때는 각 조건이 실제로 담당하는 구간을 적어 보면 순서를 확인하기 쉽다.
+
+```text
+hp <= 0       죽음
+1 <= hp <= 20 도망
+hp >= 21      공격
+```
+
+두 번째와 세 번째 조건은 앞의 조건이 거짓이라는 사실을 이미 알고 있으므로 코드에서 하한을 반복할 필요가 없다.
+
+## 미리 계산한 조건은 값이 바뀌면 오래된 결과가 된다
+
+조건을 `bool` 변수에 저장하면 이름으로 의미를 표현할 수 있다.
+
+```cpp
+int hp = 100;
+bool isDead = hp <= 0;
+```
+
+하지만 원본 값이 바뀐 뒤에도 `isDead`가 자동으로 다시 계산되는 것은 아니다.
+
+```cpp
+hp -= 100;
+
+if (isDead)
+{
+    std::cout << "몬스터가 죽었습니다.\n";
+}
+```
+
+`hp`는 0이 됐지만 `isDead`에는 처음 계산한 `false`가 그대로 남아 있다. 조건이 필요한 시점에 다시 계산해야 한다.
+
+```cpp
+hp -= 100;
+isDead = hp <= 0;
+
+if (isDead)
+{
+    std::cout << "몬스터가 죽었습니다.\n";
+}
+```
+
+또는 조건이 짧고 의미가 분명하다면 `if`에 직접 작성한다.
+
+```cpp
+if (hp <= 0)
+{
+    std::cout << "몬스터가 죽었습니다.\n";
+}
+```
+
+`bool` 변수는 원본 값과 연결된 실시간 조건이 아니라, 계산한 시점의 결과를 저장한 별도 객체다.
+
+## 복합 조건은 의미 단위로 나눈다
+
+논리 연산자로 여러 조건을 하나의 `if`에 조합할 수 있다.
+
+```cpp
+if (hp > 0 && !isStunned && hasTarget && distanceToTarget <= attackRange)
+{
+    Attack();
+}
+```
+
+조건이 길어지면 연산자만 따라가기보다 의미 있는 중간 변수로 나눈다.
+
+```cpp
+bool canControlCharacter = hp > 0 && !isStunned;
+bool targetIsInRange = hasTarget && distanceToTarget <= attackRange;
+
+if (canControlCharacter && targetIsInRange)
+{
+    Attack();
+}
+```
+
+코드 줄 수는 늘어나지만 어떤 정책을 검사하는지 이름으로 읽을 수 있다. 중간 변수는 조건을 한 번만 계산하므로, 원본 값이 그 사이에 바뀌지 않는 구간에서 사용해야 한다.
+
+## 중첩된 `if`는 조건의 의존 관계를 보여준다
+
+한 조건이 성립해야만 다음 조건을 검사할 의미가 있다면 중첩된 `if`를 사용할 수 있다.
+
+```cpp
+if (hasTarget)
+{
+    if (distanceToTarget <= attackRange)
+    {
+        Attack();
+    }
+}
+```
+
+이 예제는 타깃이 있을 때만 거리를 검사한다는 관계를 보여준다. 단축 평가를 이용해 한 조건으로 합칠 수도 있다.
+
+```cpp
+if (hasTarget && distanceToTarget <= attackRange)
+{
+    Attack();
+}
+```
+
+두 방식 중 어떤 것이 항상 더 좋은 것은 아니다. 조건이 짧고 한 동작만 실행한다면 결합된 조건이 간결하다. 타깃이 있을 때 수행할 작업이 여러 개라면 중첩 구조가 실제 흐름을 더 잘 표현할 수 있다.
+
+## 가드 절로 중첩을 줄인다
+
+함수에서 특정 조건을 만족하지 않으면 더 진행할 수 없을 때는 일찍 반환할 수 있다. 이를 가드 절(Guard clause)이라고 한다.
+
+```cpp
+void Attack(int hp, bool isStunned, bool hasTarget)
+{
+    if (hp <= 0)
+    {
+        return;
+    }
+
+    if (isStunned)
+    {
+        return;
+    }
+
+    if (!hasTarget)
+    {
+        return;
+    }
+
+    std::cout << "공격합니다.\n";
+}
+```
+
+모든 조건을 중첩하면 정상 동작이 여러 단계 안쪽에 들어간다.
+
+```cpp
+void Attack(int hp, bool isStunned, bool hasTarget)
+{
+    if (hp > 0)
+    {
+        if (!isStunned)
+        {
+            if (hasTarget)
+            {
+                std::cout << "공격합니다.\n";
+            }
+        }
+    }
+}
+```
+
+가드 절은 실패 조건을 먼저 처리하고 함수의 핵심 동작을 바깥쪽에 둔다. 하지만 함수 중간에서 정리해야 할 자원이나 반드시 실행해야 하는 후처리가 있다면 단순히 `return`을 추가하기 전에 객체의 수명과 정리 방식을 확인해야 한다.
+
+## 조건식 안의 대입과 상태 변경을 주의한다
+
+다음 코드는 비교가 아니라 대입이다.
+
+```cpp
+int score = 0;
+
+if (score = 100)
+{
+    std::cout << "Perfect score\n";
+}
+```
+
+`score`에 100을 대입한 뒤 대입 결과가 `true`로 변환되므로 블록이 실행된다. 컴파일러 경고를 활성화하면 이런 실수를 찾는 데 도움이 된다.
+
+함수 호출을 조건식에 넣을 때도 그 함수가 상태를 변경하는지 확인한다.
+
+```cpp
+if (hasKey || TryConsumeLockPick())
+{
+    OpenDoor();
+}
+```
+
+`hasKey`가 `true`면 단축 평가 때문에 `TryConsumeLockPick`은 호출되지 않는다. 이것이 의도한 로직이라면 사용할 수 있지만, 호출 여부가 중요하다면 분기 구조로 직접 드러내는 편이 좋다.
+
+## `else`는 가장 가까운 짝 없는 `if`에 연결된다
+
+중괄호를 생략한 중첩 조건에서는 `else`가 어느 `if`와 연결되는지 혼동하기 쉽다.
+
+```cpp
+if (hasTarget)
+    if (distanceToTarget <= attackRange)
+        Attack();
+    else
+        MoveCloser();
+```
+
+`else`는 들여쓰기와 관계없이 가장 가까운 짝 없는 `if`에 연결된다. 따라서 이 코드는 타깃은 있지만 사거리 밖일 때 `MoveCloser`를 실행한다.
+
+중괄호로 구조를 명시한다.
+
+```cpp
+if (hasTarget)
+{
+    if (distanceToTarget <= attackRange)
+    {
+        Attack();
+    }
+    else
+    {
+        MoveCloser();
+    }
+}
+```
+
+이를 매달린 `else`(Dangling else) 문제라고 부른다. 중괄호를 일관되게 사용하면 문법 규칙을 다시 계산하지 않고도 실행 범위를 확인할 수 있다.
+
+## 조건 연산자는 두 값 중 하나를 선택한다
+
+조건 연산자 `?:`는 조건에 따라 두 표현식 중 하나를 결과로 선택한다.
+
+```cpp
+const char* message = hp <= 0 ? "Dead" : "Alive";
+```
+
+구조는 다음과 같다.
+
+```text
+조건 ? 참일 때 값 : 거짓일 때 값
+```
+
+간단한 값 선택에는 유용하지만 여러 동작을 억지로 한 표현식에 넣으면 읽기 어렵다.
+
+```cpp
+int finalDamage = isCritical ? baseDamage * 2 : baseDamage;
+```
+
+복잡한 중첩 조건 연산자보다 `if`문이나 별도 함수가 의도를 더 잘 보여줄 수 있다.
+
+## `switch`는 하나의 값을 여러 경우와 비교한다
+
+하나의 정수형 또는 열거형 값에 따라 실행 경로를 선택할 때 `switch`를 사용할 수 있다.
+
+```cpp
+enum class Hand
+{
+    Rock,
+    Paper,
+    Scissors
+};
+
+Hand input = Hand::Rock;
+
+switch (input)
+{
+case Hand::Rock:
+    std::cout << "바위\n";
+    break;
+case Hand::Paper:
+    std::cout << "보\n";
+    break;
+case Hand::Scissors:
+    std::cout << "가위\n";
+    break;
+}
+```
+
+`switch`의 조건을 한 번 평가한 뒤 일치하는 `case` 레이블로 실행이 이동한다.
+
+```text
+input
+  │
+  ├── Hand::Rock     → 바위 경로
+  ├── Hand::Paper    → 보 경로
+  └── Hand::Scissors → 가위 경로
+```
+
+컴파일러가 내부적으로 연속 비교, 점프 테이블, 다른 방식을 사용할지는 값의 분포와 최적화 설정에 따라 달라진다. `switch`를 선택하는 주된 이유는 하나의 상태값에 대한 분기 구조를 명확히 표현하기 위해서다.
+
+## `case`에는 컴파일 시간 상수값이 필요하다
+
+각 `case` 레이블은 `switch` 조건과 비교할 수 있는 고유한 상수 표현식이어야 한다.
+
+```cpp
+constexpr int MainMenu = 1;
+constexpr int Inventory = 2;
+
+int input = 1;
+
+switch (input)
+{
+case MainMenu:
+    std::cout << "메인 메뉴\n";
+    break;
+case Inventory:
+    std::cout << "인벤토리\n";
+    break;
+}
+```
+
+실행 중 바뀌는 변수는 `case` 값으로 사용할 수 없다.
+
+```cpp
+int dynamicValue = 3;
+
+switch (input)
+{
+// case dynamicValue: // 상수 표현식이 아님
+//     break;
+}
+```
+
+같은 값을 가진 `case`를 중복해서 정의할 수도 없다.
+
+## `break`는 `switch` 밖으로 빠져나간다
+
+`case` 블록에서 `break`를 실행하면 `switch`문이 끝난 다음 문장으로 이동한다.
+
+```cpp
+switch (input)
+{
+case 1:
+    std::cout << "One\n";
+    break;
+case 2:
+    std::cout << "Two\n";
+    break;
+}
+
+std::cout << "End\n";
+```
+
+`input`이 1이면 `One`을 출력하고 `switch`를 빠져나온 뒤 `End`를 출력한다.
+
+`break`는 문법적으로 항상 필수인 키워드가 아니다. 빠져나가야 하는 경우에 필요하다. 함수에서 바로 값을 반환한다면 별도의 `break`가 필요하지 않다.
+
+```cpp
+const char* ToString(Hand hand)
+{
+    switch (hand)
+    {
+    case Hand::Rock:
+        return "Rock";
+    case Hand::Paper:
+        return "Paper";
+    case Hand::Scissors:
+        return "Scissors";
+    }
+
+    return "Unknown";
+}
+```
+
+각 `case`가 `return`으로 함수를 끝내므로 실행이 다음 `case`로 이어지지 않는다.
+
+## `break`가 없으면 다음 `case`로 실행이 이어진다
+
+일치한 `case`에서 `break`, `return`, 예외 발생처럼 흐름을 끝내는 문장이 없으면 아래의 `case` 코드까지 계속 실행한다. 이를 fallthrough라고 한다.
+
+```cpp
+int input = 1;
+
+switch (input)
+{
+case 1:
+    std::cout << "One\n";
+case 2:
+    std::cout << "Two\n";
+    break;
+}
+```
+
+`input`이 1이면 `One`과 `Two`가 모두 출력된다. 단순한 `break` 누락이라면 버그다.
+
+fallthrough를 의도했다면 C++17의 `[[fallthrough]]` 특성으로 표시할 수 있다.
+
+```cpp
+switch (rank)
+{
+case 3:
+    GiveGoldReward();
+    [[fallthrough]];
+case 2:
+    GiveSilverReward();
+    [[fallthrough]];
+case 1:
+    GiveBronzeReward();
+    break;
+}
+```
+
+3등급은 금·은·동 보상을 모두 받고, 2등급은 은·동 보상을 받는 누적 구조다. `[[fallthrough]]`는 컴파일러와 코드 독자에게 의도적인 흐름임을 알린다.
+
+## 여러 `case`가 같은 동작을 공유할 수 있다
+
+여러 입력이 같은 결과를 가져야 한다면 `case` 레이블을 연속해서 배치할 수 있다.
+
+```cpp
+switch (input)
+{
+case 'y':
+case 'Y':
+    std::cout << "동의했습니다.\n";
+    break;
+case 'n':
+case 'N':
+    std::cout << "거절했습니다.\n";
+    break;
+default:
+    std::cout << "잘못된 입력입니다.\n";
+    break;
+}
+```
+
+`'y'`에는 실행문이 없으므로 바로 `'Y'`의 실행문으로 이어진다. 두 입력이 같은 동작을 공유한다는 구조가 명확하다.
+
+## `default`는 어떤 `case`와도 일치하지 않을 때 실행한다
+
+`default`는 `if`문의 마지막 `else`와 비슷한 역할을 한다.
+
+```cpp
+switch (menuInput)
+{
+case 1:
+    OpenInventory();
+    break;
+case 2:
+    OpenSkillWindow();
+    break;
+default:
+    std::cout << "지원하지 않는 메뉴입니다.\n";
+    break;
+}
+```
+
+사용자 입력처럼 허용 범위 밖의 값이 들어올 수 있다면 `default`에서 오류를 처리하는 것이 자연스럽다.
+
+`enum class`의 모든 값을 빠짐없이 처리하려는 `switch`에서는 `default`를 생략하는 선택도 가능하다. 컴파일러의 경고 설정에 따라 새 열거 값을 추가했지만 `case`를 작성하지 않은 상황을 발견하기 쉬워질 수 있다.
+
+반면 외부 데이터에서 잘못된 정수 값을 캐스팅해 열거형에 넣을 가능성이 있다면 예상하지 못한 값을 처리할 경로도 필요하다. `default` 사용 여부는 입력의 유효성이 어디에서 보장되는지에 따라 결정한다.
+
+## `case` 안에서 지역 변수를 만들 때는 블록을 사용한다
+
+`case` 레이블은 자동으로 독립된 스코프를 만들지 않는다.
+
+```cpp
+switch (input)
+{
+case 1:
+    int reward = 100;
+    std::cout << reward << '\n';
+    break;
+case 2:
+    // 첫 case의 변수 초기화를 건너뛰는 흐름 때문에 문제가 될 수 있음
+    break;
+}
+```
+
+각 `case`에서 지역 변수를 사용한다면 중괄호로 스코프를 분리한다.
+
+```cpp
+switch (input)
+{
+case 1:
+{
+    int reward = 100;
+    std::cout << reward << '\n';
+    break;
+}
+case 2:
+{
+    int reward = 200;
+    std::cout << reward << '\n';
+    break;
+}
+}
+```
+
+두 `reward`는 서로 다른 블록 스코프에 속하며 각 `case`의 실행 범위도 명확해진다.
+
+## C++17의 `switch` 초기화문
+
+`if`와 마찬가지로 C++17부터 `switch`에도 초기화문을 사용할 수 있다.
+
+```cpp
+switch (int input = ReadMenuInput(); input)
+{
+case 1:
+    OpenInventory();
+    break;
+case 2:
+    OpenSkillWindow();
+    break;
+default:
+    std::cout << "잘못된 입력입니다.\n";
+    break;
+}
+```
+
+`input`은 `switch` 안에서만 필요하다는 사실이 스코프로 드러난다. `switch`가 끝나면 이름을 사용할 수 없다.
+
+## 범위와 복합 조건에는 `if`가 자연스럽다
+
+`switch`는 정확히 일치하는 값에 따른 분기에 적합하다. 다음과 같은 범위를 직접 표현할 수는 없다.
+
+```cpp
+if (hp <= 0)
+{
+    HandleDeath();
+}
+else if (hp <= 20)
+{
+    Flee();
+}
+else
+{
+    Attack();
+}
+```
+
+`case hp <= 0`처럼 조건식을 `case`에 넣는 구조는 의도한 범위 분기가 되지 않는다. `case`에는 `switch` 값과 비교할 상수값이 필요하다.
+
+복합 논리 조건도 `if`가 자연스럽다.
+
+```cpp
+if (hasTarget && distanceToTarget <= attackRange && !isStunned)
+{
+    Attack();
+}
+```
+
+분기문은 성능 추측보다 표현하려는 조건의 형태에 맞춰 선택한다.
+
+```text
+범위·복합 조건             → if
+하나의 값과 여러 상수 비교 → switch
+```
+
+## 경계값을 기준으로 모든 경로를 확인한다
+
+분기 코드는 각 조건 경계에서 동작을 확인해야 한다.
+
+```cpp
+if (hp <= 0)
+{
+    HandleDeath();
+}
+else if (hp <= 20)
+{
+    Flee();
+}
+else
+{
+    Attack();
+}
+```
+
+이 로직에서는 다음 값을 확인할 수 있다.
+
+| 입력 `hp` | 기대 경로 | 확인 이유 |
+| :---: | :--- | :--- |
+| -1 | 죽음 | 0보다 작은 값 |
+| 0 | 죽음 | 첫 번째 경계값 |
+| 1 | 도망 | 죽음 바로 다음 값 |
+| 20 | 도망 | 두 번째 경계값 |
+| 21 | 공격 | 도망 바로 다음 값 |
+
+가운데 값 하나만 확인하면 `<`와 `<=`를 잘못 사용한 오류를 놓칠 수 있다. 조건이 바뀌는 지점의 바로 전·경계·바로 다음 값을 확인하는 것이 중요하다.
+
+`switch`에서는 모든 `case`와 `default`, 의도한 fallthrough 경로를 각각 확인한다.
+
+## 전체 실습 코드
+
+몬스터의 현재 상태로 다음 행동을 결정하고, 결정된 행동을 `switch`로 실행하는 예제다.
 
 ```cpp
 #include <iostream>
-using namespace std;
+
+enum class MonsterAction
+{
+    Dead,
+    Idle,
+    Flee,
+    Attack
+};
+
+MonsterAction DecideAction(int hp, bool canSeePlayer)
+{
+    if (hp <= 0)
+    {
+        return MonsterAction::Dead;
+    }
+
+    if (!canSeePlayer)
+    {
+        return MonsterAction::Idle;
+    }
+
+    if (hp <= 20)
+    {
+        return MonsterAction::Flee;
+    }
+
+    return MonsterAction::Attack;
+}
+
+const char* ToString(MonsterAction action)
+{
+    switch (action)
+    {
+    case MonsterAction::Dead:
+        return "Dead";
+    case MonsterAction::Idle:
+        return "Idle";
+    case MonsterAction::Flee:
+        return "Flee";
+    case MonsterAction::Attack:
+        return "Attack";
+    }
+
+    return "Unknown";
+}
+
+void ExecuteAction(MonsterAction action)
+{
+    switch (action)
+    {
+    case MonsterAction::Dead:
+        std::cout << "몬스터가 쓰러졌습니다.\n";
+        break;
+    case MonsterAction::Idle:
+        std::cout << "몬스터가 대기합니다.\n";
+        break;
+    case MonsterAction::Flee:
+        std::cout << "몬스터가 도망칩니다.\n";
+        break;
+    case MonsterAction::Attack:
+        std::cout << "몬스터가 공격합니다.\n";
+        break;
+    }
+}
 
 int main()
 {
-    // [분기문]
-    // 데이터의 상태에 따라 코드의 실행 흐름을 제어함
+    int hp = 15;
+    bool canSeePlayer = true;
+    MonsterAction action = DecideAction(hp, canSeePlayer);
 
-    int hp = 100;
-    int damage = 100;
-
-    // 1. 기본 if 문
-    hp -= damage;
-    bool IsDead = hp <= 0; // true
-
-    if (IsDead)
-    {
-        cout << "몬스터를 처치했습니다" << endl;
-    }
-
-    // 2. if - else 문
-    // 양자택일의 상황
-    hp = 100;
-    damage = 90;
-    hp -= damage; // hp: 10
-    IsDead = hp <= 0; // false
-
-    if (IsDead)
-    {
-        cout << "몬스터를 처치했습니다" << endl;
-    }
-    else
-    {
-        cout << "몬스터가 반격했습니다" << endl;
-    }
-
-    // 3. 중첩 if vs else if
-    // 시나리오: 처치(<=0), 도망(<=20), 반격(나머지)
-
-    hp = 100;
-    damage = 70;
-    hp -= damage; // hp: 30
-    IsDead = hp <= 0; // false
-
-    // 3-1) 중첩 if (가독성 나쁨)
-    if (IsDead)
-    {
-        cout << "몬스터를 처치했습니다" << endl;
-    }
-    else
-    {
-        if (hp <= 20)
-        {
-            cout << "몬스터가 도망치고 있습니다" << endl;
-        }
-        else
-        {
-            cout << "몬스터가 반격했습니다" << endl;
-        }
-    }
-
-    // 3-2) else if (권장)
-    // 위 코드와 동일한 로직이나 가독성이 훨씬 좋음
-    if (IsDead)
-    {
-        cout << "몬스터를 처치했습니다" << endl;
-    }
-    else if (hp <= 20)
-    {
-        cout << "몬스터가 도망치고 있습니다" << endl;
-    }
-    else
-    {
-        cout << "몬스터가 반격했습니다" << endl;
-    }
-
-    // 4. switch 문
-    // 가위바위보 예제
-    const int ROCK = 0;
-    const int PAPER = 1;
-    const int SCISSORS = 2;
-
-    int input = ROCK;
-
-    // if문으로 작성 시
-    if (input == ROCK)
-        cout << "바위를 냈습니다" << endl;
-    else if (input == PAPER)
-        cout << "보를 냈습니다" << endl;
-    else if(input == SCISSORS)
-        cout << "가위를 냈습니다" << endl;
-    else
-        cout << "가위 바위 보만 내세요" << endl;
-
-    // switch문으로 작성 시 (가독성 및 최적화 이점)
-    switch (input)
-    {
-    case ROCK:
-        cout << "바위를 냈습니다" << endl;
-        break; // 필수
-    case PAPER:
-        cout << "보를 냈습니다" << endl;
-        break;
-    case SCISSORS:
-        cout << "가위를 냈습니다" << endl;
-        break;
-    default: // else와 같은 역할
-        cout << "가위 바위 보만 내세요" << endl;
-        break;
-    }
-
-    return 0;
+    std::cout << "Selected action: " << ToString(action) << '\n';
+    ExecuteAction(action);
 }
 ```
----
-## 조건의 순서가 결과를 결정한다
 
-* **코드의 효율성:** 불필요하게 `if`를 여러 번 쓰는 것보다, 상호 배타적인 조건이라면 `else`나 `else if`를 사용하여 연산을 줄이는 것이 효율적
-* **가독성:** 중첩된 `if`문(Nesting)은 코드를 읽기 어렵게 만듦. 가능한 `else if`를 활용하거나 조건을 단순화하여 들여쓰기 깊이를 줄이는 것이 좋음
-* **용도 구분:**
-  * **if:** 범위 비교(`hp <= 20`)나 복합 조건(`A && B`) 처리에 적합
-  * **switch:** 정수형·열거형의 정확한 값에 따른 상태 분기에 적합함
+이 예제는 판단과 실행을 두 단계로 나눈다.
 
-## 빠뜨리기 쉬운 경로
+```text
+현재 상태
+hp, canSeePlayer
+       │
+       ▼
+DecideAction
+       │
+       ▼
+MonsterAction 값
+       │
+       ▼
+ExecuteAction
+       │
+       ▼
+실제 행동
+```
 
-* **Switch문의 제약:** `switch (조건)`에는 정수형(`char`, `short`, `int`, `long`, `enum`)만 들어갈 수 있음. `float`나 사용자 정의 객체 등은 사용할 수 없음
-* **Break 누락 주의:** `case` 끝에 `break;`가 없으면 다음 `case`로 실행이 이어질 수 있다. 의도했다면 `[[fallthrough]]`를 사용해 명시한다.
-* **상수 활용:** `case 0:` 보다는 `case ROCK:` 처럼 `const` 변수나 `enum`을 활용하면 코드의 의미를 파악하기 훨씬 수월
+`DecideAction`은 범위와 우선순위를 처리하므로 `if`와 가드 절을 사용한다. `ExecuteAction`은 하나의 열거형 값에 따른 동작을 선택하므로 `switch`를 사용한다.
 
-## 마무리
+입력 상태와 결정된 행동을 분리하면 판단 로직만 경계값으로 검사하기 쉬워지고, 행동을 출력·애니메이션·게임 로직으로 교체하기도 쉬워진다.
 
-분기문 선택보다 중요한 것은 모든 입력 경로가 의도대로 처리되는지다. 범위와 복합 조건은 `if`, 하나의 상태 값은 `switch`가 자연스럽고, 상태에는 `enum class`를 사용하면 잘못된 값의 혼입도 줄일 수 있다.
+## 다음 학습: 같은 흐름을 반복하기
+
+분기문은 현재 조건에 따라 실행할 경로 하나 또는 여러 개를 선택한다. 같은 작업을 조건이 만족되는 동안 계속 수행하려면 반복문이 필요하다.
+
+다음 글에서는 `while`, `do-while`, `for`의 실행 순서를 비교하고, `break`와 `continue`가 반복 흐름을 어디로 이동시키는지 살펴본다.

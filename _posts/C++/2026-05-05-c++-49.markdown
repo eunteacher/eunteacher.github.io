@@ -1,0 +1,555 @@
+---
+layout: post
+title: '[C++ 49] Text RPG 구조화: 여러 클래스의 책임과 게임 흐름 연결하기'
+date: 2026-05-05
+categories: [Dev, C++]
+tags: [C++, Text RPG, OOP, Architecture, Game Loop]
+---
+
+지금까지 배운 상속, 다형성, 전방 선언과 동적 할당을 하나의 Text RPG에 연결한다. 하나의 `main` 함수가 캐릭터 생성부터 전투까지 모두 처리하지 않고 `Game`, `Field`, `Creature`, `Player`, `Monster`가 각자의 책임을 맡는다.
+
+이번 글의 핵심은 파일을 많이 만드는 것이 아니다. 누가 객체를 생성하고 제거하는지, 한 번의 게임 갱신이 어떤 객체를 거쳐 실행되는지, 공통 전투 규칙과 직업별 데이터를 어디에 둘지를 구분하는 것이다.
+
+## 먼저 클래스별 책임을 정한다
+
+원본 프로젝트는 다음 클래스로 구성된다.
+
+```text
+Game
+├─ Player 생성과 교체
+└─ Field 갱신 요청
+
+Field
+├─ Monster 생성과 제거
+└─ Player와 Monster의 전투 진행
+
+Creature
+├─ HP, 공격력, 방어력
+├─ 피해 계산
+└─ 사망 판정
+
+Player
+└─ Knight, Archer, Mage의 공통 기반
+
+Monster
+└─ Slime, Orc, Skeleton의 공통 기반
+```
+
+`Game`은 전체 진행을 조율하고 `Field`는 현재 전투를 관리한다. `Creature`는 플레이어와 몬스터가 공유하는 전투 규칙을 제공한다. 구체 직업과 몬스터 클래스에는 서로 다른 초기 능력치만 둔다.
+
+클래스를 나눈 뒤에도 책임이 겹치면 변경할 위치를 찾기 어렵다. 예를 들어 피해 계산은 공격하는 쪽과 받는 쪽 중 한곳에서 일관되게 처리하고, 몬스터 수명은 `Field`처럼 하나의 소유자만 책임지게 한다.
+
+## Creature는 전투 가능한 객체의 공통 규칙이다
+
+플레이어와 몬스터는 체력, 공격력과 방어력을 가진다. 이를 `Creature` 기반 클래스에 모은다.
+
+```cpp
+class Creature
+{
+public:
+    Creature(int hp, int attack, int defense);
+    virtual ~Creature() = default;
+
+    virtual const char* Name() const = 0;
+
+    void TakeDamageFrom(const Creature& attacker);
+    bool IsDead() const;
+    int Hp() const;
+
+protected:
+    int hp_;
+    int attack_;
+    int defense_;
+};
+```
+
+`Name`이 순수 가상 함수이므로 `Creature`는 직접 생성할 수 없는 추상 클래스다. 실제 이름은 `Knight`, `Slime` 같은 구체 타입이 제공한다.
+
+피해를 받는 객체가 자신의 방어력을 알고 있으므로 피해 계산을 담당한다.
+
+```cpp
+void Creature::TakeDamageFrom(const Creature& attacker)
+{
+    const int damage = std::max(0, attacker.attack_ - defense_);
+    hp_ = damage >= hp_ ? 0 : hp_ - damage;
+}
+```
+
+매개변수는 null이 될 수 없는 `const Creature&`로 받는다. 공격자의 상태를 변경하지 않으며 `Player`와 `Monster` 어느 쪽도 같은 함수를 사용할 수 있다.
+
+원본의 `TakeDamge`는 `TakeDamage`로 오타를 바로잡고, 조회 함수에는 `const`를 붙여 읽기 전용 호출임을 표현한다.
+
+## 구체 클래스에는 차이만 남긴다
+
+`Player`와 `Monster`는 분류를 위한 중간 기반 클래스다.
+
+```cpp
+class Player : public Creature
+{
+public:
+    Player(int hp, int attack, int defense) : Creature(hp, attack, defense)
+    {
+    }
+};
+
+class Monster : public Creature
+{
+public:
+    Monster(int hp, int attack, int defense) : Creature(hp, attack, defense)
+    {
+    }
+};
+```
+
+직업별 클래스는 생성자에서 능력치를 선택하고 이름을 재정의한다.
+
+```cpp
+class Knight final : public Player
+{
+public:
+    Knight() : Player(150, 10, 5)
+    {
+    }
+
+    const char* Name() const override
+    {
+        return "Knight";
+    }
+};
+```
+
+슬라임도 같은 형태다.
+
+```cpp
+class Slime final : public Monster
+{
+public:
+    Slime() : Monster(50, 5, 2)
+    {
+    }
+
+    const char* Name() const override
+    {
+        return "Slime";
+    }
+};
+```
+
+전투 루프는 구체 타입을 몰라도 `Player&`와 `Monster&`의 공통 인터페이스만 사용한다.
+
+## Game은 전체 흐름과 플레이어 수명을 관리한다
+
+원본의 `Game`은 플레이어와 필드를 동적 할당하고 소멸자에서 제거한다.
+
+```text
+Game owns Player
+Game owns Field
+Field owns Monster
+```
+
+누가 소유하는지를 명확히 하면 제거 위치도 결정된다. `Game`이 플레이어를 생성했다면 교체와 최종 제거도 `Game`이 담당한다. `Field`가 몬스터를 만들었다면 전투 종료와 필드 소멸 때 몬스터를 정리한다.
+
+필드는 다형적 객체가 아니며 `Game`과 수명이 같으므로 값 멤버로 포함할 수 있다.
+
+```cpp
+class Game
+{
+private:
+    Player* player_ = nullptr;
+    Field field_;
+};
+```
+
+이렇게 하면 `Field`를 위한 별도의 `new`와 `delete`가 사라진다. 플레이어는 선택한 직업에 따라 실제 타입이 달라지므로 이번 학습 단계에서는 기반 포인터로 소유한다.
+
+```cpp
+Game::~Game()
+{
+    delete player_;
+}
+```
+
+`Player`의 기반인 `Creature` 소멸자가 가상이므로 기반 포인터를 통해 구체 직업 객체를 안전하게 제거할 수 있다. 이후 스마트 포인터를 배우면 이 소유권을 `std::unique_ptr<Player>`로 표현해 직접 `delete`도 제거할 수 있다.
+
+## Field는 현재 몬스터와 전투를 관리한다
+
+`Field`는 몬스터를 하나 생성하고 플레이어와의 전투를 진행한다.
+
+```cpp
+class Field
+{
+public:
+    Field() = default;
+    ~Field();
+
+    Field(const Field&) = delete;
+    Field& operator=(const Field&) = delete;
+
+    void Spawn(MonsterType type);
+    BattleResult Battle(Player& player);
+
+private:
+    Monster* monster_ = nullptr;
+};
+```
+
+원시 포인터를 소유하는 클래스이므로 복사를 금지한다. 기본 복사가 허용되면 두 `Field`가 같은 몬스터 주소를 소유하고 이중 해제할 수 있기 때문이다.
+
+새 몬스터를 생성하기 전에 기존 몬스터가 없는 조건을 검사한다.
+
+```cpp
+void Field::Spawn(MonsterType type)
+{
+    assert(monster_ == nullptr);
+
+    switch (type)
+    {
+    case MonsterType::Slime:
+        monster_ = new Slime;
+        break;
+    case MonsterType::Orc:
+        monster_ = new Orc;
+        break;
+    case MonsterType::Skeleton:
+        monster_ = new Skeleton;
+        break;
+    }
+}
+```
+
+열거형에는 `enum class`를 사용해 `PlayerType`과 `MonsterType`의 값이 다른 열거형이나 정수와 무심코 섞이는 것을 줄인다.
+
+## 한 번의 전투 흐름을 반환값으로 표현한다
+
+원본 `Field::StartBattle`은 플레이어 또는 몬스터가 죽을 때까지 내부 `while (true)`를 반복한다. 호출자는 전투가 어떤 결과로 끝났는지 직접 알 수 없다.
+
+결과를 열거형으로 반환하면 `Game`이 다음 상태를 결정할 수 있다.
+
+```cpp
+enum class BattleResult
+{
+    PlayerWon,
+    PlayerLost,
+    Stalemate
+};
+```
+
+전투 순서는 다음과 같다.
+
+```text
+1. 플레이어와 몬스터 상태 출력
+2. 플레이어가 몬스터 공격
+3. 몬스터 사망 확인
+4. 살아 있다면 몬스터가 플레이어 공격
+5. 플레이어 사망 확인
+6. 양쪽 모두 피해를 줄 수 없다면 무승부 종료
+7. 아니라면 다음 턴 반복
+```
+
+플레이어가 먼저 공격하므로 같은 턴에 몬스터를 쓰러뜨리면 반격을 받지 않는다. 이 순서는 게임 규칙이며 코드 구조에서 명확히 보여야 한다.
+
+## 피해가 항상 0이면 전투가 끝나지 않는다
+
+원본 피해 공식은 공격력에서 방어력을 뺀 뒤 음수면 0으로 만든다.
+
+```cpp
+damage = std::max(0, attack - defense);
+```
+
+양쪽의 공격력이 상대 방어력 이하라면 누구의 체력도 줄지 않아 `while (true)`가 영원히 계속된다.
+
+```text
+player.attack <= monster.defense
+monster.attack <= player.defense
+→ 양쪽 피해 0
+→ 종료 조건 없음
+```
+
+이번 예제는 전투 시작 전에 양쪽의 유효 피해량을 확인해 둘 다 0이면 `Stalemate`를 반환한다.
+
+```cpp
+if (player.DamageAgainst(*monster_) == 0 && monster_->DamageAgainst(player) == 0)
+{
+    return BattleResult::Stalemate;
+}
+```
+
+최소 피해를 1로 보장하거나 최대 턴 수를 두는 것도 가능한 규칙이다. 중요한 점은 무한 반복 가능성을 게임 규칙으로 결정하는 것이다.
+
+## 몬스터 제거 시점은 Field 한곳에 모은다
+
+플레이어가 이기면 필드가 소유한 몬스터를 제거한다.
+
+```cpp
+delete monster_;
+monster_ = nullptr;
+return BattleResult::PlayerWon;
+```
+
+플레이어가 패배하면 몬스터를 유지할지 제거할지는 게임 설계에 따라 달라진다. 이번 예제에서는 한 전투가 끝나면 결과와 관계없이 필드를 비우도록 `ClearMonster`에 정리를 모은다.
+
+```cpp
+void Field::ClearMonster()
+{
+    delete monster_;
+    monster_ = nullptr;
+}
+```
+
+소멸자도 같은 함수를 호출한다.
+
+```cpp
+Field::~Field()
+{
+    ClearMonster();
+}
+```
+
+`delete nullptr`는 안전하므로 조건문 없이 정리할 수 있다. 생성, 교체와 소멸이 한 클래스에 모이면 소유권 흐름을 추적하기 쉬워진다.
+
+## main은 게임 규칙을 직접 구현하지 않는다
+
+진입점은 객체를 만들고 상위 흐름을 시작하는 역할만 맡는다.
+
+```cpp
+int main()
+{
+    Game game;
+    game.RunDemo(PlayerType::Knight, MonsterType::Slime);
+}
+```
+
+원본은 사용자 입력과 무한 게임 루프를 사용한다. 학습 예제의 동작을 재현 가능하게 검증하기 위해 여기서는 직업과 몬스터 타입을 명시적으로 전달하는 한 번의 데모 전투로 제한한다.
+
+실제 입력을 추가한다면 `std::cin` 실패 상태를 처리하고 종료 명령을 제공해야 한다. 문자가 입력된 상태에서 실패 플래그와 입력 버퍼를 정리하지 않으면 캐릭터 생성 반복문이 영원히 진행될 수 있다.
+
+## 주요 헤더 구조
+
+클래스 정의는 역할별 헤더로 분리한다.
+
+### Creature.h
+
+```cpp
+#pragma once
+
+class Creature
+{
+public:
+    Creature(int hp, int attack, int defense);
+    virtual ~Creature() = default;
+
+    virtual const char* Name() const = 0;
+
+    int DamageAgainst(const Creature& target) const;
+    void TakeDamageFrom(const Creature& attacker);
+    bool IsDead() const;
+    int Hp() const;
+
+protected:
+    int hp_;
+    int attack_;
+    int defense_;
+};
+```
+
+### Player.h와 Monster.h
+
+```cpp
+#pragma once
+
+#include "Creature.h"
+
+class Player : public Creature
+{
+public:
+    Player(int hp, int attack, int defense) : Creature(hp, attack, defense)
+    {
+    }
+};
+
+class Knight final : public Player
+{
+public:
+    Knight();
+    const char* Name() const override;
+};
+```
+
+```cpp
+#pragma once
+
+#include "Creature.h"
+
+class Monster : public Creature
+{
+public:
+    Monster(int hp, int attack, int defense) : Creature(hp, attack, defense)
+    {
+    }
+};
+
+class Slime final : public Monster
+{
+public:
+    Slime();
+    const char* Name() const override;
+};
+```
+
+상속하려면 기반 클래스의 전체 정의가 필요하므로 두 헤더는 `Creature.h`를 포함한다.
+
+### Field.h
+
+```cpp
+#pragma once
+
+class Monster;
+class Player;
+
+enum class MonsterType
+{
+    Slime,
+    Orc,
+    Skeleton
+};
+
+enum class BattleResult
+{
+    PlayerWon,
+    PlayerLost,
+    Stalemate
+};
+
+class Field
+{
+public:
+    Field() = default;
+    ~Field();
+
+    Field(const Field&) = delete;
+    Field& operator=(const Field&) = delete;
+
+    void Spawn(MonsterType type);
+    BattleResult Battle(Player& player);
+
+private:
+    void ClearMonster();
+
+    Monster* monster_ = nullptr;
+};
+```
+
+`Field.h`는 포인터와 참조만 사용하므로 전방 선언으로 충분하다. 실제 생성과 멤버 호출이 있는 `Field.cpp`에서 `Monster.h`와 `Player.h`를 포함한다.
+
+## 실행 가능한 전투 핵심 구현
+
+전투에 필요한 핵심 구현은 다음과 같다.
+
+```cpp
+int Creature::DamageAgainst(const Creature& target) const
+{
+    return std::max(0, attack_ - target.defense_);
+}
+
+void Creature::TakeDamageFrom(const Creature& attacker)
+{
+    const int damage = attacker.DamageAgainst(*this);
+    hp_ = damage >= hp_ ? 0 : hp_ - damage;
+}
+
+BattleResult Field::Battle(Player& player)
+{
+    assert(monster_ != nullptr);
+
+    if (player.DamageAgainst(*monster_) == 0 && monster_->DamageAgainst(player) == 0)
+    {
+        ClearMonster();
+        return BattleResult::Stalemate;
+    }
+
+    while (true)
+    {
+        monster_->TakeDamageFrom(player);
+
+        if (monster_->IsDead())
+        {
+            ClearMonster();
+            return BattleResult::PlayerWon;
+        }
+
+        player.TakeDamageFrom(*monster_);
+
+        if (player.IsDead())
+        {
+            ClearMonster();
+            return BattleResult::PlayerLost;
+        }
+    }
+}
+```
+
+`Field`는 구체 몬스터의 전투 방식을 조건문으로 분기하지 않는다. 모두 `Creature`가 제공하는 피해 계산과 사망 판정을 사용한다.
+
+## 재현 가능한 시나리오로 검증한다
+
+무작위 몬스터와 콘솔 입력을 사용하면 실행할 때마다 경로가 달라진다. 구조 검증에서는 고정된 시나리오를 먼저 사용한다.
+
+```cpp
+void VerifyBattle()
+{
+    Knight knight;
+    Field field;
+
+    field.Spawn(MonsterType::Slime);
+    BattleResult result = field.Battle(knight);
+
+    assert(result == BattleResult::PlayerWon);
+    assert(knight.Hp() == 150);
+}
+```
+
+기사의 공격력은 10이고 슬라임 방어력은 2이므로 한 번에 8의 피해를 준다. 슬라임 체력 50을 제거하려면 7번 공격해야 한다. 슬라임은 처음 6번의 공격 뒤에만 반격하며 공격력 5와 기사 방어력 5가 같아 피해를 주지 못한다. 따라서 기사 체력은 실제로 150을 유지한다.
+
+예상 결과를 먼저 추측하지 않고 피해 공식과 공격 순서에 맞춰 계산한다. 실행 코드에서는 결과와 남은 체력을 출력한다.
+
+```text
+Winner: Knight
+Knight HP: 150
+```
+
+원본의 `rand()` 기반 몬스터 선택은 이후 입력과 난수 정책을 추가할 때 `Game` 또는 별도의 생성 책임으로 분리할 수 있다. 전투 규칙 자체는 어떤 몬스터가 선택됐는지와 무관하게 검증 가능해야 한다.
+
+## 원본 프로젝트에서 보완할 지점
+
+원본의 학습 목적은 여러 객체지향 개념을 연결하는 데 있고 전체 구조도 그 목적을 잘 보여준다. 실제 프로그램으로 확장하려면 다음 지점을 보완해야 한다.
+
+1. `while (true)`에 명시적인 종료 조건과 사용자 종료 명령을 추가한다.
+2. `std::cin` 실패 상태와 잘못된 입력을 복구한다.
+3. 양쪽 피해가 0인 전투의 무한 반복을 방지한다.
+4. `rand() % 3`과 전역 난수 상태를 별도의 난수 정책으로 분리한다.
+5. `CreatureType`, `PlayerType`, `MonsterType`처럼 실제로 사용하지 않는 타입 태그는 제거하거나 명확한 용도를 부여한다.
+6. `PrintInfo`가 출력 스트림에 직접 결합된 구조와 전투 데이터 반환 방식을 비교한다.
+7. 원시 소유 포인터를 스마트 포인터로 교체해 직접 `delete`를 없앤다.
+8. 클래스의 복사를 금지하거나 올바른 복사 정책을 정의한다.
+9. 플레이어 패배 후 즉시 새 캐릭터를 만드는 정책을 명시적인 게임 상태로 표현한다.
+
+한 번에 모든 기능을 추가하기보다 현재 책임과 데이터 흐름을 유지하면서 입력, 상태 전환, 소유권을 단계적으로 개선한다.
+
+## Text RPG 구조를 검토할 때 확인할 기준
+
+1. 각 클래스의 책임을 한 문장으로 설명할 수 있는가?
+2. `Game`, `Field`, `Creature` 사이에 중복된 전투 규칙이 없는가?
+3. 플레이어와 몬스터의 공통 동작이 기반 클래스에 모여 있는가?
+4. 구체 직업과 몬스터에는 실제 차이만 남아 있는가?
+5. 각 동적 객체를 생성한 소유자가 제거까지 책임지는가?
+6. 소유 원시 포인터가 있는 클래스의 복사가 차단됐는가?
+7. 한 턴의 호출 순서와 선공 규칙이 명확한가?
+8. 피해가 발생하지 않는 상황에도 반복문이 종료되는가?
+9. 입력 실패와 프로그램 종료 경로가 존재하는가?
+10. 무작위 요소와 사용자 입력 없이도 핵심 규칙을 재현 가능하게 검증할 수 있는가?
+
+Text RPG를 클래스로 나누는 목적은 코드 줄 수를 여러 파일로 분산하는 것이 아니다. 전체 흐름을 조율하는 객체, 전투 장소를 관리하는 객체와 전투 규칙을 수행하는 객체의 책임을 분리해 변경 이유가 서로 섞이지 않도록 만드는 것이다.
+
+## 다음 학습: Visual Studio 디버거로 실행 흐름 관찰하기
+
+다음 글에서는 중단점, 한 단계씩 코드 실행, 호출 스택과 조사식 창을 이용해 프로그램의 실제 상태를 추적한다. 눈으로 코드를 읽는 것과 디버거에서 확인한 사실을 구분하고 재현 가능한 디버깅 절차를 정리한다.

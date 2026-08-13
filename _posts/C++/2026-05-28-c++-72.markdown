@@ -1,0 +1,556 @@
+---
+layout: post
+title: '[C++ 72] unique_ptr: 단독 소유권을 이동으로 전달하기'
+date: 2026-05-28
+categories: [Dev, C++]
+tags: [C++, Modern C++, Smart Pointer, unique_ptr, RAII]
+---
+
+`new`로 만든 객체를 원시 포인터로 관리하면 누가 `delete`해야 하는지 코드만 보고 알기 어렵다. 삭제를 빠뜨리면 메모리가 누수되고, 여러 포인터가 자신을 소유자라고 생각하면 이중 해제가 발생한다. 먼저 삭제한 뒤 다른 포인터가 주소를 계속 사용하면 dangling pointer와 use-after-free 문제가 생긴다.
+
+`std::unique_ptr<T>`는 동적 객체에 소유자가 정확히 하나라는 정책을 타입으로 표현한다. 복사는 금지되고 이동만 허용되며, 소유자가 수명을 마치면 관리하던 객체를 자동으로 삭제한다.
+
+이번 글에서는 `unique_ptr`을 단순히 `delete`를 대신 호출하는 포인터로 보지 않고 **소유권을 생성하고 이동하고 종료하는 경계**로 살펴본다.
+
+## 스마트 포인터는 소유 정책을 가진 객체다
+
+원시 포인터는 주소를 저장하지만 그 자체로 소유권을 설명하지 않는다.
+
+```cpp
+Knight* knight = new Knight;
+```
+
+이 한 줄만으로 다음 질문에 답하기 어렵다.
+
+- 누가 `delete knight`를 호출하는가?
+- 다른 함수에 전달하면 소유권도 넘어가는가?
+- 포인터를 저장한 다른 객체는 단순 관찰자인가?
+- 예외나 조기 반환에서도 삭제되는가?
+
+`unique_ptr`은 자신이 관리하는 포인터의 단독 소유자다.
+
+```cpp
+std::unique_ptr<Knight> knight = std::make_unique<Knight>();
+```
+
+`knight`의 소멸자나 `reset()`이 실행되면 관리 객체도 정해진 삭제 정책으로 정리된다. 스택 객체의 수명에 동적 객체의 정리를 연결하는 RAII 방식이다.
+
+스마트 포인터를 사용한다고 모든 dangling pointer가 사라지는 것은 아니다. `get()`으로 얻은 비소유 포인터나 참조를 소유자보다 오래 보관하면 여전히 위험하다. 스마트 포인터는 소유 관계를 명시하는 도구이지 모든 포인터 접근의 자동 수명 검사는 아니다.
+
+## make_unique로 객체와 소유자를 함께 만든다
+
+일반적인 생성은 `std::make_unique`를 사용한다.
+
+```cpp
+auto knight = std::make_unique<Knight>(100, 10);
+```
+
+생성자 인자가 `Knight`에 전달되고 성공하면 반환된 `unique_ptr`이 새 객체를 즉시 소유한다.
+
+직접 작성할 수도 있다.
+
+```cpp
+std::unique_ptr<Knight> knight(new Knight(100, 10));
+```
+
+하지만 `make_unique`는 타입 이름을 중복하지 않고 소유권 설정을 한 식으로 표현하며 배열의 올바른 생성 형태도 제공한다. 기본 삭제 정책을 사용하는 객체라면 우선 선택한다.
+
+사용자 정의 deleter가 필요하면 `make_unique`로 지정할 수 없으므로 `unique_ptr` 생성자를 직접 사용한다.
+
+## unique_ptr은 복사할 수 없다
+
+두 `unique_ptr`이 같은 객체의 단독 소유자라고 주장할 수 없으므로 복사 생성과 복사 대입은 삭제돼 있다.
+
+```cpp
+auto first = std::make_unique<Knight>();
+
+// auto second = first; // 복사 생성 불가
+// second = first;      // 복사 대입 불가
+```
+
+타입 특성으로도 확인할 수 있다.
+
+```cpp
+static_assert(!std::is_copy_constructible_v<std::unique_ptr<Knight>>);
+static_assert(!std::is_copy_assignable_v<std::unique_ptr<Knight>>);
+```
+
+복사가 필요하다는 요구가 생겼다면 먼저 무엇을 복사하려는지 구분한다.
+
+- 같은 객체를 여러 소유자가 공유해야 하는가?
+- 원본과 독립적인 `Knight` 복제본이 필요한가?
+- 단순히 객체를 잠시 관찰하려는가?
+
+공유 소유는 `shared_ptr`, 독립 복제는 객체의 복사나 `Clone`, 관찰은 포인터·참조가 각각 다른 의미를 가진다. `unique_ptr` 복사 금지를 우회하지 않는다.
+
+## std::move로 소유권을 이전한다
+
+단독 소유권을 다른 `unique_ptr`에 넘길 때는 이동한다.
+
+```cpp
+auto first = std::make_unique<Knight>();
+auto second = std::move(first);
+```
+
+이동 후 `second`가 객체를 소유하고 `first`는 빈 포인터가 된다. `unique_ptr`은 이동 후 원본이 null이라는 상태를 보장한다.
+
+```cpp
+assert(first == nullptr);
+assert(second != nullptr);
+```
+
+일반 타입의 이동 후 상태를 항상 빈 상태라고 가정할 수는 없지만 `unique_ptr`에는 명시적인 보장이 있다.
+
+빈 원본은 소멸하거나 새 소유권을 대입해 재사용할 수 있다.
+
+```cpp
+first = std::make_unique<Knight>();
+```
+
+`std::move`는 소유권을 직접 옮기지 않고 이동 대입·이동 생성자가 선택되도록 값 범주를 바꾼다. 실제 포인터 이전과 원본 null 처리는 `unique_ptr`의 이동 연산이 수행한다.
+
+## 스코프가 소유 객체의 수명을 결정한다
+
+다음 객체는 안쪽 블록이 끝날 때 자동으로 삭제된다.
+
+```cpp
+{
+    auto knight = std::make_unique<Knight>();
+    knight->Attack();
+} // knight 소멸, Knight도 삭제
+```
+
+함수 중간에 `return`하거나 예외로 스택을 빠져나가도 생성이 완료된 `unique_ptr`의 소멸자가 호출된다.
+
+```cpp
+void Run(bool stopEarly)
+{
+    auto knight = std::make_unique<Knight>();
+
+    if (stopEarly)
+    {
+        return;
+    }
+}
+```
+
+모든 경로에서 수동 `delete`를 반복하지 않아도 되는 것이 RAII의 핵심이다.
+
+## 역참조와 멤버 접근은 포인터처럼 사용한다
+
+`operator*`와 `operator->`로 관리 객체에 접근한다.
+
+```cpp
+knight->Attack();
+Knight& reference = *knight;
+```
+
+빈 `unique_ptr`를 역참조하면 안 된다.
+
+```cpp
+if (knight)
+{
+    knight->Attack();
+}
+```
+
+`operator bool`은 관리 포인터가 null인지 검사한다. 객체 내부 상태가 유효한지까지 검증하는 함수는 아니다.
+
+## 소유권을 받는 함수는 unique_ptr을 값으로 받는다
+
+함수가 객체를 소유하게 된다면 매개변수에 `unique_ptr`을 값으로 받으면 의도가 분명하다.
+
+```cpp
+void Register(std::unique_ptr<Knight> knight)
+{
+    registered = std::move(knight);
+}
+```
+
+호출자도 이동을 명시한다.
+
+```cpp
+auto knight = std::make_unique<Knight>();
+Register(std::move(knight));
+
+assert(knight == nullptr);
+```
+
+값 매개변수 자체가 함수 호출 시 소유권을 받고, 함수 안에서 다시 멤버로 이동하거나 함수 종료 시 객체를 삭제한다.
+
+함수가 객체를 생성해 호출자에게 소유권을 줄 때는 값으로 반환한다.
+
+```cpp
+std::unique_ptr<Knight> CreateKnight()
+{
+    return std::make_unique<Knight>();
+}
+```
+
+```cpp
+auto knight = CreateKnight();
+```
+
+반환할 지역 `unique_ptr`에 습관적으로 `std::move`를 붙이지 않는다. 반환 최적화와 암시적 이동 규칙에 맡긴다.
+
+## 관찰만 하는 함수는 객체 참조나 포인터를 받는다
+
+함수가 소유권을 받지 않고 객체를 사용하기만 한다면 `unique_ptr` 타입을 요구할 필요가 없다.
+
+null이 허용되지 않는 관찰은 참조로 표현할 수 있다.
+
+```cpp
+void PrintKnight(const Knight& knight)
+{
+    knight.PrintInfo();
+}
+
+PrintKnight(*owner);
+```
+
+null이 의미 있는 선택 상태라면 비소유 포인터를 받을 수 있다.
+
+```cpp
+void SetTarget(Knight* target);
+
+SetTarget(owner.get());
+SetTarget(nullptr);
+```
+
+이 포인터를 장기간 저장한다면 `owner`가 먼저 소멸하거나 이동·reset되지 않는다는 외부 수명 계약이 필요하다.
+
+`const std::unique_ptr<Knight>&`를 관찰 매개변수로 받을 수도 있지만 함수가 객체보다 특정 소유 래퍼에 결합된다. 소유자 자체를 검사해야 하는 이유가 없다면 `Knight&` 또는 `Knight*`가 더 일반적이다.
+
+## get은 소유권을 유지한 채 주소만 보여 준다
+
+`get()`은 관리 객체의 원시 포인터를 반환하지만 소유권은 `unique_ptr`에 남는다.
+
+```cpp
+auto owner = std::make_unique<Knight>();
+Knight* observer = owner.get();
+
+assert(observer == owner.get());
+```
+
+반환 포인터를 직접 삭제하면 안 된다.
+
+```cpp
+// delete observer; // owner가 나중에 다시 삭제하므로 이중 해제
+```
+
+소유자가 객체를 삭제하거나 다른 객체로 교체하면 관찰 포인터는 dangling이 될 수 있다.
+
+```cpp
+owner.reset();
+// observer->Attack(); // 삭제된 객체 접근
+```
+
+`get()`은 소유권을 요구하지 않는 기존 API에 일시적으로 주소를 전달할 때 사용한다.
+
+## release는 소유권만 포기하고 삭제하지 않는다
+
+`release()`는 관리 포인터를 반환하고 `unique_ptr`을 빈 상태로 만든다. 객체를 삭제하지 않는다.
+
+```cpp
+auto owner = std::make_unique<Knight>();
+Knight* released = owner.release();
+
+assert(owner == nullptr);
+```
+
+이제 `released`를 정리할 책임이 다른 곳으로 넘어가야 한다. 아무도 받지 않으면 메모리가 누수된다.
+
+```cpp
+std::unique_ptr<Knight> adopted(released);
+```
+
+`release()`는 원시 포인터 소유권을 인계받는 레거시 API와 연동할 때처럼 명확한 소유권 이전 경계에서만 사용한다. 단순히 포인터 주소가 필요하면 `get()`이다.
+
+```text
+get()     : 주소를 빌려 줌, unique_ptr이 계속 소유
+release() : 주소와 소유 책임을 넘김, 삭제하지 않음
+```
+
+## reset은 현재 객체를 삭제하고 새 포인터를 관리한다
+
+인자 없는 `reset()`은 현재 객체를 삭제하고 포인터를 비운다.
+
+```cpp
+owner.reset();
+assert(owner == nullptr);
+```
+
+새 포인터를 전달하면 기존 객체를 먼저 정리하고 새 객체를 관리한다.
+
+```cpp
+owner.reset(new Knight());
+```
+
+일반적인 새 객체 교체에는 임시 `unique_ptr`을 이동 대입하는 형태도 명확하다.
+
+```cpp
+owner = std::make_unique<Knight>();
+```
+
+같은 원시 포인터로 두 `unique_ptr`을 만들면 안 된다.
+
+```cpp
+Knight* raw = new Knight;
+std::unique_ptr<Knight> first(raw);
+// std::unique_ptr<Knight> second(raw); // 두 소유자가 같은 주소를 삭제
+```
+
+원시 포인터에서 소유자를 만드는 시점은 정확히 한 번이어야 한다.
+
+## swap은 두 소유권을 교환한다
+
+두 `unique_ptr`의 관리 객체를 교환할 수 있다.
+
+```cpp
+auto first = std::make_unique<Knight>(100);
+auto second = std::make_unique<Knight>(200);
+
+first.swap(second);
+```
+
+객체를 복사하거나 이동 생성하지 않고 각 포인터가 가진 소유권을 교환한다. 사용자 정의 deleter가 있다면 deleter 상태도 함께 교환된다.
+
+## 배열은 unique_ptr<T[]> 형태로 관리한다
+
+동적 배열에는 배열 특수화를 사용한다.
+
+```cpp
+auto values = std::make_unique<int[]>(3);
+
+values[0] = 10;
+values[1] = 20;
+values[2] = 30;
+```
+
+`unique_ptr<int[]>`는 배열 삭제인 `delete[]`를 사용하고 `operator[]`를 제공한다.
+
+```cpp
+std::unique_ptr<int[]> values(new int[3]);
+```
+
+다음처럼 단일 객체용 타입으로 배열을 관리하면 삭제 형태가 맞지 않는다.
+
+```cpp
+// std::unique_ptr<int> wrong(new int[3]);
+```
+
+배열 크기는 `unique_ptr<T[]>`가 저장하지 않으므로 별도로 관리해야 한다. 크기 변경, 반복자와 범위 기능이 필요하면 `std::vector<T>`가 더 자연스럽다.
+
+## 사용자 정의 deleter로 삭제 정책을 바꾼다
+
+동적 메모리가 아닌 파일, OS 핸들과 C 라이브러리 자원은 `delete`가 아닌 전용 정리 함수가 필요하다.
+
+```cpp
+struct ResourceDeleter
+{
+    void operator()(Resource* resource) const noexcept
+    {
+        CloseResource(resource);
+    }
+};
+
+using ResourceHandle = std::unique_ptr<Resource, ResourceDeleter>;
+```
+
+deleter 타입은 `unique_ptr` 타입의 일부다.
+
+```cpp
+ResourceHandle resource(OpenResource());
+```
+
+상태를 가진 deleter도 사용할 수 있지만 스마트 포인터 크기와 이동·교환 동작에 영향을 줄 수 있다. 상태 없는 빈 deleter는 구현에서 추가 저장 공간 없이 최적화되는 경우가 흔하지만 크기를 표준 보장처럼 가정하지 않는다.
+
+`make_unique`는 사용자 정의 deleter를 받지 않는다. 이 경우 자원 획득 결과를 올바른 deleter 타입의 `unique_ptr` 생성자에 즉시 넣는다.
+
+## 다형적 삭제에는 기반 클래스의 가상 소멸자가 필요하다
+
+파생 객체의 `unique_ptr`을 기반 타입 소유자로 이동할 수 있다.
+
+```cpp
+std::unique_ptr<Base> object = std::make_unique<Derived>();
+```
+
+기본 deleter는 최종적으로 `Base*`에 `delete`를 적용한다. 기반 클래스 소멸자가 가상이 아니면 파생 객체를 기반 포인터로 삭제하는 동작이 올바르지 않다.
+
+```cpp
+class Base
+{
+public:
+    virtual ~Base() = default;
+};
+```
+
+다형적으로 소유할 기반 클래스에는 가상 소멸자를 제공하거나, 타입을 보존하는 별도 deleter·소유 설계를 사용한다.
+
+## unique_ptr을 멤버로 두면 Rule of Zero에 가까워진다
+
+원시 포인터 소유 클래스는 소멸자, 복사와 이동 정책을 직접 관리해야 한다.
+
+```cpp
+class Character
+{
+private:
+    Pet* pet_ = nullptr;
+};
+```
+
+단독 소유를 `unique_ptr` 멤버로 표현하면 자동 정리와 이동 동작을 재사용할 수 있다.
+
+```cpp
+class Character
+{
+public:
+    Character() : pet_(std::make_unique<Pet>()) {}
+
+private:
+    std::unique_ptr<Pet> pet_;
+};
+```
+
+`Character`는 자연스럽게 복사 불가·이동 가능 타입이 된다. 독립 복사가 필요하면 `Pet`을 복제하는 복사 생성자를 명시적으로 설계하고, 필요 없다면 컴파일러가 제공하는 정책을 그대로 사용한다.
+
+## 전체 구현
+
+소유권 이동, 관찰 포인터, `reset`, `release`, 함수 인계, 배열과 사용자 정의 deleter를 확인한다.
+
+```cpp
+#include <cassert>
+#include <iostream>
+#include <memory>
+#include <string>
+#include <type_traits>
+#include <utility>
+
+class Actor
+{
+public:
+    explicit Actor(std::string name) : name_(std::move(name)) { ++aliveCount; }
+    ~Actor() { --aliveCount; }
+
+    const std::string& name() const noexcept { return name_; }
+
+    inline static int aliveCount = 0;
+
+private:
+    std::string name_;
+};
+
+struct CountingDeleter
+{
+    int* deleteCount;
+
+    void operator()(Actor* actor) const noexcept
+    {
+        ++*deleteCount;
+        delete actor;
+    }
+};
+
+std::unique_ptr<Actor> CreateActor(std::string name)
+{
+    return std::make_unique<Actor>(std::move(name));
+}
+
+void ConsumeActor(std::unique_ptr<Actor> actor)
+{
+    std::cout << "Consumed actor: " << actor->name() << '\n';
+}
+
+static_assert(!std::is_copy_constructible_v<std::unique_ptr<Actor>>);
+static_assert(std::is_move_constructible_v<std::unique_ptr<Actor>>);
+
+int main()
+{
+    int customDeleteCount = 0;
+
+    {
+        auto first = CreateActor("Knight");
+        Actor* observer = first.get();
+        auto second = std::move(first);
+
+        assert(first == nullptr);
+        assert(observer == second.get());
+        assert(observer->name() == "Knight");
+
+        std::cout << std::boolalpha;
+        std::cout << "First owner is empty: " << (first == nullptr) << '\n';
+        std::cout << "Observed actor: " << observer->name() << '\n';
+
+        second = CreateActor("Mage");
+        assert(second->name() == "Mage");
+
+        Actor* released = second.release();
+        assert(second == nullptr);
+
+        std::unique_ptr<Actor> adopted(released);
+        std::cout << "Adopted actor: " << adopted->name() << '\n';
+
+        std::unique_ptr<Actor, CountingDeleter> boss(new Actor("Boss"), CountingDeleter{&customDeleteCount});
+        boss.reset();
+
+        assert(customDeleteCount == 1);
+        std::cout << "Custom deleter calls: " << customDeleteCount << '\n';
+
+        ConsumeActor(CreateActor("Temporary"));
+
+        assert(Actor::aliveCount == 1);
+    }
+
+    assert(Actor::aliveCount == 0);
+
+    auto values = std::make_unique<int[]>(3);
+    values[0] = 10;
+    values[1] = 20;
+    values[2] = 30;
+
+    int sum = values[0] + values[1] + values[2];
+    assert(sum == 60);
+
+    std::cout << "Array sum: " << sum << '\n';
+    std::cout << "Actors alive after scope: " << Actor::aliveCount << '\n';
+}
+```
+
+실행 결과는 다음과 같다.
+
+```text
+First owner is empty: true
+Observed actor: Knight
+Adopted actor: Mage
+Custom deleter calls: 1
+Consumed actor: Temporary
+Array sum: 60
+Actors alive after scope: 0
+```
+
+`first`를 `second`로 이동하면 원본은 비고 관찰 포인터는 여전히 `second`가 소유한 `Knight`를 가리킨다. 이후 `second`에 `Mage`를 이동 대입하면 기존 `Knight`는 자동 삭제되므로 이전 관찰 포인터를 더 이상 사용하지 않는다.
+
+`release()`로 얻은 `Mage` 포인터는 즉시 새 `unique_ptr`에 인계해 누수를 막는다. 사용자 정의 deleter를 가진 `boss`는 `reset()`에서 deleter를 한 번 호출한다. 값으로 받은 `ConsumeActor`의 소유 객체는 함수가 끝날 때 삭제되고, 바깥 블록이 끝나면 마지막 `adopted` 객체까지 삭제되어 생존 수가 0이 된다.
+
+## unique_ptr을 사용할 때 확인할 기준
+
+1. 동적 객체의 단독 소유자가 누구인지 코드에서 분명한가?
+2. 기본 삭제 객체는 `make_unique`로 생성할 수 있는가?
+3. 소유권 이전 지점에 `std::move`가 명시돼 있는가?
+4. 이동 후 원본 `unique_ptr`이 비어 있다는 점을 고려하는가?
+5. 소유권을 받는 함수는 `unique_ptr`을 값으로 받는가?
+6. 관찰만 하는 함수에 불필요하게 `unique_ptr` 타입을 요구하지 않는가?
+7. `get()` 포인터를 직접 삭제하거나 소유자보다 오래 저장하지 않는가?
+8. `release()` 뒤 소유 책임을 즉시 다른 객체나 API에 인계하는가?
+9. `reset()`이 현재 객체를 삭제한다는 점을 고려하는가?
+10. 같은 원시 포인터로 두 소유자를 만들지 않는가?
+11. 동적 배열에는 `unique_ptr<T[]>`를 사용하며 크기 기능이 필요하면 `vector`를 고려하는가?
+12. 사용자 정의 자원에 맞는 deleter를 지정했는가?
+13. 기반 타입으로 파생 객체를 소유한다면 가상 소멸자가 있는가?
+14. 원시 포인터 멤버 대신 `unique_ptr`로 Rule of Zero에 가까운 설계를 만들 수 있는가?
+
+`unique_ptr`의 핵심은 자동 삭제보다 단독 소유라는 계약이다. 객체를 누가 없애야 하는지 타입에 기록하고, 소유자가 바뀌는 지점은 복사가 아닌 이동으로 명시한다. 이 규칙이 유지되면 삭제 시점은 각 소유 객체의 수명에서 자연스럽게 결정된다.
+
+## 다음 학습: shared_ptr와 weak_ptr
+
+마지막 글에서는 한 객체를 여러 소유자가 공유하는 `std::shared_ptr`의 제어 블록과 참조 횟수를 살펴본다. `make_shared`, `weak_ptr::lock`, 공유 소유 순환으로 객체가 소멸하지 않는 문제와 관찰 관계를 `weak_ptr`로 끊는 방법을 정리한다.

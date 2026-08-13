@@ -1,0 +1,573 @@
+---
+layout: post
+title: '[C++ 36] 생성자와 소멸자: 객체 수명의 시작과 끝 구분하기'
+date: 2026-04-22
+categories: [Dev, C++]
+tags: [C++, Constructor, Destructor, Copy Constructor, Explicit]
+---
+
+앞에서는 `Knight` 클래스로 상태와 동작을 하나의 타입에 묶었다. 기본 멤버 초기값 덕분에 `Knight knight;`만 작성해도 사용할 수 있는 상태가 만들어졌다.
+
+객체마다 서로 다른 초기값이 필요하거나 객체가 만들어지고 사라지는 시점에 별도 작업이 필요하면 생성자와 소멸자를 정의할 수 있다. 이 과정에서 생성과 대입, 복사 생성과 복사 대입, 암시적 변환과 명시적 변환을 구분해야 한다.
+
+이번 글에서는 생성자와 소멸자를 단순히 시작·끝 로그를 출력하는 함수로 보지 않고 객체 수명의 경계에서 어떤 조건을 책임지는지 살펴본다.
+
+## 생성자는 객체가 존재하기 시작할 때 초기 상태를 만든다
+
+생성자는 클래스와 같은 이름을 사용하고 반환 타입을 적지 않는다.
+
+```cpp
+class Knight
+{
+public:
+    Knight();
+
+private:
+    int hp_;
+    int attack_;
+};
+```
+
+클래스 밖에서 정의할 때는 클래스 범위를 지정한다.
+
+```cpp
+Knight::Knight() : hp_(100), attack_(10)
+{
+}
+```
+
+다음 선언에서 `knight`의 수명이 시작되며 기본 생성자가 호출된다.
+
+```cpp
+Knight knight;
+```
+
+생성자 호출이 끝난 객체는 클래스가 약속한 초기 조건을 만족해야 한다.
+
+```text
+hp_ >= 0
+attack_ >= 0
+```
+
+객체를 먼저 만든 뒤 외부 코드가 필수 멤버를 하나씩 채우게 하면 초기화가 끝나지 않은 상태가 노출될 수 있다. 생성자는 필요한 값을 객체 수명 시작과 함께 설정한다.
+
+## 기본 생성자는 인자 없이 호출할 수 있는 생성자다
+
+아무 인자 없이 객체를 만들 때 선택할 수 있는 생성자를 기본 생성자(Default constructor)라고 한다.
+
+```cpp
+Knight::Knight() : hp_(100), attack_(10)
+{
+}
+```
+
+다음 두 선언은 기본 생성자를 호출한다.
+
+```cpp
+Knight first;
+Knight second{};
+```
+
+괄호를 붙인 다음 코드는 객체 생성이 아니라 `Knight`를 반환하는 함수 선언으로 해석될 수 있다.
+
+```cpp
+// Knight third();
+```
+
+인자 없는 객체를 명확하게 값 초기화하려면 `Knight third{};`처럼 중괄호를 사용할 수 있다. 중괄호 초기화의 생성자 선택 규칙은 이후 모던 C++ 초기화 편에서 더 자세히 다룬다.
+
+## 생성자를 선언하지 않으면 기본 생성자가 암시적으로 선언될 수 있다
+
+사용자가 생성자를 하나도 선언하지 않은 단순 클래스가 있다.
+
+```cpp
+class Knight
+{
+public:
+    int hp_ = 100;
+};
+```
+
+이 경우 컴파일러가 인자 없이 호출할 수 있는 기본 생성자를 암시적으로 선언할 수 있다.
+
+```cpp
+Knight knight;
+```
+
+하지만 사용자가 다른 생성자를 선언하면 인자 없는 기본 생성자가 자동으로 함께 만들어지지 않는다.
+
+```cpp
+class Knight
+{
+public:
+    explicit Knight(int hp);
+};
+```
+
+이 클래스에는 `Knight(int)`만 있으므로 다음 선언은 적합한 생성자를 찾지 못한다.
+
+```cpp
+// Knight knight; // 인자 없는 생성자가 없음
+Knight knight{200};
+```
+
+인자 없는 생성도 허용하려면 직접 선언하거나 `= default`로 요청한다.
+
+```cpp
+class Knight
+{
+public:
+    Knight() = default;
+    explicit Knight(int hp);
+
+private:
+    int hp_ = 100;
+};
+```
+
+`= default`는 컴파일러가 제공할 수 있는 기본 동작을 명시적으로 사용하겠다는 뜻이다.
+
+## 생성자는 매개변수 목록으로 오버로딩할 수 있다
+
+서로 다른 초기화 요구에 맞춰 여러 생성자를 선언한다.
+
+```cpp
+class Knight
+{
+public:
+    Knight();
+    explicit Knight(int hp);
+    Knight(int hp, int attack, int x, int y);
+};
+```
+
+호출 인자에 맞는 생성자가 선택된다.
+
+```cpp
+Knight defaultKnight;
+Knight durableKnight{200};
+Knight customKnight{150, 25, 3, 7};
+```
+
+각 생성자는 서로 다른 매개변수 목록을 가지므로 오버로딩할 수 있다.
+
+```text
+Knight()                    인자 없음
+Knight(int)                 int 하나
+Knight(int, int, int, int)  int 네 개
+```
+
+반환 타입이나 매개변수 이름은 함수 시그니처를 구분하는 수단이 아니다. 같은 매개변수 타입 목록을 가진 생성자를 두 번 선언해 서로 다른 오버로드로 만들 수 없다.
+
+## `explicit`는 새로운 생성자 시그니처를 만들지 않는다
+
+원본 코드에는 다음 두 선언이 함께 있다.
+
+```cpp
+Knight(int hp);
+explicit Knight(int hp);
+```
+
+두 선언의 매개변수 타입은 모두 `int` 하나다. `explicit`는 함수 시그니처를 바꾸지 않으므로 서로 다른 생성자로 오버로딩되지 않는다.
+
+```text
+Knight(int)
+explicit Knight(int)
+→ 같은 생성자를 중복 선언한 형태
+```
+
+한 가지 정책을 선택해야 한다.
+
+```cpp
+explicit Knight(int hp);
+```
+
+이 생성자는 정수 하나로 기사를 만들 수 있지만 암시적 변환 경로로 사용되지는 않는다.
+
+## 인자 하나를 받는 생성자는 암시적 변환에 사용될 수 있다
+
+`explicit`가 없는 생성자를 먼저 가정한다.
+
+```cpp
+class Knight
+{
+public:
+    Knight(int hp);
+};
+```
+
+함수가 `Knight`를 값으로 받으면 정수에서 임시 기사 객체로 변환되는 호출이 허용될 수 있다.
+
+```cpp
+void PrintKnight(Knight knight);
+
+PrintKnight(200);
+```
+
+호출자는 단순한 정수 200을 전달했지만 컴파일러가 `Knight(200)` 생성자를 변환 경로로 사용한다. 이 변환이 코드의 의미를 흐릴 수 있다면 `explicit`를 붙인다.
+
+```cpp
+class Knight
+{
+public:
+    explicit Knight(int hp);
+};
+```
+
+이제 의도적으로 객체를 만들어 전달해야 한다.
+
+```cpp
+PrintKnight(Knight{200});
+```
+
+`explicit`는 모든 형변환을 금지하는 키워드가 아니다. 해당 생성자를 복사 초기화나 암시적 변환에 사용하지 못하게 하고 직접 초기화는 허용한다.
+
+```cpp
+Knight first{200};       // 가능: 직접 리스트 초기화
+Knight second(200);      // 가능: 직접 초기화
+// Knight third = 200;   // 불가: 복사 초기화에 explicit 생성자 필요
+```
+
+도메인 타입이 기본 타입 하나와 같은 의미라고 보기 어렵다면 인자 하나를 받는 생성자에 `explicit`를 우선 검토한다.
+
+## 멤버는 생성자 본문 전에 초기화된다
+
+생성자 본문에서 대입하는 코드가 있다.
+
+```cpp
+Knight::Knight(int hp)
+{
+    hp_ = hp;
+    attack_ = 10;
+}
+```
+
+데이터 멤버의 초기화 단계는 생성자 본문이 시작되기 전에 진행된다. 멤버 초기화 목록을 사용하면 원하는 값으로 직접 초기화할 수 있다.
+
+```cpp
+Knight::Knight(int hp) : hp_(hp), attack_(10), x_(0), y_(0)
+{
+}
+```
+
+기본 타입 멤버에서는 결과가 비슷해 보일 수 있지만 클래스 타입, `const`와 참조 멤버에서는 초기화와 나중 대입의 차이가 중요하다.
+
+초기화 목록의 실제 순서는 작성 순서가 아니라 클래스 안의 멤버 선언 순서를 따른다. 이 규칙과 포함된 멤버 객체의 생성 과정은 이후 멤버 초기화 목록 편에서 자세히 다룬다.
+
+## 소멸자는 객체 수명이 끝날 때 호출된다
+
+소멸자는 클래스 이름 앞에 `~`를 붙이고 반환 타입과 매개변수를 갖지 않는다.
+
+```cpp
+class Knight
+{
+public:
+    ~Knight();
+};
+```
+
+클래스 밖 정의도 범위를 지정한다.
+
+```cpp
+Knight::~Knight()
+{
+    std::cout << "~Knight()\n";
+}
+```
+
+하나의 클래스에는 생성자가 여러 개 있을 수 있지만 소멸자는 하나만 존재한다. 소멸자는 매개변수 목록으로 오버로딩할 수 없다.
+
+자동 저장 기간의 지역 객체는 해당 블록을 벗어날 때 소멸된다.
+
+```cpp
+void EnterBattle()
+{
+    Knight knight;
+}
+```
+
+`EnterBattle`의 블록을 벗어나면 `knight`의 소멸자가 호출되고 객체 수명이 끝난다.
+
+소멸자 호출과 저장 공간 관리 자체를 완전히 같은 개념으로 보지는 않는다. 동적으로 생성한 객체와 컨테이너의 요소처럼 저장 방식에 따라 수명 종료를 일으키는 과정이 다를 수 있다. 동적 할당은 이후 별도 글에서 다룬다.
+
+## 같은 블록의 지역 객체는 생성의 역순으로 소멸한다
+
+같은 스코프에 객체를 순서대로 만든다.
+
+```cpp
+{
+    Knight first;
+    Knight second{200};
+    Knight third{150, 25, 3, 7};
+}
+```
+
+생성 순서는 선언 순서다.
+
+```text
+first → second → third
+```
+
+블록을 벗어날 때는 반대 순서로 소멸한다.
+
+```text
+third → second → first
+```
+
+나중에 만들어진 객체가 먼저 정리되므로 앞서 만들어진 객체를 사용해 구성된 지역 자원을 역순으로 해제하기 적합하다.
+
+전역 객체, 정적 객체, 상속과 멤버 객체가 포함되면 순서 규칙을 더 구체적으로 확인해야 한다. 이번 예제는 한 블록 안의 자동 저장 기간 객체로 범위를 제한한다.
+
+## 복사 생성은 새 객체의 수명을 시작한다
+
+기존 기사와 같은 상태를 가진 새 객체를 만든다.
+
+```cpp
+Knight original{200};
+Knight copied(original);
+```
+
+`copied`는 지금 새로 만들어지는 객체이므로 복사 생성자가 사용된다.
+
+```cpp
+Knight::Knight(const Knight& other) : hp_(other.hp_), attack_(other.attack_), x_(other.x_), y_(other.y_)
+{
+}
+```
+
+복사 생성자는 일반적으로 같은 타입의 `const` 참조를 받는다.
+
+```cpp
+Knight(const Knight& other);
+```
+
+`const` 객체와 임시 객체도 복사 원본으로 사용할 수 있고 복사 과정에서 원본을 변경하지 않는다는 계약을 표현한다.
+
+다음 복사 초기화도 새 객체를 만들기 때문에 대입 연산자가 아니라 복사 생성과 관련된다.
+
+```cpp
+Knight copied = original;
+```
+
+등호가 보인다는 이유만으로 항상 대입이라고 판단하지 않는다. 선언과 동시에 새 객체가 만들어지는지, 이미 존재하는 객체의 상태가 바뀌는지 확인한다.
+
+## 복사 대입은 이미 존재하는 객체의 상태를 바꾼다
+
+두 객체가 이미 만들어진 뒤 대입한다.
+
+```cpp
+Knight source{200};
+Knight destination;
+destination = source;
+```
+
+`destination`의 수명은 대입 전에 이미 시작됐다. 이 표현은 복사 대입 연산자를 호출한다.
+
+```cpp
+Knight& Knight::operator=(const Knight& other)
+{
+    if (this == &other)
+    {
+        return *this;
+    }
+
+    hp_ = other.hp_;
+    attack_ = other.attack_;
+    x_ = other.x_;
+    y_ = other.y_;
+    return *this;
+}
+```
+
+반환 타입 `Knight&`와 `return *this`는 연속 대입 같은 일반적인 대입 연산자 사용 방식을 지원한다.
+
+```text
+복사 생성: 새 객체를 원본 상태로 생성
+복사 대입: 이미 존재하는 객체 상태를 원본과 같게 변경
+```
+
+정수 멤버만 가진 현재 클래스는 컴파일러가 만들어 주는 복사 생성자와 복사 대입 연산자로도 각 멤버를 복사할 수 있다. 직접 정의한 코드는 두 호출을 구분해 기록하기 위한 학습 예제다.
+
+동적 자원을 직접 소유하는 클래스에서는 단순 멤버 복사가 이중 해제와 공유되지 않아야 할 주소 공유를 만들 수 있다. 얕은 복사와 깊은 복사는 이후 별도 글에서 다룬다.
+
+## 단순한 클래스는 기본 복사와 소멸을 사용할 수 있다
+
+특별한 자원 관리가 없다면 컴파일러가 제공하는 동작을 명시할 수 있다.
+
+```cpp
+class Position
+{
+public:
+    Position() = default;
+    Position(const Position&) = default;
+    Position& operator=(const Position&) = default;
+    ~Position() = default;
+
+private:
+    int x_ = 0;
+    int y_ = 0;
+};
+```
+
+모든 특수 멤버 함수를 습관적으로 직접 구현하는 것이 목표는 아니다. 멤버들이 스스로 올바르게 복사되고 정리되는 타입이라면 기본 동작을 사용하는 편이 오류 가능성을 줄인다.
+
+`= default`는 함수가 존재하지 않는다는 뜻이 아니라 컴파일러가 정의할 기본 동작을 사용한다는 뜻이다. 사용을 금지하는 `= delete`와 구분한다.
+
+## 호출 횟수보다 객체 상태를 먼저 검증한다
+
+생성자와 소멸자에 로그를 추가하면 학습 중 호출 순서를 관찰할 수 있다. 하지만 실제 클래스의 정확성은 로그 개수보다 만들어진 객체의 상태와 복사 결과로 검증한다.
+
+```cpp
+#include <cassert>
+
+void VerifyKnight()
+{
+    Knight original{200};
+    assert(original.Hp() == 200);
+
+    Knight copied(original);
+    assert(copied.Hp() == 200);
+
+    Knight assigned;
+    assigned = original;
+    assert(assigned.Hp() == 200);
+}
+```
+
+컴파일러는 허용된 경우 복사 생략을 적용할 수 있으므로 임시 객체와 반환값을 섞은 예제에서 특정 생성자 로그 횟수만 고정적으로 기대하지 않는다. 이번 검증은 이름이 있는 객체 사이의 직접 복사와 대입을 사용한다.
+
+## 전체 구현
+
+생성자 오버로딩, 명시적 변환, 복사 생성, 복사 대입과 소멸을 한 클래스에서 확인한다.
+
+```cpp
+#include <algorithm>
+#include <cassert>
+#include <iostream>
+
+class Knight
+{
+public:
+    Knight();
+    explicit Knight(int hp);
+    Knight(int hp, int attack, int x, int y);
+    Knight(const Knight& other);
+    Knight& operator=(const Knight& other);
+    ~Knight();
+
+    int Hp() const;
+    int Attack() const;
+
+private:
+    int hp_;
+    int attack_;
+    int x_;
+    int y_;
+};
+
+Knight::Knight() : hp_(100), attack_(10), x_(0), y_(0)
+{
+    std::cout << "Knight()\n";
+}
+
+Knight::Knight(int hp) : hp_(std::max(0, hp)), attack_(10), x_(0), y_(0)
+{
+    std::cout << "Knight(int)\n";
+}
+
+Knight::Knight(int hp, int attack, int x, int y) : hp_(std::max(0, hp)), attack_(std::max(0, attack)), x_(x), y_(y)
+{
+    std::cout << "Knight(int, int, int, int)\n";
+}
+
+Knight::Knight(const Knight& other) : hp_(other.hp_), attack_(other.attack_), x_(other.x_), y_(other.y_)
+{
+    std::cout << "Knight(const Knight&)\n";
+}
+
+Knight& Knight::operator=(const Knight& other)
+{
+    std::cout << "operator=(const Knight&)\n";
+
+    if (this == &other)
+    {
+        return *this;
+    }
+
+    hp_ = other.hp_;
+    attack_ = other.attack_;
+    x_ = other.x_;
+    y_ = other.y_;
+    return *this;
+}
+
+Knight::~Knight()
+{
+    std::cout << "~Knight()\n";
+}
+
+int Knight::Hp() const
+{
+    return hp_;
+}
+
+int Knight::Attack() const
+{
+    return attack_;
+}
+
+void PrintKnight(const Knight& knight)
+{
+    std::cout << "HP: " << knight.Hp() << " ATT: " << knight.Attack() << '\n';
+}
+
+void VerifyKnight()
+{
+    Knight original{200};
+    assert(original.Hp() == 200);
+
+    Knight copied(original);
+    assert(copied.Hp() == 200);
+
+    Knight assigned;
+    assigned = original;
+    assert(assigned.Hp() == 200);
+
+    PrintKnight(Knight{150});
+}
+
+int main()
+{
+    VerifyKnight();
+
+    std::cout << "Enter nested scope\n";
+    {
+        Knight first;
+        Knight second{180};
+    }
+    std::cout << "Leave nested scope\n";
+}
+```
+
+`PrintKnight`는 `const Knight&`를 받아 출력만 한다. `explicit` 생성자 때문에 `PrintKnight(150)`처럼 정수를 직접 넘기지 않고 `Knight{150}`으로 객체 생성을 명시한다.
+
+중첩 블록에서는 `first`, `second` 순서로 생성되고 `second`, `first` 순서로 소멸한다. 함수가 끝날 때 `VerifyKnight` 안의 지역 객체들도 생성의 역순으로 소멸한다.
+
+## 생성과 소멸을 검토할 때 확인할 기준
+
+1. 각 생성자가 끝난 뒤 객체가 유효한 상태를 가지는가?
+2. 사용자 선언 생성자를 추가한 뒤에도 기본 생성이 필요한가?
+3. 같은 매개변수 타입 목록의 생성자를 `explicit` 유무로 중복 선언하지 않았는가?
+4. 인자 하나를 받는 생성자의 암시적 변환이 실제로 자연스러운가?
+5. 멤버를 생성자 본문에서 대입하기보다 초기화 목록에서 직접 초기화하는가?
+6. 새 객체를 만드는 복사 생성과 기존 객체를 변경하는 복사 대입을 구분하는가?
+7. 복사 대입이 자기 자신을 대입하는 경우에도 유효한가?
+8. 단순한 멤버만 가진 클래스에서 기본 특수 멤버 함수로 충분하지 않은가?
+9. 같은 스코프의 지역 객체가 생성의 역순으로 소멸한다는 점을 고려하는가?
+10. 특정 로그 횟수보다 생성된 객체의 상태와 수명 조건을 검증하는가?
+
+생성자와 소멸자는 객체의 탄생과 죽음을 알리는 출력용 함수가 아니다. 객체 수명이 시작될 때 필요한 상태를 만들고 수명이 끝날 때 객체가 소유한 책임을 정리하는 경계다.
+
+## 다음 학습: 상속으로 공통 상태와 동작을 재사용한다
+
+다음 글에서는 `Player`의 체력, 공격력과 이동 동작을 `Knight`, `Mage`가 물려받는 상속 관계를 살펴본다. 기반 클래스와 파생 클래스의 생성·소멸 순서, 기반 생성자 선택과 이름 숨김을 구분하고 단순한 코드 중복 제거만으로 상속을 선택하면 안 되는 이유도 함께 확인한다.

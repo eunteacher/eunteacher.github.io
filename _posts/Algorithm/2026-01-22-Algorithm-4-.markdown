@@ -1,202 +1,450 @@
 ---
 layout: post
-title: "[Algorithm 04] 동적 배열(Vector)의 구현과 메모리 관리"
+title: '[Algorithm 04] 동적 배열 직접 구현: size, capacity와 재할당'
 date: 2026-01-22
 categories: [Dev, Algorithm]
-tags: [C++, DataStructure, Vector, Memory]
+tags: [C++, Vector, Dynamic Array, Memory Management, Data Structure]
 use_math: true
 ---
 
-# [Algorithm] 동적 배열(Vector) 직접 구현하기
+동적 배열은 원소를 연속해서 저장하면서 실행 중 크기를 늘릴 수 있다. 두 성질을 동시에 유지하려면 현재 메모리가 부족할 때 더 큰 공간을 구하고 기존 원소를 옮겨야 한다.
 
----
+```text
+동적 배열의 핵심 상태
 
-## 1. 이론 정리 (Study Notes)
+data     : 연속된 저장 공간의 시작 주소
+size     : 실제로 존재하는 원소 수
+capacity : 재할당 없이 저장할 수 있는 원소 수
+```
 
-### 동적 배열 (Dynamic Array)의 핵심 메커니즘
-* **Size vs Capacity**
-  * **Size ($N$):** 실제 데이터가 저장된 개수
-  * **Capacity:** 메모리에 할당된 여유 공간의 크기
-* **증설 정책 (Growth Strategy)**
-  * 데이터를 추가(`push_back`)할 때 `Size == Capacity` 상태라면, 더 큰 메모리 공간을 새로 할당
-  * 보통 1.5배 또는 2배로 `Capacity`를 늘려 **재할당(Reallocation)** 비용을 최소화
-  * **과정:** 신규 메모리 할당 $\rightarrow$ 기존 데이터 복사 ($O(N)$) $\rightarrow$ 기존 메모리 해제 $\rightarrow$ 포인터 교체
+이번 실습은 `std::vector`와 비슷한 학습용 `Vector<T>`를 직접 만들면서 재할당과 메모리 소유권을 확인한다. 표준 컨테이너 전체를 재현하는 것이 목적은 아니다.
 
-### 시간 복잡도
-* **접근 (Access):** 인덱스를 통한 임의 접근은 $O(1)$
-* **삽입 (push_back):**
-  * 여유 공간이 있을 때: $O(1)$.
-  * 재할당이 발생할 때: $O(N)$ (복사 비용)
-  * **분할 상환 분석 (Amortized Analysis):** 재할당이 드물게 일어나므로 평균적으로 $O(1)$로 간주함
+## 먼저 지켜야 할 불변식
 
----
+컨테이너의 모든 public 함수가 끝난 뒤 다음 관계가 유지돼야 한다.
 
-## 2. 소스 코드 (Source Code)
+$$
+0 \leq size \leq capacity
+$$
 
-### 2.1 Vector 클래스 구현
-C++ `std::vector`의 작동 원리를 모사하여 구현한 커스텀 클래스
+```text
+capacity == 0  → data == nullptr
+capacity > 0   → data가 capacity개를 담을 수 있는 저장 공간을 가리킴
+[0, size)      → 생성된 유효 원소
+[size, capacity) → 확보만 됐고 아직 원소가 없는 공간
+```
+
+`size`와 `capacity`를 구분하지 않으면 확보만 한 공간을 유효한 원소처럼 읽거나, 생성된 객체의 소멸자를 호출하지 않는 문제가 생긴다.
+
+## 동적 배열의 기본 상태
+
+세 멤버로 상태를 관리하는 `Vector<T>`가 있다.
 
 ```cpp
-#include <iostream>
-#include <vector>
+T* data = nullptr;
+int vectorSize = 0;
+int vectorCapacity = 0;
+```
 
-using namespace std;
+### push_back은 공간부터 확인한다
+
+현재 size와 capacity가 같으면 새 원소를 놓을 자리가 없다. 이 예제에서는 기존 capacity의 1.5배를 계산하고, 정수 변환 후 값이 그대로라면 1을 더한다.
+
+```cpp
+void push_back(const T& value)
+{
+    if (vectorSize == vectorCapacity)
+    {
+        int newCapacity = static_cast<int>(vectorCapacity * 1.5f);
+
+        if (newCapacity == vectorCapacity)
+        {
+            ++newCapacity;
+        }
+
+        reserve(newCapacity);
+    }
+
+    data[vectorSize] = value;
+    ++vectorSize;
+}
+```
+
+0에 1.5를 곱해도 0이고, 1에 곱한 뒤 `int`로 바꿔도 1이다. 보정이 없다면 초기 capacity가 영원히 늘지 않거나 작은 구간에서 증가가 멈춘다.
+
+실제 증가 순서는 다음과 같다.
+
+```text
+0 → 1 → 2 → 3 → 4 → 6 → 9 → 13
+```
+
+증가 배율은 구현 정책이다. C++ 표준은 `std::vector`의 정확한 배율을 정하지 않으므로 특정 표준 라이브러리가 항상 같은 capacity 수열을 만든다고 가정하면 안 된다.
+
+## reserve에서 일어나는 재할당
+
+`reserve`는 요청한 capacity가 현재 값보다 클 때만 새 배열을 만든다.
+
+```cpp
+void reserve(int capacity)
+{
+    if (vectorCapacity >= capacity)
+    {
+        return;
+    }
+
+    vectorCapacity = capacity;
+    T* newData = new T[vectorCapacity];
+
+    for (int i = 0; i < vectorSize; ++i)
+    {
+        newData[i] = data[i];
+    }
+
+    delete[] data;
+    data = newData;
+}
+```
+
+흐름을 메모리 상태로 보면 다음과 같다.
+
+```text
+재할당 전
+data ─→ [10][20][30]     size 3, capacity 3
+
+1. 더 큰 배열 할당
+newData ─→ [  ][  ][  ][  ]
+
+2. 기존 원소 복사
+newData ─→ [10][20][30][  ]
+
+3. 기존 배열 해제 후 포인터 교체
+data ─→ [10][20][30][  ] size 3, capacity 4
+```
+
+원소 $N$개를 옮겨야 하므로 재할당 한 번의 시간 복잡도는 $O(N)$이다. 재할당이 없는 `push_back`은 마지막 위치에 원소 하나만 추가하므로 $O(1)$이다.
+
+## 왜 push_back 전체는 분할 상환 O(1)인가
+
+capacity를 매번 한 칸씩 늘린다면 원소를 $N$개 추가할 때 옮기는 횟수는 다음과 같다.
+
+$$
+0 + 1 + 2 + \cdots + (N - 1) = O(N^2)
+$$
+
+반면 capacity를 일정 비율로 키우면 재할당 시점이 점점 멀어진다. 2배 증가를 단순 예로 들면 복사량의 합은 기하급수의 합으로 제한된다.
+
+$$
+1 + 2 + 4 + \cdots + \frac{N}{2} < N
+$$
+
+추가 $N$번에 사용한 전체 작업이 $O(N)$이므로 한 번당 분할 상환 비용은 $O(1)$이다. 특정 `push_back` 하나가 항상 $O(1)$이라는 뜻은 아니다.
+
+1.5배 정책도 같은 이유로 기하급수적 성장에 해당한다. 배율이 크면 재할당은 줄지만 사용하지 않는 공간이 늘고, 배율이 작으면 공간 낭비는 줄지만 더 자주 옮겨야 한다.
+
+## 원시 저장 공간과 객체 수명을 분리한 구현
+
+다음 `Vector<T>`는 원시 저장 공간과 실제 원소의 수명을 분리해서 관리하는 예제다.
+
+- `std::allocator<T>`로 정렬 조건에 맞는 원시 저장 공간을 확보한다.
+- `std::construct_at`으로 필요한 위치에만 원소를 생성한다.
+- `std::destroy_at`으로 실제 생성된 원소만 파괴한다.
+- 깊은 복사와 이동을 구현한다.
+- 새 공간 준비가 끝난 뒤 기존 저장 공간을 교체한다.
+
+```cpp
+#include <algorithm>
+#include <cstddef>
+#include <iostream>
+#include <memory>
+#include <utility>
 
 template<typename T>
 class Vector
 {
 public:
-    Vector() { }
+    Vector() = default;
+
+    Vector(const Vector& other)
+    {
+        Reserve(other.size_);
+
+        try
+        {
+            for (; size_ < other.size_; ++size_)
+            {
+                std::construct_at(data_ + size_, other.data_[size_]);
+            }
+        }
+        catch (...)
+        {
+            Release();
+            throw;
+        }
+    }
+
+    Vector(Vector&& other) noexcept
+    {
+        Swap(other);
+    }
+
+    Vector& operator=(const Vector& other)
+    {
+        if (this != &other)
+        {
+            Vector copy(other);
+            Swap(copy);
+        }
+
+        return *this;
+    }
+
+    Vector& operator=(Vector&& other) noexcept
+    {
+        if (this != &other)
+        {
+            Release();
+            data_ = std::exchange(other.data_, nullptr);
+            size_ = std::exchange(other.size_, 0);
+            capacity_ = std::exchange(other.capacity_, 0);
+        }
+
+        return *this;
+    }
+
     ~Vector()
     {
-        if (data)
-        {
-            delete[] data;
-        }
+        Release();
     }
 
-    // 데이터 추가
-    void push_back(const T& value)
+    void PushBack(T value)
     {
-        // 공간 부족 시 증설
-        if (vectorSize == vectorCapacity)
+        if (size_ == capacity_)
         {
-            // 1.5배 적용 (초기값 0일 경우 1로 보정)
-            int newCapacity = static_cast<int>(vectorCapacity * 1.5f);
-            if (newCapacity == vectorCapacity)
-            {
-                newCapacity++;
-            }
-
-            reserve(newCapacity);
+            Reserve(NextCapacity());
         }
 
-        // 데이터 저장
-        data[vectorSize] = value;
-        vectorSize++;
+        std::construct_at(data_ + size_, std::move(value));
+        ++size_;
     }
 
-    // 메모리 예약 (재할당 로직 핵심)
-    void reserve(int capacity)
+    void Reserve(std::size_t newCapacity)
     {
-        // 기존 용량이 충분하면 무시
-        if (vectorCapacity >= capacity)
+        if (newCapacity <= capacity_)
         {
             return;
         }
 
-        vectorCapacity = capacity;
+        T* newData = allocator_.allocate(newCapacity);
+        std::size_t constructed = 0;
 
-        // 새로운 공간 할당
-        T* newData = new T[vectorCapacity];
-
-        // 기존 데이터 복사
-        for (int i = 0; i < vectorSize; i++)
+        try
         {
-            newData[i] = data[i];
+            for (; constructed < size_; ++constructed)
+            {
+                std::construct_at(newData + constructed, std::move_if_noexcept(data_[constructed]));
+            }
+        }
+        catch (...)
+        {
+            while (constructed > 0)
+            {
+                --constructed;
+                std::destroy_at(newData + constructed);
+            }
+
+            allocator_.deallocate(newData, newCapacity);
+            throw;
         }
 
-        // 기존 메모리 해제
-        if (data)
+        DestroyElements();
+
+        if (data_ != nullptr)
         {
-            delete[] data;
+            allocator_.deallocate(data_, capacity_);
         }
 
-        // 포인터 교체
-        data = newData;
+        data_ = newData;
+        capacity_ = newCapacity;
     }
 
-    // 초기화
-    void clear()
+    void Clear() noexcept
     {
-        // 현재 구현: 메모리를 완전히 해제하고 새로 할당
-        if (data)
+        DestroyElements();
+        size_ = 0;
+    }
+
+    T& operator[](std::size_t index) { return data_[index]; }
+    const T& operator[](std::size_t index) const { return data_[index]; }
+    std::size_t Size() const { return size_; }
+    std::size_t Capacity() const { return capacity_; }
+
+private:
+    std::size_t NextCapacity() const
+    {
+        return capacity_ + std::max<std::size_t>(1, capacity_ / 2);
+    }
+
+    void DestroyElements() noexcept
+    {
+        for (std::size_t i = size_; i > 0; --i)
         {
-            delete[] data;
-            data = new T[vectorCapacity];
+            std::destroy_at(data_ + i - 1);
+        }
+    }
+
+    void Release() noexcept
+    {
+        Clear();
+
+        if (data_ != nullptr)
+        {
+            allocator_.deallocate(data_, capacity_);
         }
 
-        vectorSize = 0;
+        data_ = nullptr;
+        capacity_ = 0;
     }
 
-    // 임의 접근 연산자 오버로딩
-    T& operator[](int index)
+    void Swap(Vector& other) noexcept
     {
-        return data[index];
+        std::swap(data_, other.data_);
+        std::swap(size_, other.size_);
+        std::swap(capacity_, other.capacity_);
     }
 
-    // Getter
-    int size() { return vectorSize; }
-    int capacity() { return vectorCapacity; }
-
-public:
-    T* data = nullptr;
-    int vectorSize = 0;
-    int vectorCapacity = 0;
+    std::allocator<T> allocator_;
+    T* data_ = nullptr;
+    std::size_t size_ = 0;
+    std::size_t capacity_ = 0;
 };
 ```
----
-### 2.2 메인 함수 (테스트)
-STL `vector`와 직접 구현한 커스텀 `Vector`의 동작 흐름 비교 및 검증
+
+### PushBack이 값을 복사해서 받는 이유
+
+예제는 매개변수를 값으로 먼저 만든 뒤 재할당하고, 마지막에 새 위치로 이동한다.
+
+```cpp
+void PushBack(T value)
+```
+
+이 방식은 다음처럼 컨테이너 내부 원소를 다시 추가해도 `value`가 재할당 전에 독립된 객체가 되도록 한다.
+
+```cpp
+values.PushBack(values[0]);
+```
+
+대신 일반적인 lvalue 추가에서 복사 또는 이동이 한 번 더 일어날 수 있다. 실제 `std::vector`는 `push_back(const T&)`, `push_back(T&&)`와 `emplace_back`을 제공하고 별칭, 예외 안전성 및 allocator 규칙까지 더 정교하게 처리한다.
+
+### Reserve는 성공한 뒤에 상태를 교체한다
+
+새 메모리를 확보하고 기존 원소를 모두 생성하기 전까지 `data_`와 `capacity_`는 바뀌지 않는다. 복사 생성이 가능하거나 이동 생성자가 예외를 던지지 않는 타입에서는 `std::move_if_noexcept`가 기존 원소를 가능한 한 안전하게 보존하는 선택을 한다.
+
+이 예제도 완전한 `std::vector` 대체품은 아니다. 최대 크기와 정수 오버플로 검사, 범위 검사 접근, 임의 위치 삽입·삭제, allocator 전파 규칙 및 모든 예외 조건은 생략했다.
+
+## 복사와 이동까지 확인하는 실행 코드
 
 ```cpp
 int main()
 {
-    // STL Vector Test
+    Vector<int> values;
+
+    for (int value = 0; value < 10; ++value)
     {
-        vector<int> v;
-        cout << "-------------------------------" << '\n';
-
-        // v.reserve(100); // 미리 예약하면 재할당 비용 감소
-
-        for (int i = 0; i < 10; i++)
-        {
-            v.push_back(i);
-            // Size와 Capacity 변화 관찰
-            cout << "Size: " << v.size() << " / Capacity: " << v.capacity() << '\n';
-        }
-
-        v.clear();
-        cout << "After Clear -> Size: " << v.size() << " / Capacity: " << v.capacity() << '\n';
-        cout << "-------------------------------" << '\n';
+        values.PushBack(value);
+        std::cout << "size/capacity: " << values.Size() << '/' << values.Capacity() << '\n';
     }
 
-    // Custom Vector Test
-    {
-        cout << "-------------------------------" << '\n';
+    Vector<int> copied = values;
+    copied[0] = 99;
+    std::cout << "original[0]: " << values[0] << '\n';
+    std::cout << "copied[0]: " << copied[0] << '\n';
 
-        Vector<int> v;
+    Vector<int> moved = std::move(copied);
+    std::cout << "moved size: " << moved.Size() << '\n';
+    std::cout << "copied size after move: " << copied.Size() << '\n';
 
-        for (int i = 0; i < 10; i++)
-        {
-            v.push_back(i);
-            cout << "Size: " << v.size() << " / Capacity: " << v.capacity() << '\n';
-        }
-
-        v.clear();
-        cout << "After Clear -> Size: " << v.size() << " / Capacity: " << v.capacity() << '\n';
-        cout << "-------------------------------" << '\n';
-    }
+    moved.Clear();
+    std::cout << "after clear: " << moved.Size() << '/' << moved.Capacity() << '\n';
 }
 ```
----
-## 3. 실행 결과 (Execution Result)
 
-![Result](assets/img/Algorithm05.png)
+실행 결과는 다음과 같다.
 
-## 4. 종합 (Review)
+```text
+size/capacity: 1/1
+size/capacity: 2/2
+size/capacity: 3/3
+size/capacity: 4/4
+size/capacity: 5/6
+size/capacity: 6/6
+size/capacity: 7/9
+size/capacity: 8/9
+size/capacity: 9/9
+size/capacity: 10/13
+original[0]: 0
+copied[0]: 99
+moved size: 10
+copied size after move: 0
+after clear: 0/10
+```
 
-* **재할당 비용:** `reserve()`가 호출될 때 `new`, `copy loop`, `delete` 과정이 수행되므로 오버헤드가 큼. 따라서 빈번한 재할당은 성능 저하의 주원인
-* **복사 전략:** 데이터 개수가 많아질수록 복사 비용이 기하급수적으로 커짐. 이를 방지하기 위해 `Capacity`를 넉넉하게(1.5~2배) 잡는 것
-* **STL과의 차이:** 실제 STL `clear()`는 메모리를 해제하지 않고 `size`만 0으로 줄여 재사용성을 높임 (위 예제 코드는 `clear` 시 재할당을 수행하도록 구현됨)
+깊은 복사이므로 `copied[0]`을 바꿔도 원본 값은 유지된다. 이 복사 생성자는 원본 capacity 13을 그대로 복제하지 않고 실제 원소 수만큼인 10칸을 확보한다. 이동 후에는 그 저장 공간의 소유권이 `moved`로 넘어가고, 원본 `copied`는 비어 있는 유효한 상태가 된다. `Clear()`는 원소만 제거하므로 `moved`의 capacity 10은 그대로 남는다.
 
----
+## reserve, resize와 clear를 구분한다
 
-## 5. Tip
+| 함수 | size 변화 | capacity 변화 | 기존 원소 처리 |
+|---|---:|---:|---|
+| `reserve(N)` | 유지 | 부족하면 최소 `N` 확보 | 재할당 시 이동 또는 복사 |
+| `resize(N)` | `N`으로 변경 | 필요하면 증가 | 추가 생성 또는 뒤쪽 원소 제거 |
+| `clear()` | 0 | 유지 | 모든 원소 제거 |
 
-### reserve() vs resize()
+`reserve(100)` 직후 `values[50]`에 대입할 수는 없다. 저장 공간만 있을 뿐 51번째 원소가 생성된 상태가 아니기 때문이다. 인덱스로 접근할 수 있는 범위는 항상 `[0, size)`다.
 
-| 함수 | 동작 방식 | 목적 |
-| :--- | :--- | :--- |
-| **reserve(N)** | 실제 데이터(`Size`)는 건드리지 않고, 메모리 공간(`Capacity`)만 $N$만큼 미리 확보함 | 재할당 방지 (성능 최적화) |
-| **resize(N)** | 데이터의 개수(`Size`)를 $N$으로 강제 변경함. 부족하면 기본값으로 채우고, 넘치면 잘라냄 | 데이터 크기 조절 |
+## 재할당이 기존 주소에 미치는 영향
+
+동적 배열의 원소 주소를 보관했다면 capacity 증가를 특히 주의해야 한다.
+
+```cpp
+std::vector<int> values{10, 20, 30};
+int* first = &values[0];
+values.push_back(40); // 재할당이 발생할 수 있음
+```
+
+재할당이 발생하면 기존 메모리가 해제되므로 `first`와 모든 기존 참조·이터레이터가 무효화된다. 무효화 여부를 확인하려고 `*first`를 읽는 것 자체가 Undefined Behavior가 될 수 있다.
+
+필요한 원소 수를 알고 있다면 미리 `reserve`할 수 있지만, 이후 capacity를 초과하면 같은 문제가 다시 발생한다. 장기적으로 안정된 식별자가 필요하면 인덱스, 별도 ID, 다른 소유 구조 등 요구사항에 맞는 방법을 선택한다.
+
+## 복잡도와 메모리 비용
+
+원소 수를 $N$이라고 할 때 이 구현의 대표 비용은 다음과 같다.
+
+```text
+operator[]       시간 O(1)
+PushBack         일반 O(1), 재할당 시 O(N), 분할 상환 O(1)
+Reserve          증가가 필요하면 O(N), 아니면 O(1)
+Clear            원소 소멸 O(N)
+복사 생성        시간 O(N), 추가 공간 O(N)
+이동 생성        시간 O(1)
+저장 공간        O(capacity)
+```
+
+`Clear()`도 비단순 타입 원소의 소멸자를 각각 호출해야 하므로 일반적으로 $O(N)$이다. `int`처럼 소멸 작업이 없는 타입에서 컴파일러가 실제 작업을 줄일 수 있어도 인터페이스의 일반적인 복잡도는 원소 수에 비례한다.
+
+## 구현을 검토할 때 확인할 기준
+
+1. `0 <= size <= capacity`가 모든 함수 이후 유지되는가?
+2. capacity가 0일 때 첫 증가량이 0으로 멈추지 않는가?
+3. 재할당 전에 기존 원소를 잃지 않는가?
+4. 실제 생성된 `[0, size)` 원소만 파괴하는가?
+5. 소멸자가 소유한 저장 공간을 정확히 한 번 반환하는가?
+6. 복사는 독립된 저장 공간을 만드는가, 아니면 명시적으로 금지됐는가?
+7. 이동 후 원본 객체가 소멸 가능한 유효 상태인가?
+8. `Clear()`가 capacity를 유지하면서 원소 수만 0으로 만드는가?
+9. 재할당 후 기존 포인터·참조·이터레이터가 무효라는 점을 호출자가 아는가?
+10. 성장 배율을 표준 보장이 아니라 구현 정책으로 구분하는가?
+
+동적 배열 구현의 핵심은 포인터에 새 배열을 대입하는 코드 자체가 아니다. 저장 공간과 객체 수명을 분리하고, 재할당 도중에도 소유권과 불변식을 잃지 않는 것이 중요하다.
+
+## 다음 학습: 이중 연결 리스트와 이터레이터
+
+다음 글에서는 연속된 저장 공간 대신 노드의 `prev`, `next` 링크로 순서를 표현한다. 더미 head·tail을 사용해 경계 처리를 단순화하고, 위치를 기억하는 이터레이터로 삽입과 삭제를 구현한다.

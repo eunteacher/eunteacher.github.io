@@ -1,0 +1,361 @@
+---
+layout: post
+title: '[C++ 47] C++ 명명 캐스트: 변환 의도와 위험 범위 구분하기'
+date: 2026-05-03
+categories: [Dev, C++]
+tags: [C++, Casting, Static Cast, Dynamic Cast, Const Cast, Reinterpret Cast]
+---
+
+C 스타일 캐스트는 짧지만 한 문법 안에서 숫자 변환, 상속 변환, `const` 제거와 포인터 재해석까지 서로 다른 작업을 시도할 수 있다. 코드를 읽는 사람은 어떤 변환을 의도했고 어느 정도의 위험을 감수했는지 바로 알기 어렵다.
+
+C++은 목적에 따라 `static_cast`, `dynamic_cast`, `const_cast`, `reinterpret_cast`를 제공한다. 명명 캐스트(Named cast)는 변환을 안전하게 만들어 주는 주문이 아니라 허용할 변환의 종류를 제한하고 의도를 코드에 드러내는 도구다.
+
+## C 스타일 캐스트는 여러 변환을 한 문법에 숨긴다
+
+C 스타일 캐스트는 다음처럼 작성한다.
+
+```cpp
+int whole = (int)3.75;
+Weapon* weapon = (Weapon*)item;
+char* text = (char*)source;
+```
+
+세 줄의 목적은 서로 다르다.
+
+```text
+실수 값을 정수 값으로 변환
+기반 클래스 포인터를 파생 클래스 포인터로 변환
+포인터의 cv 한정 또는 가리키는 타입을 변경
+```
+
+C 스타일 캐스트는 문맥에 따라 `const_cast`, `static_cast`, `reinterpret_cast` 또는 이들의 조합에 해당하는 변환을 시도한다. 어떤 위험한 변환이 선택됐는지 표현식만 보고 구분하기 어렵다.
+
+C++ 명명 캐스트는 형태가 길지만 코드 검색이 쉽고 각 캐스트가 허용하는 범위를 제한한다.
+
+```cpp
+int whole = static_cast<int>(3.75);
+Knight* knight = dynamic_cast<Knight*>(player);
+```
+
+가장 좋은 캐스트는 작성하지 않아도 되는 캐스트다. 타입과 인터페이스를 먼저 고치고 변환이 실제로 필요한 경우 목적에 맞는 캐스트를 선택한다.
+
+## static_cast는 컴파일 시점에 정의된 변환을 표현한다
+
+숫자 타입 사이의 변환 의도를 명시할 수 있다.
+
+```cpp
+int hp = 75;
+int maxHp = 100;
+float ratio = static_cast<float>(hp) / maxHp;
+```
+
+`hp`를 먼저 `float`로 바꾸므로 정수 나눗셈이 아니라 부동소수점 나눗셈이 수행된다.
+
+반대 방향은 정보 손실이 있을 수 있다.
+
+```cpp
+double value = 3.75;
+int whole = static_cast<int>(value); // 3
+```
+
+`static_cast`는 소수 부분이 사라진다는 사실을 막지 않는다. 변환을 의도적으로 작성했다는 점만 드러낸다. 대상 타입이 표현할 수 없는 값인지도 호출자가 확인해야 한다.
+
+사용자 정의 타입에서는 명시적 생성자와 변환 함수를 호출하는 데 사용할 수 있다.
+
+```cpp
+Health health = static_cast<Health>(80);
+int rawValue = static_cast<int>(health);
+```
+
+직접 초기화가 더 읽기 쉽다면 `Health{80}`을 사용할 수 있다.
+
+## static_cast 다운캐스팅에는 런타임 검사가 없다
+
+실제 객체가 `Knight`라는 사실을 다른 로직이 보장한다면 기반 포인터를 파생 포인터로 바꿀 수 있다.
+
+```cpp
+Player* player = GetKnownKnight();
+Knight* knight = static_cast<Knight*>(player);
+```
+
+`static_cast`는 실행 중 객체 타입을 검사하지 않는다. `player`가 실제로 `Knight` 객체의 적절한 기반 클래스 부분을 가리킨다는 전제가 필요하다.
+
+```cpp
+Player* player = new Archer;
+// Knight* knight = static_cast<Knight*>(player); // 실제 객체 타입 전제 위반
+```
+
+컴파일러는 `Player`와 `Knight`의 상속 관계만 확인할 수 있다. 실제 객체가 `Archer`인 상황까지 막아 주지 않으며 잘못된 다운캐스팅은 정의되지 않은 동작을 만들 수 있다.
+
+파생 포인터에서 접근 가능한 공개 기반 포인터로 가는 업캐스팅에는 보통 캐스트가 필요 없다.
+
+```cpp
+Knight* knight = GetKnight();
+Player* player = knight;
+```
+
+암시적으로 안전하게 표현되는 변환에 불필요한 `static_cast`를 추가하지 않는다.
+
+## dynamic_cast는 다형적 객체의 실제 타입을 검사한다
+
+기반 포인터가 여러 파생 타입 중 무엇을 가리키는지 실행 중 확인해야 한다면 `dynamic_cast`를 사용할 수 있다.
+
+```cpp
+Player* player = FindPlayer();
+
+if (Knight* knight = dynamic_cast<Knight*>(player))
+{
+    knight->UseShield();
+}
+```
+
+포인터 `dynamic_cast`는 요청한 타입으로 변환할 수 없으면 null을 반환한다.
+
+```cpp
+Archer archer;
+Player* player = &archer;
+Knight* knight = dynamic_cast<Knight*>(player);
+
+// knight == nullptr
+```
+
+런타임 검사가 필요한 다운캐스팅과 교차 캐스팅에서 원본 클래스는 가상 함수를 가진 다형적 타입이어야 한다.
+
+```cpp
+class Player
+{
+public:
+    virtual ~Player() = default;
+};
+```
+
+컴파일러는 RTTI(Runtime Type Information)를 이용해 변환 가능 여부를 판단한다. 가상 함수 테이블은 흔한 구현 방식이지만 C++ 표준이 특정 테이블 구조를 요구하는 것은 아니다. 빌드 설정에서 RTTI를 끈 환경이라면 사용 가능 여부도 확인해야 한다.
+
+참조 `dynamic_cast`는 실패를 null로 표현할 수 없으므로 `std::bad_cast` 예외를 던진다.
+
+```cpp
+Player& player = GetPlayerReference();
+
+try
+{
+    Knight& knight = dynamic_cast<Knight&>(player);
+}
+catch (const std::bad_cast&)
+{
+    // player가 Knight로 변환될 수 없음
+}
+```
+
+실패가 정상적인 분기라면 포인터 형태가 처리하기 편할 수 있다. 파생 타입별 행동만 필요하다면 캐스트보다 가상 함수로 공통 인터페이스를 만드는 방법을 먼저 검토한다.
+
+## const_cast는 cv 한정만 변경한다
+
+`const_cast`는 포인터나 참조가 가리키는 타입의 `const` 또는 `volatile` 한정을 추가하거나 제거할 때 사용한다.
+
+```cpp
+int score = 10;
+const int* readOnlyView = &score;
+int* writable = const_cast<int*>(readOnlyView);
+*writable = 20;
+```
+
+이 예제가 허용되는 이유는 원래 객체 `score`가 비상수이기 때문이다. 중간에 `const int*` 관점으로 바라봤을 뿐 실제 객체의 변경 가능성은 남아 있다.
+
+처음부터 `const`로 정의한 객체를 수정하면 안 된다.
+
+```cpp
+const int score = 10;
+int* writable = const_cast<int*>(&score);
+// *writable = 20; // 정의되지 않은 동작
+```
+
+`const_cast`는 객체 자체를 변경 가능한 객체로 다시 만들지 않는다. 타입에 붙은 한정만 표현식 수준에서 바꾼다.
+
+원본은 문자열 리터럴을 `char*` 매개변수에 전달하기 위해 `const`를 제거한다.
+
+```cpp
+void PrintName(char* text);
+PrintName(const_cast<char*>("HelloWorld"));
+```
+
+문자열 리터럴의 문자는 수정할 수 없다. `PrintName`이 값을 변경하면 정의되지 않은 동작이므로 읽기만 하는 함수의 인터페이스를 고치는 것이 올바르다.
+
+```cpp
+void PrintName(const char* text);
+PrintName("HelloWorld");
+```
+
+기존 C API처럼 잘못된 과거 인터페이스와 연동하면서 실제 함수가 수정하지 않는다는 계약이 확실한 경우에 제한적으로 `const_cast`가 필요할 수 있다.
+
+## reinterpret_cast는 비트 수준의 관점 변경을 표현한다
+
+`reinterpret_cast`는 관련 없는 포인터 타입 사이의 변환이나 포인터와 충분히 큰 정수 타입 사이의 저수준 변환을 표현한다.
+
+```cpp
+Knight knight;
+std::uintptr_t address = reinterpret_cast<std::uintptr_t>(&knight);
+Knight* restored = reinterpret_cast<Knight*>(address);
+```
+
+지원되는 `std::uintptr_t`에 포인터를 저장하고 같은 포인터 타입으로 되돌리는 왕복은 주소 표현을 다루는 저수준 코드에서 사용할 수 있다. 하지만 정수 주소에 산술을 수행하거나 객체 수명이 끝난 뒤 되돌린 포인터가 유효해지는 것은 아니다.
+
+관련 없는 클래스 포인터로도 문법상 변환할 수 있다.
+
+```cpp
+Knight* knight = GetKnight();
+Dog* dog = reinterpret_cast<Dog*>(knight);
+```
+
+이 변환은 `Knight` 객체를 `Dog` 객체로 바꾸지 않는다. 정렬과 타입 접근 조건을 만족하는 실제 `Dog` 객체가 없으므로 `dog`를 통해 `Dog` 멤버를 사용하는 것은 올바르지 않다.
+
+`reinterpret_cast`가 등장하는 코드는 하드웨어 레지스터, 바이너리 프로토콜, ABI 경계나 특정 플랫폼 API처럼 객체 표현을 직접 다루는 저수준 영역이 많다. 대상 환경의 정렬, 객체 수명, 별칭과 표현 규칙을 별도로 확인해야 한다.
+
+## void 포인터 변환에 reinterpret_cast가 필수는 아니다
+
+원본은 `malloc`이 반환한 `void*`를 `Dog*`로 바꾸기 위해 `reinterpret_cast`를 사용한다.
+
+```cpp
+void* storage = std::malloc(sizeof(Dog));
+Dog* dog = reinterpret_cast<Dog*>(storage);
+```
+
+C++에서는 `void*`에서 객체 포인터 타입으로 가는 변환을 `static_cast`로 표현할 수 있다.
+
+```cpp
+void* storage = std::malloc(sizeof(Dog));
+Dog* dogStorage = static_cast<Dog*>(storage);
+```
+
+하지만 캐스트 결과가 곧 생성된 `Dog` 객체를 의미하지는 않는다. `malloc`은 정렬된 저장 공간을 제공할 뿐 `Dog` 생성자를 호출하지 않는다. 클래스 객체를 평범하게 만들 목적이라면 생성과 수명을 함께 처리하는 방법을 사용한다.
+
+```cpp
+Dog* dog = new Dog;
+delete dog;
+```
+
+직접 저장 공간에 객체를 생성하는 배치 `new`와 명시적인 수명 관리는 별도의 저수준 주제다. 단순히 포인터 타입을 바꾸는 것으로 객체 생성 과정을 대체하지 않는다.
+
+## 캐스트를 제거하는 설계를 먼저 찾는다
+
+캐스트가 반복된다면 타입 설계가 필요한 정보를 숨기고 있을 수 있다.
+
+```text
+파생 타입별 동작 호출       → 가상 함수 검토
+기본 타입에서 객체 생성     → 명시적 생성자 검토
+내부 값 읽기                → 이름이 있는 접근 함수 검토
+const 제거                  → 함수 매개변수의 const 정확성 검토
+관련 없는 포인터 변환       → 공통 데이터 형식이나 명시적 변환 함수 검토
+```
+
+`dynamic_cast`가 항상 나쁜 것은 아니고 `reinterpret_cast`가 항상 오류인 것도 아니다. 다만 강한 캐스트일수록 컴파일러가 검증할 수 있는 조건이 줄어들므로 호출자가 증명해야 할 전제가 많아진다.
+
+## 전체 구현
+
+네 캐스트의 대표적인 사용 조건을 작은 예제에서 검증한다.
+
+```cpp
+#include <cassert>
+#include <cstdint>
+#include <iostream>
+
+class Player
+{
+public:
+    virtual ~Player() = default;
+    virtual void UseSkill() const = 0;
+};
+
+class Knight final : public Player
+{
+public:
+    void UseSkill() const override
+    {
+        std::cout << "Knight uses shield\n";
+    }
+};
+
+class Archer final : public Player
+{
+public:
+    void UseSkill() const override
+    {
+        std::cout << "Archer shoots an arrow\n";
+    }
+};
+
+void TryUseKnightSkill(Player* player)
+{
+    if (Knight* knight = dynamic_cast<Knight*>(player))
+    {
+        knight->UseSkill();
+        return;
+    }
+
+    std::cout << "Player is not a Knight\n";
+}
+
+void VerifyCasts()
+{
+    double value = 75.8;
+    int whole = static_cast<int>(value);
+    assert(whole == 75);
+
+    Knight knight;
+    Archer archer;
+    Player* knightPlayer = &knight;
+    Player* archerPlayer = &archer;
+
+    Knight* knownKnight = static_cast<Knight*>(knightPlayer);
+    assert(knownKnight == &knight);
+
+    assert(dynamic_cast<Knight*>(knightPlayer) == &knight);
+    assert(dynamic_cast<Knight*>(archerPlayer) == nullptr);
+    TryUseKnightSkill(knightPlayer);
+    TryUseKnightSkill(archerPlayer);
+
+    int score = 10;
+    const int* readOnlyView = &score;
+    int* writable = const_cast<int*>(readOnlyView);
+    *writable = 20;
+    assert(score == 20);
+
+    std::uintptr_t address = reinterpret_cast<std::uintptr_t>(&knight);
+    Knight* restored = reinterpret_cast<Knight*>(address);
+    assert(restored == &knight);
+}
+
+int main()
+{
+    VerifyCasts();
+}
+```
+
+실행 결과는 다음과 같다.
+
+```text
+Knight uses shield
+Player is not a Knight
+```
+
+`static_cast` 숫자 변환은 소수 부분을 제거한다. 실제 객체가 기사임을 알고 있는 포인터의 다운캐스팅은 성공하고, `dynamic_cast`는 궁수 객체를 기사로 변환할 수 없어 null을 반환한다.
+
+`const_cast` 예제는 원본 `score`가 비상수 객체이므로 수정할 수 있다. `reinterpret_cast`는 포인터를 `std::uintptr_t`에 저장했다가 같은 포인터 타입으로 되돌리는 왕복만 수행한다.
+
+## 캐스트를 검토할 때 확인할 기준
+
+1. 캐스트 없이 타입과 인터페이스를 수정해 의도를 표현할 수 있는가?
+2. `static_cast` 변환에서 정보 손실과 다운캐스팅 전제를 확인했는가?
+3. 런타임 타입 검사가 필요하다면 기반 클래스가 다형적 타입인가?
+4. 포인터 `dynamic_cast` 실패 시 null을 처리하는가?
+5. 참조 `dynamic_cast` 실패 시 `std::bad_cast`를 처리하는가?
+6. `const_cast`로 수정하려는 실제 객체가 원래 비상수인가?
+7. 읽기 전용 데이터를 받는 함수가 올바른 `const` 인터페이스를 제공하는가?
+8. `reinterpret_cast` 후 객체 수명, 정렬과 타입 접근 규칙을 만족하는가?
+9. 저장 공간의 포인터 타입을 바꾼 것과 객체를 생성한 것을 혼동하지 않는가?
+10. C 스타일 캐스트가 여러 위험한 변환을 숨기고 있지 않은가?
+
+명명 캐스트의 목적은 위험한 변환을 정당화하는 것이 아니다. 변환의 종류를 좁혀 컴파일러가 더 많은 실수를 거부하게 하고, 남은 전제 조건을 코드와 설계에서 분명하게 드러내는 것이다.
+
+## 다음 학습: 전방 선언과 헤더 의존성 줄이기
+
+다음 글에서는 클래스가 서로를 참조할 때 헤더를 무조건 포함하지 않고 전방 선언을 사용할 수 있는 조건을 살펴본다. 포인터·참조 멤버와 값 멤버의 차이, 불완전 타입과 순환 포함 문제를 함께 정리한다.

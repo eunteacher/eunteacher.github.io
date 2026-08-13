@@ -1,0 +1,628 @@
+---
+layout: post
+title: '[C++ 33] 나선형 배열: 방향과 방문 상태로 보드 채우기'
+date: 2026-04-19
+categories: [Dev, C++]
+tags: [C++, Array, Algorithm, Simulation, Direction]
+---
+
+C++ 30편에서는 2차원 배열의 행과 열, `[y][x]` 접근 순서와 메모리 구조를 살펴봤다. 이번에는 정사각형 배열의 왼쪽 위에서 시작해 오른쪽, 아래, 왼쪽, 위 순서로 방향을 바꾸며 숫자를 채운다.
+
+나선형 배열은 반복문을 많이 작성하는 문제가 아니다. 현재 위치와 방향을 상태로 관리하고, 다음 칸으로 이동할 수 없을 때 방향을 바꾸는 작은 시뮬레이션이다.
+
+```text
+01 02 03 04
+12 13 14 05
+11 16 15 06
+10 09 08 07
+```
+
+숫자를 하나 기록할 때마다 다음 좌표가 보드 안에 있는지, 이미 채운 칸인지 확인해야 한다.
+
+## 먼저 입력과 결과 조건을 정의한다
+
+크기가 `N`인 정사각형 보드를 다음 조건으로 채운다.
+
+- 보드 크기는 `N × N`이다.
+- 왼쪽 위 좌표 `(0, 0)`에서 시작한다.
+- 첫 이동 방향은 오른쪽이다.
+- 이동할 수 없으면 시계 방향으로 회전한다.
+- 숫자는 1부터 `N × N`까지 한 번씩 기록한다.
+- 이미 숫자가 있는 칸에는 다시 들어가지 않는다.
+
+크기 3에서 기대하는 결과는 다음과 같다.
+
+```text
+1 2 3
+8 9 4
+7 6 5
+```
+
+모든 칸을 한 번씩 채우면 종료한다. 보드 경계에 도착했다는 사실만으로 전체 작업이 끝나는 것은 아니다.
+
+## 고정 배열의 최대 크기와 실제 사용 크기를 구분한다
+
+원본은 최대 `100 × 100` 배열을 만들고 입력받은 `N × N` 구간만 사용한다.
+
+```cpp
+#include <array>
+
+constexpr int MaximumBoardSize = 100;
+
+using BoardRow = std::array<int, MaximumBoardSize>;
+using Board = std::array<BoardRow, MaximumBoardSize>;
+```
+
+`Board` 객체는 항상 정수 10,000개를 가진다. 실행 중에는 `size`로 지정한 왼쪽 위 영역만 유효한 게임 보드로 사용한다.
+
+```text
+전체 저장 공간: 100 × 100
+실제 사용 영역: size × size
+```
+
+따라서 입력 크기는 반드시 다음 범위에 있어야 한다.
+
+```text
+1 <= size <= MaximumBoardSize
+```
+
+입력 검사가 없으면 100보다 큰 값으로 배열 경계를 벗어날 수 있다. 0이나 음수도 시작 좌표 `(0, 0)`을 가진 보드라는 요구사항을 만족하지 않는다.
+
+## 0은 아직 방문하지 않은 칸을 뜻한다
+
+보드를 값 초기화하면 모든 요소가 0이 된다.
+
+```cpp
+Board board{};
+```
+
+실제로 기록하는 숫자는 1부터 시작하므로 0을 방문 여부로 사용할 수 있다.
+
+```text
+board[y][x] == 0  아직 방문하지 않은 칸
+board[y][x] != 0  이미 숫자를 기록한 칸
+```
+
+별도의 `visited` 배열을 만들지 않아도 보드 값으로 두 상태를 구분할 수 있다.
+
+이 방법은 기록할 실제 값에 0이 포함되지 않는다는 요구사항에 의존한다. 0도 유효한 데이터라면 값과 방문 여부를 별도로 저장해야 한다.
+
+## 방향을 이름 있는 값으로 표현한다
+
+방향을 단순한 숫자로만 사용하면 0과 1의 의미를 계속 기억해야 한다.
+
+```cpp
+enum class Direction
+{
+    Right,
+    Down,
+    Left,
+    Up
+};
+```
+
+열거 값의 순서는 시계 방향 회전 순서와 일치한다.
+
+```text
+Right → Down → Left → Up → Right
+```
+
+`enum class`는 다른 정수와 자동으로 섞이지 않는다. 배열 인덱스로 사용할 때는 의도적으로 정수 타입으로 변환한다.
+
+```cpp
+std::size_t directionIndex = static_cast<std::size_t>(direction);
+```
+
+방향 이름과 배열 인덱스가 연결돼 있다는 사실을 한 위치에서 확인할 수 있다.
+
+## 방향별 좌표 변화량을 두 배열에 기록한다
+
+현재 좌표가 `(y, x)`일 때 방향마다 행과 열의 변화량이 다르다.
+
+| 방향 | `y` 변화 | `x` 변화 |
+| :--- | ---: | ---: |
+| 오른쪽 | 0 | 1 |
+| 아래 | 1 | 0 |
+| 왼쪽 | 0 | -1 |
+| 위 | -1 | 0 |
+
+코드에서는 방향 순서와 같은 배열로 만든다.
+
+```cpp
+constexpr std::array<int, 4> DeltaY{0, 1, 0, -1};
+constexpr std::array<int, 4> DeltaX{1, 0, -1, 0};
+```
+
+다음 좌표는 현재 좌표에 변화량을 더해 구한다.
+
+```cpp
+std::size_t directionIndex = static_cast<std::size_t>(direction);
+int nextY = y + DeltaY[directionIndex];
+int nextX = x + DeltaX[directionIndex];
+```
+
+원본에는 방향마다 거의 같은 대입을 반복하는 `switch`가 있다. 방향 벡터를 사용하면 다음 좌표 계산을 하나의 식으로 통일할 수 있다.
+
+```cpp
+switch (direction)
+{
+case Direction::Right:
+    nextY = y;
+    nextX = x + 1;
+    break;
+// 나머지 방향도 반복
+}
+```
+
+`switch` 방식도 잘못된 것은 아니다. 방향마다 이동 외에 서로 다른 동작이 필요하다면 분기가 더 읽기 쉬울 수 있다. 이번 문제에서는 `y`, `x` 변화량만 다르므로 배열이 규칙을 더 직접적으로 표현한다.
+
+## 다음 칸을 읽기 전에 경계를 먼저 확인한다
+
+이동 가능한 좌표는 두 조건을 만족해야 한다.
+
+- 좌표가 실제 사용 영역 안에 있다.
+- 아직 숫자를 기록하지 않은 칸이다.
+
+```cpp
+bool CanMove(const Board& board, int size, int y, int x)
+{
+    if (y < 0 || y >= size || x < 0 || x >= size)
+    {
+        return false;
+    }
+
+    return board[static_cast<std::size_t>(y)][static_cast<std::size_t>(x)] == 0;
+}
+```
+
+경계 검사는 배열 접근보다 먼저 실행한다. 다음 순서로 작성하면 음수나 범위 밖 인덱스를 먼저 사용할 수 있다.
+
+```cpp
+// 잘못된 순서
+// if (board[y][x] == 0 && y >= 0 && y < size && x >= 0 && x < size)
+```
+
+`y`와 `x`는 위쪽이나 왼쪽으로 이동할 때 -1이 될 수 있으므로 부호 있는 `int`로 계산한다. 유효 범위임을 확인한 뒤 배열 인덱스 타입으로 변환한다.
+
+## 이동할 수 없으면 시계 방향으로 회전한다
+
+현재 방향의 다음 칸으로 이동할 수 없을 때 방향을 한 단계 바꾼다.
+
+```cpp
+Direction TurnClockwise(Direction direction)
+{
+    constexpr int DirectionCount = 4;
+    int next = (static_cast<int>(direction) + 1) % DirectionCount;
+    return static_cast<Direction>(next);
+}
+```
+
+나머지 연산으로 마지막 방향인 `Up` 다음에 다시 `Right`가 나온다.
+
+```text
+Right: (0 + 1) % 4 = 1 → Down
+Down:  (1 + 1) % 4 = 2 → Left
+Left:  (2 + 1) % 4 = 3 → Up
+Up:    (3 + 1) % 4 = 0 → Right
+```
+
+이 계산은 열거 값이 0부터 연속되고 선언 순서가 회전 순서와 같다는 전제에 의존한다. 방향 열거형의 값을 임의로 바꾸면 함께 수정해야 한다.
+
+## 한 반복에서 숫자 하나를 기록한다
+
+현재 칸에 숫자를 기록하고 다음 좌표를 결정한다.
+
+```cpp
+void FillSpiral(Board& board, int size)
+{
+    int y = 0;
+    int x = 0;
+    Direction direction = Direction::Right;
+    int finalValue = size * size;
+
+    for (int value = 1; value <= finalValue; ++value)
+    {
+        board[static_cast<std::size_t>(y)][static_cast<std::size_t>(x)] = value;
+
+        if (value == finalValue)
+        {
+            break;
+        }
+
+        std::size_t directionIndex = static_cast<std::size_t>(direction);
+        int nextY = y + DeltaY[directionIndex];
+        int nextX = x + DeltaX[directionIndex];
+
+        if (!CanMove(board, size, nextY, nextX))
+        {
+            direction = TurnClockwise(direction);
+            directionIndex = static_cast<std::size_t>(direction);
+            nextY = y + DeltaY[directionIndex];
+            nextX = x + DeltaX[directionIndex];
+        }
+
+        y = nextY;
+        x = nextX;
+    }
+}
+```
+
+`for` 반복의 `value`는 지금 기록할 숫자이면서 지금까지 방문한 칸 수를 나타낸다. 마지막 숫자를 쓴 뒤에는 다음 칸을 찾지 않고 바로 종료한다.
+
+원본은 이동에 성공할 때만 숫자를 증가시키는 `while (true)` 구조다. 이 방식도 가능하지만 숫자 기록 횟수가 이미 `N × N`으로 정해져 있으므로 `for` 반복으로 종료 조건을 드러낼 수 있다.
+
+## 방향을 바꾼 뒤 다음 좌표를 다시 계산한다
+
+방향만 바꾸고 이전에 계산한 좌표를 그대로 사용하면 경계 밖이나 방문한 칸으로 이동한다.
+
+```text
+현재 방향으로 nextY, nextX 계산
+              │
+              ▼
+          이동 가능한가?
+          │          │
+         예         아니오
+          │          │
+          │       방향 회전
+          │          │
+          │       새 방향으로 좌표 재계산
+          └──────┬───┘
+                 ▼
+           현재 좌표 갱신
+```
+
+이번 나선형 보드에서는 마지막 칸을 기록하기 전이라면 한 번 회전한 방향에 이동 가능한 칸이 존재한다. 그 성질은 빈 정사각형 보드를 바깥에서 안쪽으로 연속해서 채운다는 문제 조건에서 나온다.
+
+장애물이 임의로 놓인 일반 미로라면 한 번 회전만으로 충분하지 않을 수 있다. 네 방향을 모두 검사했는데 이동할 수 없는 상태도 별도로 처리해야 한다.
+
+## 크기 4의 상태 변화를 추적한다
+
+처음에는 오른쪽으로 이동한다.
+
+```text
+01 02 03 04
+00 00 00 00
+00 00 00 00
+00 00 00 00
+```
+
+`04`에서 오른쪽 좌표 `(0, 4)`는 범위를 벗어나므로 아래로 회전한다.
+
+```text
+01 02 03 04
+00 00 00 05
+00 00 00 06
+00 00 00 07
+```
+
+아래쪽 경계에서 왼쪽으로 회전한다.
+
+```text
+01 02 03 04
+00 00 00 05
+00 00 00 06
+10 09 08 07
+```
+
+왼쪽, 위쪽 경계와 이미 채운 칸을 만나며 계속 회전한다.
+
+```text
+01 02 03 04
+12 13 14 05
+11 16 15 06
+10 09 08 07
+```
+
+바깥 테두리를 채운 뒤에는 `board[nextY][nextX] != 0` 조건이 내부 방향 전환을 만든다. 단순한 좌표 경계만 확인하면 이미 채운 바깥 테두리를 덮어쓰게 된다.
+
+## 반복 중 유지해야 할 조건을 확인한다
+
+각 반복이 시작될 때 다음 조건이 유지돼야 한다.
+
+- 현재 `(y, x)`는 보드 범위 안에 있다.
+- 현재 칸은 아직 0이다.
+- 1부터 `value - 1`까지는 서로 다른 칸에 기록돼 있다.
+- 현재 방향은 네 방향 중 하나다.
+
+현재 칸에 `value`를 기록하고 유효한 다음 칸으로 이동하면 다음 반복에서도 같은 조건이 유지된다.
+
+이런 조건을 반복 불변식(Loop invariant)으로 볼 수 있다. 모든 반복을 일일이 외우는 대신 시작 전, 한 단계 실행 후, 종료 시점에 어떤 조건이 보존되는지 확인한다.
+
+종료할 때 `value == N × N`이므로 모든 칸에 숫자가 하나씩 기록된다.
+
+## 출력 너비는 마지막 숫자의 자릿수에 맞춘다
+
+크기 4에서는 마지막 값이 16이므로 두 자리 너비면 충분하다. 크기 10에서는 마지막 값 100 때문에 세 자리가 필요하다.
+
+```cpp
+int CountDigits(int value)
+{
+    int digits = 1;
+
+    while (value >= 10)
+    {
+        value /= 10;
+        ++digits;
+    }
+
+    return digits;
+}
+```
+
+보드를 출력할 때 매 요소마다 `std::setw`를 적용한다.
+
+```cpp
+#include <iomanip>
+#include <iostream>
+
+void PrintBoard(const Board& board, int size)
+{
+    int width = CountDigits(size * size);
+
+    for (int y = 0; y < size; ++y)
+    {
+        for (int x = 0; x < size; ++x)
+        {
+            std::cout << std::setfill('0') << std::setw(width) << board[static_cast<std::size_t>(y)][static_cast<std::size_t>(x)] << ' ';
+        }
+
+        std::cout << '\n';
+    }
+}
+```
+
+`std::setw`의 너비 설정은 다음 형식 출력 뒤 초기화되므로 각 숫자 앞에 다시 적용한다. `std::setfill('0')`로 지정한 채움 문자는 스트림에 유지된다.
+
+출력은 보드 생성 규칙과 분리한다. 표시 형식을 바꿔도 이동과 방향 전환 코드는 수정하지 않는다.
+
+## 작은 보드로 경계 조건을 검증한다
+
+크기 1은 이동 없이 시작 칸 하나만 기록해야 한다.
+
+```cpp
+Board one{};
+FillSpiral(one, 1);
+assert(one[0][0] == 1);
+```
+
+크기 3은 전체 결과를 고정된 배열과 비교할 수 있다.
+
+```cpp
+constexpr std::array<int, 9> ExpectedThree{
+    1, 2, 3,
+    8, 9, 4,
+    7, 6, 5
+};
+```
+
+비교 함수는 2차원 좌표를 1차원 인덱스로 변환한다.
+
+```cpp
+bool Matches(const Board& board, int size, std::span<const int> expected)
+{
+    if (expected.size() != static_cast<std::size_t>(size * size))
+    {
+        return false;
+    }
+
+    for (int y = 0; y < size; ++y)
+    {
+        for (int x = 0; x < size; ++x)
+        {
+            std::size_t index = static_cast<std::size_t>(y * size + x);
+            if (board[static_cast<std::size_t>(y)][static_cast<std::size_t>(x)] != expected[index])
+            {
+                return false;
+            }
+        }
+    }
+
+    return true;
+}
+```
+
+`size`는 호출 전에 1부터 100 사이로 검증한다. 따라서 `size * size`는 현재 예제의 `int` 범위를 넘지 않는다.
+
+## 전체 구현
+
+입력 검사, 나선형 생성, 검증과 출력을 하나의 파일로 구성한다.
+
+```cpp
+#include <array>
+#include <cassert>
+#include <cstddef>
+#include <iomanip>
+#include <iostream>
+#include <span>
+
+constexpr int MaximumBoardSize = 100;
+
+using BoardRow = std::array<int, MaximumBoardSize>;
+using Board = std::array<BoardRow, MaximumBoardSize>;
+
+enum class Direction
+{
+    Right,
+    Down,
+    Left,
+    Up
+};
+
+constexpr std::array<int, 4> DeltaY{0, 1, 0, -1};
+constexpr std::array<int, 4> DeltaX{1, 0, -1, 0};
+
+bool IsValidBoardSize(int size)
+{
+    return size >= 1 && size <= MaximumBoardSize;
+}
+
+bool CanMove(const Board& board, int size, int y, int x)
+{
+    if (y < 0 || y >= size || x < 0 || x >= size)
+    {
+        return false;
+    }
+
+    return board[static_cast<std::size_t>(y)][static_cast<std::size_t>(x)] == 0;
+}
+
+Direction TurnClockwise(Direction direction)
+{
+    constexpr int DirectionCount = 4;
+    int next = (static_cast<int>(direction) + 1) % DirectionCount;
+    return static_cast<Direction>(next);
+}
+
+void FillSpiral(Board& board, int size)
+{
+    int y = 0;
+    int x = 0;
+    Direction direction = Direction::Right;
+    int finalValue = size * size;
+
+    for (int value = 1; value <= finalValue; ++value)
+    {
+        board[static_cast<std::size_t>(y)][static_cast<std::size_t>(x)] = value;
+
+        if (value == finalValue)
+        {
+            break;
+        }
+
+        std::size_t directionIndex = static_cast<std::size_t>(direction);
+        int nextY = y + DeltaY[directionIndex];
+        int nextX = x + DeltaX[directionIndex];
+
+        if (!CanMove(board, size, nextY, nextX))
+        {
+            direction = TurnClockwise(direction);
+            directionIndex = static_cast<std::size_t>(direction);
+            nextY = y + DeltaY[directionIndex];
+            nextX = x + DeltaX[directionIndex];
+        }
+
+        y = nextY;
+        x = nextX;
+    }
+}
+
+int CountDigits(int value)
+{
+    int digits = 1;
+
+    while (value >= 10)
+    {
+        value /= 10;
+        ++digits;
+    }
+
+    return digits;
+}
+
+void PrintBoard(const Board& board, int size)
+{
+    int width = CountDigits(size * size);
+
+    for (int y = 0; y < size; ++y)
+    {
+        for (int x = 0; x < size; ++x)
+        {
+            std::cout << std::setfill('0') << std::setw(width) << board[static_cast<std::size_t>(y)][static_cast<std::size_t>(x)] << ' ';
+        }
+
+        std::cout << '\n';
+    }
+}
+
+bool Matches(const Board& board, int size, std::span<const int> expected)
+{
+    if (expected.size() != static_cast<std::size_t>(size * size))
+    {
+        return false;
+    }
+
+    for (int y = 0; y < size; ++y)
+    {
+        for (int x = 0; x < size; ++x)
+        {
+            std::size_t index = static_cast<std::size_t>(y * size + x);
+            if (board[static_cast<std::size_t>(y)][static_cast<std::size_t>(x)] != expected[index])
+            {
+                return false;
+            }
+        }
+    }
+
+    return true;
+}
+
+void VerifySpiral()
+{
+    Board one{};
+    FillSpiral(one, 1);
+    assert(one[0][0] == 1);
+
+    Board three{};
+    FillSpiral(three, 3);
+    constexpr std::array<int, 9> ExpectedThree{1, 2, 3, 8, 9, 4, 7, 6, 5};
+    assert(Matches(three, 3, ExpectedThree));
+}
+
+int main()
+{
+    VerifySpiral();
+
+    int size = 0;
+    std::cout << "Board size (1-100): ";
+
+    if (!(std::cin >> size) || !IsValidBoardSize(size))
+    {
+        std::cout << "Invalid board size.\n";
+        return 1;
+    }
+
+    Board board{};
+    FillSpiral(board, size);
+    PrintBoard(board, size);
+}
+```
+
+전체 구현은 C++20의 `std::span`을 검증 함수에 사용한다. 나선형 생성 함수는 최대 크기가 정해진 `Board`와 실제 사용할 `size`를 함께 받는다.
+
+`FillSpiral`은 호출자가 유효한 크기를 전달한다는 전제에서 동작한다. 외부 입력은 `main`에서 검사하고, 내부 고정 테스트는 유효한 크기만 사용한다.
+
+## 시간 복잡도는 보드 칸 수에 비례한다
+
+보드에는 `N²`개의 칸이 있고 각 칸에 한 번씩 숫자를 기록한다. 다음 좌표 검사와 방향 회전은 각 단계에서 상수 시간에 처리된다.
+
+```text
+시간 복잡도: O(N²)
+```
+
+고정 `100 × 100` 배열을 사용하므로 이 구현의 저장 공간은 입력 크기와 관계없이 일정한 최대 공간을 차지한다.
+
+```text
+전체 Board 저장 공간: O(MaximumBoardSize²)
+실제 사용하는 영역:   O(N²)
+```
+
+실행 중 입력 크기에 맞춰 저장 공간을 만들면 실제 추가 공간을 `O(N²)`로 표현할 수 있다. 이번 글은 원본의 고정 배열 구조와 입력 검사의 관계에 집중한다.
+
+## 나선형 배열을 검토할 때 확인할 기준
+
+1. 입력 크기가 배열의 최대 범위 안에 있는가?
+2. 현재 좌표와 다음 좌표를 구분하는가?
+3. 배열에 접근하기 전에 좌표 경계를 검사하는가?
+4. 위쪽과 왼쪽 이동을 위해 좌표 계산에 부호 있는 타입을 사용하는가?
+5. 경계뿐 아니라 이미 채운 칸도 이동 불가로 처리하는가?
+6. 방향 순서와 `DeltaY`, `DeltaX` 배열 순서가 일치하는가?
+7. 회전한 뒤 새 방향으로 다음 좌표를 다시 계산하는가?
+8. 마지막 값을 기록한 뒤 불필요하게 다음 칸을 찾지 않는가?
+9. 출력 형식과 보드 생성 규칙이 분리돼 있는가?
+10. 크기 1처럼 가장 작은 입력을 직접 검증하는가?
+
+나선형 배열은 2차원 배열 문법을 확인하는 실습이면서 상태 기반 반복을 설계하는 작은 알고리즘이다. 현재 위치, 방향과 방문 여부를 분리하면 여러 `switch`와 중첩 조건보다 이동 규칙을 명확하게 표현할 수 있다.
+
+## 다음 학습: 선언과 정의를 파일로 나눈다
+
+다음 글에서는 하나의 `.cpp`에 있던 타입과 함수를 헤더와 소스 파일로 분리한다. `#include`가 실제로 무엇을 하는지, 선언과 정의가 번역 단위 사이에서 어떻게 연결되는지, 헤더 중복 포함과 중복 정의를 어떻게 막는지 살펴본다.

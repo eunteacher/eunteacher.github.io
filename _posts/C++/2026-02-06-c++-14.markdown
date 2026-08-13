@@ -1,168 +1,744 @@
 ---
 layout: post
 title: "[C++ 14] 가위바위보로 배우는 입력·난수·판정 분리"
-date: 2026-02-07
-categories: [ Dev, C++ ]
-tags: [ C++, Random, Switch, ControlFlow, GameLogic ]
+date: 2026-02-06
+categories: [Dev, C++]
+tags: [C++, Random, Switch, ControlFlow, GameLogic]
 use_math: true
 ---
 
-# [C++] 작은 게임도 생성과 판정을 나누면 단순해진다
+앞에서는 입력받은 크기에 따라 중첩 반복문으로 여러 출력 패턴을 만들었다. 이번에는 사용자 입력, 반복문, 조건 분기, 난수 생성을 하나의 작은 프로그램으로 묶는다.
 
-`if-else`와 `switch-case` 제어문을 활용한 게임 로직 분기 처리와, `rand()` 함수를 이용한 난수 생성 방법을 실습하는 예제
+가위바위보는 규칙 자체는 단순하지만 모든 코드를 `main` 안에 작성하면 입력 처리와 난수 생성, 승패 판정, 결과 출력이 서로 섞이기 쉽다. 이번 실습의 핵심은 기능을 늘리는 것이 아니라 **각 단계가 맡은 책임을 분리하는 것**이다.
 
----
+## 게임 한 판의 흐름부터 나눈다
 
-## 먼저 동작하는 게임 만들기
+가위바위보 한 판은 다음 단계로 구성할 수 있다.
 
-컴퓨터와 가위바위보 대결을 반복하며 승률을 계산하는 프로그램
+```text
+사용자 입력 받기
+      │
+      ▼
+입력을 Hand 값으로 변환
+      │
+      ▼
+컴퓨터 선택 생성
+      │
+      ▼
+두 선택으로 승패 판정
+      │
+      ▼
+결과 출력·전적 갱신
+```
+
+각 단계를 분리하면 한 부분을 바꿀 때 다른 부분에 미치는 영향을 줄일 수 있다.
+
+- 입력 방식을 키보드에서 UI 버튼으로 바꿔도 승패 규칙은 그대로 사용할 수 있다.
+- 난수 대신 고정된 컴퓨터 선택을 넣어 판정만 검사할 수 있다.
+- 한글 출력 문구를 바꿔도 난수 생성에는 영향을 주지 않는다.
+- 판정 함수는 입력과 출력 없이 모든 조합을 테스트할 수 있다.
+
+처음부터 함수 수를 늘리는 것이 목적은 아니다. 서로 다른 이유로 변경되는 코드를 구분하는 것이 목적이다.
+
+## 선택과 결과는 `enum class`로 표현한다
+
+가위, 바위, 보는 서로 관련된 선택지다. 승리, 패배, 무승부도 하나의 결과 집합이다.
 
 ```cpp
-#include <iostream>
-#include <cstdlib> // rand(), srand()
-#include <ctime>   // time()
-using namespace std;
-
-int main()
+enum class Hand
 {
-    // 1. 난수 테이블 초기화 (Seed 설정)
-    // 시간(time)은 계속 흐르므로, 이를 시드값으로 주어 매번 다른 랜덤값이 나오게 함
-    std::srand(static_cast<unsigned int>(std::time(0)));
+    Rock = 1,
+    Paper = 2,
+    Scissors = 3
+};
 
-    // 상수로 상태 정의 (매직 넘버 제거)
-    const int WIN = 1;
-    const int LOSE = 2;
-    const int DRAW = 3;
+enum class GameResult
+{
+    Win,
+    Lose,
+    Draw
+};
+```
 
-    int Count = 0;    // 전체 판 수
-    int WinCount = 0; // 승리 횟수
-    int Result = 0;   // 현재 판 결과
+정수 1, 2, 3만 사용하면 코드가 어떤 종류의 값을 다루는지 알기 어렵다.
 
-    while (true)
+```cpp
+int player = 1;
+int computer = 3;
+int result = 0;
+```
+
+열거형을 사용하면 값의 역할이 타입과 이름에 드러난다.
+
+```cpp
+Hand player = Hand::Rock;
+Hand computer = Hand::Scissors;
+GameResult result = GameResult::Win;
+```
+
+`Hand::Rock`과 `GameResult::Win`은 서로 다른 타입이므로 실수로 비교하거나 대입하려는 코드를 컴파일러가 막을 수 있다. `enum class`의 자세한 규칙은 다음 글에서 다룬다.
+
+## 숫자 입력을 바로 선택으로 믿지 않는다
+
+사용자에게는 숫자 메뉴를 보여줄 수 있다.
+
+```text
+1. 바위
+2. 보
+3. 가위
+0. 종료
+```
+
+하지만 입력 정수에는 -1, 4, 100처럼 `Hand`에 없는 값도 들어올 수 있다. 범위를 확인하지 않고 바로 캐스팅하면 열거형 타입 안에 정의하지 않은 값이 들어갈 수 있다.
+
+```cpp
+int input = 100;
+Hand hand = static_cast<Hand>(input);
+```
+
+입력값을 검사하고 성공했을 때만 선택을 전달한다.
+
+```cpp
+bool TryParseHand(int input, Hand& hand)
+{
+    switch (input)
     {
-        cout << "1 : 주먹 \n2 : 보\n3 : 가위" << endl;
-        cout << ">> ";
-
-        int Input;
-        cin >> Input;
-
-        // 종료 조건: 1, 2, 3 이외의 숫자가 들어오면 루프 탈출
-        if (Input < 1 || Input > 3)
-        {
-            break;
-        }
-
-        Count++; // 게임 횟수 증가
-
-        // 컴퓨터의 선택 (1 ~ 3 사이의 난수 생성)
-        int Random = rand() % 3 + 1;
-
-        // 2. 승패 로직 판단
-        if (Input == 1) // 플레이어: 주먹
-        {
-            switch (Random)
-            {
-            case 1: Result = DRAW; break; // 주먹 vs 주먹
-            case 2: Result = LOSE; break; // 주먹 vs 보
-            case 3: Result = WIN; WinCount++; break; // 주먹 vs 가위
-            }
-        }
-        else if (Input == 2) // 플레이어: 보
-        {
-            switch (Random)
-            {
-            case 1: Result = WIN; WinCount++; break; // 보 vs 주먹
-            case 2: Result = DRAW; break; // 보 vs 보
-            case 3: Result = LOSE; break; // 보 vs 가위
-            }
-        }
-        else if (Input == 3) // 플레이어: 가위
-        {
-            switch (Random)
-            {
-            case 1: Result = LOSE; break; // 가위 vs 주먹
-            case 2: Result = WIN; WinCount++; break; // 가위 vs 보
-            case 3: Result = DRAW; break; // 가위 vs 가위
-            }
-        }
-
-        // 3. 승률 계산 및 결과 출력
-        // 정수끼리의 나눗셈이므로 순서 주의: (승수 * 100) / 전체
-        cout << "승률 : " << (WinCount * 100) / Count << "%" << endl;
-
-        switch (Result)
-        {
-        case WIN:
-            cout << "Win\n";
-            break;
-        case LOSE:
-            cout << "Lose\n";
-            break;
-        case DRAW:
-            cout << "Draw\n";
-            break;
-        }
-        cout << "--------------------" << endl;
+    case 1:
+        hand = Hand::Rock;
+        return true;
+    case 2:
+        hand = Hand::Paper;
+        return true;
+    case 3:
+        hand = Hand::Scissors;
+        return true;
+    default:
+        return false;
     }
-
-    return 0;
 }
 ```
 
----
+함수의 반환값은 변환 성공 여부를 나타내고, `hand`에는 성공했을 때만 유효한 선택을 저장한다.
 
-## 의사 난수와 범위 변환
+```cpp
+Hand playerHand = Hand::Rock;
 
-### 2.1 난수 생성 (Random Generation)
+if (!TryParseHand(input, playerHand))
+{
+    std::cout << "1, 2, 3 중 하나를 입력하세요.\n";
+}
+```
 
-컴퓨터는 규칙에 따라 움직이기 때문에 진정한 의미의 '무작위'를 만들어낼 수 없음. 따라서 특정 알고리즘에 따라 난수처럼 보이게 만드는 **의사 난수(Pseudo-Random)**를 사용
+입력 검증과 게임 판정을 분리하면 승패 판정 함수는 항상 유효한 `Hand`만 받는다고 가정할 수 있다.
 
-* **`std::rand()`**: 0부터 `RAND_MAX` 사이의 정수를 반환한다. `RAND_MAX`의 실제 값은 구현마다 다르다.
-* **`std::srand(seed)`**: 난수표의 시작점(Seed)을 설정하는 함수. 시드값이 같으면 항상 같은 순서의 난수가 나옴
-* **`std::time(0)`**: 1970년 1월 1일부터 현재까지 흐른 시간을 초 단위로 반환. 실행할 때마다 값이 변하므로 시드값으로 적합함
+## 승패 판정은 두 선택만으로 결정된다
 
-**범위 지정 공식:**
-$$RandomValue = (\text{rand}() \pmod n) + min$$
+승패 판정에는 키보드 입력도, 난수 엔진도, 출력 스트림도 필요하지 않다. 플레이어와 컴퓨터의 선택 두 개만 있으면 결과를 계산할 수 있다.
 
-* $n$: 필요한 숫자의 개수 (범위의 크기)
-* $min$: 시작 숫자
-* **예시 (1 ~ 3):** `rand() % 3 + 1`
+```cpp
+GameResult Judge(Hand player, Hand computer)
+{
+    if (player == computer)
+    {
+        return GameResult::Draw;
+    }
 
-### 2.2 제어문 활용 (switch vs if)
+    bool playerWins = (player == Hand::Rock && computer == Hand::Scissors) || (player == Hand::Paper && computer == Hand::Rock) || (player == Hand::Scissors && computer == Hand::Paper);
 
-* **`if-else`**: 복잡한 조건식이나 범위 판별에 유리
-* **`switch-case`**: 하나의 정수형·열거형 값에 따라 분기할 때 의도가 선명하다. 점프 테이블 사용 여부는 컴파일러가 판단하므로 성능을 선택 기준으로 삼지 않는다.
-* **적용**: 이 예제에서는 플레이어의 입력은 `if`로 분기하고, 내부에서 컴퓨터의 값에 따른 결과는 `switch`로 처리하여 구조를 잡음
+    if (playerWins)
+    {
+        return GameResult::Win;
+    }
 
-### 2.3 상수(const)의 활용
+    return GameResult::Lose;
+}
+```
 
-`WIN = 1`, `LOSE = 2` 처럼 의미 없는 숫자(Magic Number)를 그대로 쓰지 않고 `const` 변수로 이름을 붙여 사용
+먼저 같은 선택인지 검사한다. 무승부가 아니라면 플레이어가 이기는 세 조합을 확인하고, 어느 조합에도 해당하지 않으면 패배다.
 
-* **가독성 향상**: `case 1:` 보다 `case WIN:`이 훨씬 직관적임
-* **유지보수 용이**: 값이 바뀌어도 선언부만 수정하면 됨
+```text
+Rock     > Scissors
+Paper    > Rock
+Scissors > Paper
+```
 
-## 생성·입력·판정을 각각 검증하기
+함수는 외부 상태를 읽거나 변경하지 않고 같은 두 선택에 항상 같은 결과를 반환한다. 이런 함수는 고정된 입력으로 모든 경로를 검사하기 쉽다.
 
-### 핵심 요약 및 주의사항
+## 판정 함수의 아홉 조합을 직접 확인한다
 
-* **정수 나눗셈의 순서**: 승률 계산 시 `(WinCount / Count) * 100`을 하면 버그가 발생함
-  * C++에서 정수 나누기 정수는 소수점을 버리므로 `WinCount < Count`인 경우 결과가 항상 **0**이 됨
-  * 따라서 **`(WinCount * 100) / Count`** 처럼 곱셈을 먼저 수행하여 값을 키운 뒤 나눠야 함
-* **반복문 탈출**: `while(true)` 무한 루프를 사용할 때는 반드시 명확한 **종료 조건(`break`)**이 있어야 함. 여기서는 `else` 블록(1, 2, 3 외의 입력)이 그 역할을 함.
+선택이 각각 세 가지이므로 가능한 조합은 총 아홉 개다.
 
-### Tip
+| 플레이어 | 컴퓨터 | 결과 |
+| :---: | :---: | :---: |
+| Rock | Rock | Draw |
+| Rock | Paper | Lose |
+| Rock | Scissors | Win |
+| Paper | Rock | Win |
+| Paper | Paper | Draw |
+| Paper | Scissors | Lose |
+| Scissors | Rock | Lose |
+| Scissors | Paper | Win |
+| Scissors | Scissors | Draw |
 
-* **Enum의 활용**: `const int` 대신 `enum`을 사용하면 연관된 상수들을 그룹화하여 관리하기 더 편함
-    ```cpp
-    enum class GameResult { WIN, LOSE, DRAW };
-    enum class Hand { ROCK = 1, PAPER = 2, SCISSORS = 3 };
-    ```
-* **난수의 한계**: `rand()`는 간단하지만 정밀한 난수가 아님. 암호학적으로 안전하거나 고품질의 난수가 필요하다면 C++11의 `<random>` 라이브러리(`std::mt19937` 등) 사용을 권장함
+난수로만 테스트하면 어떤 조합이 언제 나올지 알 수 없다. 판정 함수에 선택을 직접 전달하면 원하는 경로를 즉시 확인할 수 있다.
 
-`rand() % 3`은 원본 난수 범위가 3으로 정확히 나누어떨어지지 않으면 작은 편향이 생긴다. 학습 예제에서는 동작하지만, 현대 C++ 코드라면 `std::uniform_int_distribution<int>`로 원하는 분포를 표현하는 편이 낫다.
+```cpp
+GameResult first = Judge(Hand::Rock, Hand::Scissors);
+GameResult second = Judge(Hand::Paper, Hand::Paper);
+GameResult third = Judge(Hand::Scissors, Hand::Rock);
+```
 
-게임 결과 판정은 난수 생성과 분리해 `Judge(player, computer)` 같은 순수 함수로 만들면 모든 조합을 고정된 입력으로 테스트할 수 있다. 재현 가능한 테스트가 필요할 때는 시드도 외부에서 전달한다.
+각 결과는 차례대로 `Win`, `Draw`, `Lose`여야 한다. 난수 생성과 판정을 분리해야 가능한 테스트 방식이다.
 
-## 마무리
+## 난수처럼 보이는 수열은 엔진이 만든다
 
-이 예제의 핵심은 `rand()` 사용법이 아니라 입력 검증, 선택 생성, 승패 판정을 서로 분리하는 것이다. 다음 글에서는 선택지를 숫자 대신 타입으로 표현하는 열거형을 다룬다.
+일반적인 프로그램에서는 의사 난수 생성기(Pseudo-random number generator)를 사용한다. 의사 난수 생성기는 내부 상태와 알고리즘을 이용해 난수처럼 보이는 수열을 만든다.
+
+같은 알고리즘에 같은 초기 상태를 주면 같은 수열이 생성된다.
+
+```text
+Seed 1234
+   │
+   ▼
+난수 엔진
+   │
+   └── 같은 순서의 값 생성
+```
+
+초기 상태를 만들기 위해 사용하는 값을 시드(Seed)라고 한다.
+
+의사 난수라는 말이 결과가 품질이 낮다는 뜻은 아니다. 시뮬레이션, 게임, 테스트에는 목적에 맞는 특성을 가진 의사 난수 엔진이 유용하다. 다만 비밀번호나 보안 토큰처럼 공격자가 값을 예측하면 안 되는 용도에는 별도의 암호학적으로 안전한 난수원이 필요하다.
+
+## `<random>`은 엔진과 분포를 분리한다
+
+C++11의 `<random>` 라이브러리는 난수 수열을 만드는 엔진과 원하는 범위로 값을 배분하는 분포를 분리한다.
+
+```cpp
+#include <random>
+
+std::random_device seedSource;
+std::mt19937 generator(seedSource());
+std::uniform_int_distribution<int> handDistribution(1, 3);
+
+int value = handDistribution(generator);
+```
+
+각 객체의 역할은 다음과 같다.
+
+```text
+random_device
+시드값을 얻는 데 사용할 수 있는 원천
+      │
+      ▼
+mt19937
+의사 난수 수열을 생성하는 엔진
+      │
+      ▼
+uniform_int_distribution<int>(1, 3)
+1, 2, 3이 균등하게 나오도록 범위 변환
+```
+
+`std::uniform_int_distribution<int>(1, 3)`의 양쪽 경계는 모두 포함된다. 따라서 1, 2, 3 중 하나를 생성한다.
+
+```cpp
+Hand computerHand = static_cast<Hand>(handDistribution(generator));
+```
+
+분포가 반드시 1부터 3까지만 생성하고 `Hand`의 값도 같은 정수로 정의했으므로 이 지점의 캐스트는 유효하다.
+
+## `random_device`가 항상 하드웨어 난수인 것은 아니다
+
+`std::random_device`는 구현이 제공하는 비결정적 난수원에 접근하기 위한 인터페이스다. 하지만 실제로 비결정적 장치를 사용하는지, 운영체제 난수원을 사용하는지, 의사 난수 방식으로 대체하는지는 구현에 따라 다를 수 있다.
+
+```cpp
+std::random_device seedSource;
+std::cout << seedSource.entropy() << '\n';
+```
+
+`entropy()`는 구현이 추정한 엔트로피 값을 제공하지만, 이 값 하나만으로 특정 보안 요구사항을 판단해서는 안 된다.
+
+게임 예제에서는 `random_device`로 `mt19937`의 시드를 만드는 정도로 사용할 수 있다. 보안 목적이라면 사용하는 플랫폼에서 보장하는 암호학적 난수 API와 요구사항을 따로 확인해야 한다.
+
+## 난수 엔진은 매번 다시 만들지 않는다
+
+선택을 생성할 때마다 엔진을 새로 만들고 같은 시드로 초기화하면 수열의 첫 값만 반복될 수 있다.
+
+```cpp
+int GenerateHand()
+{
+    std::mt19937 generator(1234);
+    std::uniform_int_distribution<int> distribution(1, 3);
+    return distribution(generator);
+}
+```
+
+함수를 호출할 때마다 엔진이 같은 상태에서 시작하므로 같은 결과가 반복된다.
+
+엔진은 게임 반복보다 오래 살아 있도록 한 번 만들고, 매 선택마다 기존 엔진의 다음 상태를 사용한다.
+
+```cpp
+std::mt19937 generator(1234);
+std::uniform_int_distribution<int> distribution(1, 3);
+
+while (isRunning)
+{
+    int computerChoice = distribution(generator);
+}
+```
+
+분포를 호출할 때 엔진의 내부 상태가 진행되므로 다음 값을 생성할 수 있다.
+
+## 고정 시드는 버그를 재현하는 데 유용하다
+
+실행할 때마다 다른 결과만 나오면 특정 난수 순서에서 발생한 버그를 다시 만들기 어렵다. 테스트나 디버깅에서는 고정된 시드를 사용할 수 있다.
+
+```cpp
+std::mt19937 generator(12345);
+```
+
+같은 엔진과 같은 시드를 사용하면 엔진이 만드는 원시 수열은 재현할 수 있다. 표준 분포가 엔진 값을 범위에 매핑하는 세부 방식은 표준 라이브러리 구현마다 다를 수 있으므로, 분포까지 포함한 결과 수열은 같은 환경에서 재현하는 기준으로 사용하는 것이 안전하다.
+
+실제 게임에서는 실행마다 다른 시드를 사용하고, 문제가 발생했을 때 시드값을 로그에 남기는 방식도 가능하다.
+
+```text
+게임 시작
+Seed = 381724
+
+버그 발생
+Seed를 로그에서 확인
+
+디버그 실행
+같은 Seed로 수열 재현
+```
+
+시드는 “무작위성을 높이는 숫자”라기보다 난수 엔진의 시작 상태를 결정하는 값이다.
+
+## `rand()`와 `srand()`의 기본 동작
+
+C 표준 라이브러리에서 이어진 `std::rand`와 `std::srand`도 난수를 생성할 수 있다.
+
+```cpp
+#include <cstdlib>
+#include <ctime>
+
+std::srand(static_cast<unsigned int>(std::time(nullptr)));
+int value = std::rand();
+```
+
+`std::srand`는 `std::rand`가 사용할 전역 상태의 시작점을 설정한다. 같은 시드를 사용하면 같은 구현에서 같은 `rand` 수열이 나온다.
+
+전통적으로 현재 시간을 시드로 사용한다.
+
+```cpp
+std::srand(static_cast<unsigned int>(std::time(nullptr)));
+```
+
+하지만 `std::time`은 일반적으로 초 단위 값이므로 같은 초 안에 여러 번 시작한 프로그램은 같은 시드를 사용할 수 있다. 또한 전역 상태를 공유해 여러 독립적인 난수 흐름을 관리하기 어렵다.
+
+새로운 C++ 코드에서는 엔진과 분포를 명시적으로 소유할 수 있는 `<random>`을 우선 고려한다.
+
+## `rand() % 3`에는 분포 편향이 생길 수 있다
+
+다음 코드는 0, 1, 2 중 하나를 만든다.
+
+```cpp
+int value = std::rand() % 3;
+```
+
+원본 난수의 가능한 값 개수가 3으로 정확히 나누어떨어지지 않으면 나머지별 등장 횟수가 같지 않다.
+
+원본 값이 0부터 7까지 균등하게 나온다고 가정해 보자.
+
+| 원본 값 | `% 3` 결과 |
+| :---: | :---: |
+| 0 | 0 |
+| 1 | 1 |
+| 2 | 2 |
+| 3 | 0 |
+| 4 | 1 |
+| 5 | 2 |
+| 6 | 0 |
+| 7 | 1 |
+
+각 결과의 등장 횟수는 다음과 같다.
+
+```text
+0 → 3회
+1 → 3회
+2 → 2회
+```
+
+이 차이를 모듈로 편향(Modulo bias)이라고 한다. 실제 `RAND_MAX`에서는 편향이 작을 수 있지만 균등한 분포를 요구한다면 `std::uniform_int_distribution`처럼 범위를 표현하는 도구를 사용한다.
+
+```cpp
+std::uniform_int_distribution<int> distribution(1, 3);
+int value = distribution(generator);
+```
+
+## `mt19937`도 보안용 난수 엔진은 아니다
+
+`std::mt19937`은 긴 주기와 재현 가능한 특성 때문에 시뮬레이션과 게임에서 널리 사용할 수 있다. 하지만 내부 상태를 충분히 관찰하면 이후 값을 예측할 수 있으므로 암호학적 용도에는 적합하지 않다.
+
+다음과 같은 값에는 게임용 의사 난수 엔진을 그대로 사용하면 안 된다.
+
+- 비밀번호 재설정 토큰
+- 인증 코드
+- 세션 키
+- 암호화 키
+- 공격자가 예측해서는 안 되는 추첨 결과
+
+난수가 필요하다는 공통점만으로 모든 용도에 같은 생성기를 사용하지 않는다. 필요한 예측 불가능성과 플랫폼 보장 수준을 먼저 정해야 한다.
+
+## 컴퓨터 선택을 만드는 함수
+
+난수 엔진을 외부에서 받아 컴퓨터의 선택을 생성할 수 있다.
+
+```cpp
+#include <random>
+
+Hand GenerateComputerHand(std::mt19937& generator)
+{
+    std::uniform_int_distribution<int> distribution(1, 3);
+    return static_cast<Hand>(distribution(generator));
+}
+```
+
+엔진을 함수 안에서 새로 만들지 않고 참조로 전달받는다. 따라서 호출할 때마다 같은 엔진의 상태가 이어진다.
+
+```cpp
+std::random_device seedSource;
+std::mt19937 generator(seedSource());
+
+Hand first = GenerateComputerHand(generator);
+Hand second = GenerateComputerHand(generator);
+```
+
+테스트에서는 같은 함수에 고정 시드 엔진을 전달할 수 있다.
+
+```cpp
+std::mt19937 testGenerator(12345);
+Hand testHand = GenerateComputerHand(testGenerator);
+```
+
+함수가 난수 엔진을 전역에서 몰래 가져오지 않으므로 어떤 난수 상태를 사용하는지 호출부에 드러난다.
+
+## 선택과 결과의 출력도 별도 함수로 분리한다
+
+열거형 값을 문자열로 바꾸는 함수를 만들 수 있다.
+
+```cpp
+const char* ToString(Hand hand)
+{
+    switch (hand)
+    {
+    case Hand::Rock:
+        return "바위";
+    case Hand::Paper:
+        return "보";
+    case Hand::Scissors:
+        return "가위";
+    }
+
+    return "알 수 없음";
+}
+```
+
+결과도 같은 방식으로 변환한다.
+
+```cpp
+const char* ToString(GameResult result)
+{
+    switch (result)
+    {
+    case GameResult::Win:
+        return "승리";
+    case GameResult::Lose:
+        return "패배";
+    case GameResult::Draw:
+        return "무승부";
+    }
+
+    return "알 수 없음";
+}
+```
+
+게임 규칙은 `GameResult`만 반환하고 사용자에게 보여줄 문장은 출력 단계에서 결정한다. 이후 콘솔 출력 대신 UI를 사용하더라도 판정 함수는 바꿀 필요가 없다.
+
+## 전적은 판정이 끝난 뒤 한곳에서 갱신한다
+
+매 판의 결과에 따라 승리, 패배, 무승부 횟수를 변경한다.
+
+```cpp
+switch (result)
+{
+case GameResult::Win:
+    ++winCount;
+    break;
+case GameResult::Lose:
+    ++loseCount;
+    break;
+case GameResult::Draw:
+    ++drawCount;
+    break;
+}
+```
+
+판정 함수 안에서 전역 승리 횟수를 변경하지 않는다. `Judge`는 한 판의 결과 계산만 담당하고 전적 갱신은 호출부가 담당한다.
+
+```text
+Judge
+선택 두 개 → 이번 판의 결과
+
+호출부
+이번 판의 결과 → 누적 전적 변경
+```
+
+책임을 나누면 같은 판정 함수를 전적이 없는 연습 모드에서도 사용할 수 있다.
+
+## 승률은 실수 나눗셈으로 계산한다
+
+전체 게임 수에 대한 승리 횟수의 비율을 백분율로 계산한다.
+
+$$
+WinRate = \frac{WinCount}{TotalCount} \times 100
+$$
+
+정수끼리 먼저 나누면 소수 부분이 사라진다.
+
+```cpp
+double wrongRate = winCount / totalCount * 100.0;
+```
+
+`winCount < totalCount`라면 정수 나눗셈 결과가 0이 되어 승률도 0.0이 된다. 나눗셈 전에 한쪽을 `double`로 변환한다.
+
+```cpp
+double winRate = static_cast<double>(winCount) / totalCount * 100.0;
+```
+
+게임을 한 번도 하지 않았다면 `totalCount`가 0이므로 먼저 검사해야 한다.
+
+```cpp
+double winRate = 0.0;
+
+if (totalCount > 0)
+{
+    winRate = static_cast<double>(winCount) / totalCount * 100.0;
+}
+```
+
+무승부를 전체 게임 수에 포함할지 제외할지는 게임이 정한 통계 정책이다. 이 예제에서는 승리, 패배, 무승부를 모두 전체 게임 수에 포함한다.
+
+## 입력 실패와 게임 종료를 구분한다
+
+숫자 0은 사용자가 정상적으로 종료를 선택한 경우다.
+
+```cpp
+if (input == 0)
+{
+    break;
+}
+```
+
+반면 숫자를 기대했는데 문자가 입력되면 `std::cin` 추출 자체가 실패한다.
+
+```cpp
+if (!(std::cin >> input))
+{
+    std::cout << "숫자를 입력해야 합니다.\n";
+    break;
+}
+```
+
+잘못된 선택 범위와 입력 형식 실패도 다르다.
+
+```cpp
+if (!TryParseHand(input, playerHand))
+{
+    std::cout << "1, 2, 3 중 하나를 입력하세요.\n";
+    continue;
+}
+```
+
+정리하면 입력은 세 경로로 나뉜다.
+
+```text
+0                → 정상 종료
+1, 2, 3          → 게임 진행
+그 밖의 정수     → 범위 오류 후 다시 입력
+정수가 아닌 입력 → 입력 스트림 실패 처리
+```
+
+모든 잘못된 입력을 하나의 `else`로 처리하면 종료와 오류의 차이가 사라진다.
+
+## 전체 실습 코드
+
+입력, 난수 생성, 판정, 출력, 전적 갱신을 분리한 가위바위보 프로그램이다.
+
+```cpp
+#include <iomanip>
+#include <iostream>
+#include <random>
+
+enum class Hand
+{
+    Rock = 1,
+    Paper = 2,
+    Scissors = 3
+};
+
+enum class GameResult
+{
+    Win,
+    Lose,
+    Draw
+};
+
+bool TryParseHand(int input, Hand& hand)
+{
+    switch (input)
+    {
+    case 1:
+        hand = Hand::Rock;
+        return true;
+    case 2:
+        hand = Hand::Paper;
+        return true;
+    case 3:
+        hand = Hand::Scissors;
+        return true;
+    default:
+        return false;
+    }
+}
+
+GameResult Judge(Hand player, Hand computer)
+{
+    if (player == computer)
+    {
+        return GameResult::Draw;
+    }
+
+    bool playerWins = (player == Hand::Rock && computer == Hand::Scissors) || (player == Hand::Paper && computer == Hand::Rock) || (player == Hand::Scissors && computer == Hand::Paper);
+    return playerWins ? GameResult::Win : GameResult::Lose;
+}
+
+Hand GenerateComputerHand(std::mt19937& generator)
+{
+    std::uniform_int_distribution<int> distribution(1, 3);
+    return static_cast<Hand>(distribution(generator));
+}
+
+const char* ToString(Hand hand)
+{
+    switch (hand)
+    {
+    case Hand::Rock:
+        return "바위";
+    case Hand::Paper:
+        return "보";
+    case Hand::Scissors:
+        return "가위";
+    }
+
+    return "알 수 없음";
+}
+
+const char* ToString(GameResult result)
+{
+    switch (result)
+    {
+    case GameResult::Win:
+        return "승리";
+    case GameResult::Lose:
+        return "패배";
+    case GameResult::Draw:
+        return "무승부";
+    }
+
+    return "알 수 없음";
+}
+
+int main()
+{
+    std::random_device seedSource;
+    std::mt19937 generator(seedSource());
+
+    int winCount = 0;
+    int loseCount = 0;
+    int drawCount = 0;
+
+    while (true)
+    {
+        std::cout << "\n1. 바위\n2. 보\n3. 가위\n0. 종료\n";
+        std::cout << ">> " << std::flush;
+
+        int input = 0;
+
+        if (!(std::cin >> input))
+        {
+            std::cout << "숫자를 입력해야 합니다.\n";
+            break;
+        }
+
+        if (input == 0)
+        {
+            break;
+        }
+
+        Hand playerHand = Hand::Rock;
+
+        if (!TryParseHand(input, playerHand))
+        {
+            std::cout << "1, 2, 3 중 하나를 입력하세요.\n";
+            continue;
+        }
+
+        Hand computerHand = GenerateComputerHand(generator);
+        GameResult result = Judge(playerHand, computerHand);
+
+        switch (result)
+        {
+        case GameResult::Win:
+            ++winCount;
+            break;
+        case GameResult::Lose:
+            ++loseCount;
+            break;
+        case GameResult::Draw:
+            ++drawCount;
+            break;
+        }
+
+        int totalCount = winCount + loseCount + drawCount;
+        double winRate = static_cast<double>(winCount) / totalCount * 100.0;
+
+        std::cout << "Player: " << ToString(playerHand) << '\n';
+        std::cout << "Computer: " << ToString(computerHand) << '\n';
+        std::cout << "Result: " << ToString(result) << '\n';
+        std::cout << "Record: " << winCount << "W " << loseCount << "L " << drawCount << "D\n";
+        std::cout << std::fixed << std::setprecision(1) << "Win rate: " << winRate << "%\n";
+    }
+
+    int totalCount = winCount + loseCount + drawCount;
+    std::cout << "\nTotal games: " << totalCount << '\n';
+    std::cout << "Game ended.\n";
+}
+```
+
+게임이 한 판 정상적으로 진행된 뒤에만 `totalCount`를 계산하므로 승률 계산의 분모는 최소 1이다. 반복 종료 뒤에는 승률을 다시 계산하지 않고 전체 판 수만 출력하므로 한 판도 하지 않은 종료도 안전하다.
+
+각 함수의 책임은 다음과 같다.
+
+| 함수 | 입력 | 결과 | 하지 않는 일 |
+| :--- | :--- | :--- | :--- |
+| `TryParseHand` | 사용자 정수 | 유효한 `Hand`와 성공 여부 | 승패 판정, 출력 |
+| `GenerateComputerHand` | 난수 엔진 | 컴퓨터의 `Hand` | 사용자 입력, 판정 |
+| `Judge` | 두 `Hand` | `GameResult` | 난수 생성, 전적 변경 |
+| `ToString` | 열거형 값 | 출력할 문자열 | 게임 규칙 변경 |
+| `main` | 전체 단계 조합 | 게임 진행 | 세부 판정 규칙 구현 |
+
+## 다음 학습: 연관된 상수를 하나의 타입으로 묶기
+
+이번 글에서는 가위바위보 선택과 결과를 `enum class`로 표현했다. 덕분에 정수 1이 손 모양인지 게임 결과인지 구분할 수 있었고, `switch`의 각 경로에도 의미 있는 이름을 사용할 수 있었다.
+
+다음 글에서는 기존 `enum`과 `enum class`의 차이를 자세히 살펴보고, 전처리 단계에서 텍스트를 치환하는 `#define`과 타입을 가진 상수의 차이를 비교한다.

@@ -7,110 +7,719 @@ tags: [C++, Pointer, Memory, Dereference, CallByAddress]
 use_math: true
 ---
 
-# [C++] 포인터는 객체를 가리키는 값이다
-메모리 주소를 저장하는 포인터 변수의 특성을 이해하고, 함수 호출 시 원본 데이터를 수정하기 위한 주소 전달 방식 분석
+앞의 Text RPG에서는 `Character&`를 매개변수로 받아 호출자가 가진 플레이어 객체를 직접 변경했다. 참조는 반드시 유효한 대상을 가리킨다는 형태로 원본 객체를 다룰 때 편리하다.
 
-## 주소 얻기와 역참조하기
+포인터(Pointer)도 다른 객체를 간접적으로 다룰 수 있지만, 가리키는 대상을 바꿀 수 있고 `nullptr`로 “현재 대상이 없음”을 표현할 수 있다. 그만큼 포인터를 사용하기 전에 대상이 실제로 존재하고 수명이 끝나지 않았는지 직접 확인해야 한다.
+
+포인터의 핵심은 주소 숫자를 출력하는 데 있지 않다. **어떤 타입의 객체를 가리키는지, 현재 역참조할 수 있는지, 대상이 포인터를 사용하는 동안 살아 있는지**를 표현하고 지키는 데 있다.
+
+## 포인터 변수와 대상 객체는 서로 다른 객체다
+
+일반 정수 객체와 그 객체를 가리키는 포인터를 만들어 보자.
 
 ```cpp
-#include <iostream>
-using namespace std;
+int number = 10;
+int* pointer = &number;
+```
 
-/**
- * 주소 전달 방식(Call by Address)을 이용한 값 수정 함수
- * @param hp 수정할 대상의 메모리 주소를 담는 포인터 바구니
- */
-void SetHP(int* hp)
+`number`와 `pointer`는 서로 다른 객체다.
+
+- `number`는 `int` 값 10을 저장한다.
+- `pointer`는 `number`를 가리키는 `int*` 값을 저장한다.
+- `&number`는 `number`의 주소를 얻는 표현식이다.
+
+개념적으로 다음 관계를 만든다.
+
+```text
+pointer                       number
+┌──────────────────┐          ┌──────────┐
+│ number를 가리킴 ─┼─────────▶│    10    │
+└──────────────────┘          └──────────┘
+      int*                         int
+```
+
+포인터도 하나의 객체이므로 자신만의 주소와 수명을 가진다. 포인터의 수명과 포인터가 가리키는 대상의 수명은 별도로 확인해야 한다.
+
+## 선언의 `*`는 포인터 타입을 만든다
+
+다음 선언에서 `pointer`의 타입은 `int*`다.
+
+```cpp
+int* pointer = &number;
+```
+
+이는 “`pointer`가 `int` 객체를 가리킬 수 있는 포인터다”라는 뜻이다.
+
+한 선언문에 여러 이름을 적으면 `*`가 각 선언자에 적용된다는 점에 주의한다.
+
+```cpp
+int* firstPointer = nullptr;
+int secondValue = 0;
+```
+
+다음 코드는 두 이름이 모두 포인터처럼 보이기 쉽지만 `first`만 포인터다.
+
+```cpp
+int* first, second;
+```
+
+- `first`의 타입은 `int*`다.
+- `second`의 타입은 `int`다.
+
+한 줄에 하나씩 선언하면 타입을 오해할 가능성이 줄어든다.
+
+```cpp
+int* first = nullptr;
+int* second = nullptr;
+```
+
+## 주소 연산자 `&`는 객체를 가리키는 포인터를 만든다
+
+객체 앞에 주소 연산자(Address-of operator) `&`를 사용하면 그 객체를 가리키는 포인터 값을 얻는다.
+
+```cpp
+int hp = 100;
+int* hpPointer = &hp;
+```
+
+표현식의 타입을 비교하면 관계가 분명해진다.
+
+| 표현식 | 타입 | 의미 |
+| :--- | :--- | :--- |
+| `hp` | `int` | 객체에 저장된 정수값을 사용한다. |
+| `&hp` | `int*` | `hp`를 가리키는 포인터값을 만든다. |
+| `hpPointer` | `int*` | 저장된 포인터값을 사용한다. |
+| `&hpPointer` | `int**` | 포인터 객체 `hpPointer` 자체를 가리킨다. |
+
+`&hp`와 `&hpPointer`는 서로 다른 대상을 가리키고 타입도 다르다. 포인터가 다른 객체를 가리킨다는 사실과 포인터 자체도 주소를 가진 객체라는 사실을 구분한다.
+
+## 역참조 연산자 `*`는 가리키는 객체에 접근한다
+
+포인터 표현식 앞에 역참조 연산자(Dereference operator) `*`를 사용하면 포인터가 가리키는 객체에 접근한다.
+
+```cpp
+int hp = 100;
+int* hpPointer = &hp;
+
+int copiedHp = *hpPointer;
+*hpPointer = 80;
+```
+
+첫 번째 역참조는 `hp`의 현재 값 100을 읽어 `copiedHp`를 초기화한다. 두 번째 역참조는 `hp` 객체 자체에 80을 대입한다.
+
+```text
+*hpPointer 읽기
+hpPointer ──▶ hp(100) ──▶ copiedHp에 100 복사
+
+*hpPointer = 80
+hpPointer ──▶ hp 객체를 찾아 80 대입
+```
+
+`copiedHp`는 별도 정수 객체이므로 이후 `hp`를 변경해도 자동으로 함께 바뀌지 않는다.
+
+```cpp
+*hpPointer = 60;
+```
+
+이후 `hp`는 60이지만 `copiedHp`는 여전히 100이다.
+
+## 선언의 `*`와 표현식의 `*`는 문맥이 다르다
+
+같은 기호를 사용하지만 역할이 다르다.
+
+```cpp
+int* pointer = &number;
+int value = *pointer;
+```
+
+| 위치 | 의미 |
+| :--- | :--- |
+| `int* pointer` | `pointer`를 `int` 포인터로 선언한다. |
+| `*pointer` | 포인터가 가리키는 `int` 객체에 접근한다. |
+
+곱셈 연산자도 `*`를 사용한다.
+
+```cpp
+int area = width * height;
+```
+
+컴파일러는 선언과 표현식의 문맥을 보고 포인터 선언, 역참조, 곱셈을 구분한다.
+
+## 포인터를 복사하면 두 포인터가 같은 객체를 가리킬 수 있다
+
+포인터도 값이므로 다른 포인터에 복사할 수 있다.
+
+```cpp
+int hp = 100;
+int* first = &hp;
+int* second = first;
+```
+
+`first`와 `second`는 서로 다른 포인터 객체지만 저장한 포인터값은 같아서 둘 다 `hp`를 가리킨다.
+
+```text
+first  ──┐
+         ├──▶ hp(100)
+second ──┘
+```
+
+어느 포인터로 역참조해도 같은 `hp` 객체를 수정한다.
+
+```cpp
+*first = 80;
+*second = 60;
+```
+
+마지막에 `hp`의 값은 60이다. 이처럼 여러 이름이나 포인터가 같은 객체에 접근하는 관계를 별칭(Aliasing)이라고 한다.
+
+별칭이 많아지면 어느 코드가 객체를 변경했는지 추적하기 어려워질 수 있다. 포인터를 전달할 때는 수정 가능성과 사용 범위를 인터페이스에서 제한한다.
+
+## 포인터가 가리키는 대상을 바꿔도 기존 객체는 바뀌지 않는다
+
+포인터 변수에 다른 주소를 대입하면 가리키는 대상이 바뀐다.
+
+```cpp
+int playerHp = 100;
+int monsterHp = 50;
+
+int* target = &playerHp;
+target = &monsterHp;
+```
+
+두 번째 대입은 `playerHp` 값을 수정하지 않는다. `target` 포인터가 이제 `monsterHp`를 가리키도록 포인터값만 변경한다.
+
+```text
+대입 전: target ──▶ playerHp
+대입 후: target ──▶ monsterHp
+```
+
+대상을 변경하는 `target = &monsterHp;`와 대상 값을 변경하는 `*target = 0;`을 구분해야 한다.
+
+```cpp
+*target = 0;
+```
+
+현재 `target`은 `monsterHp`를 가리키므로 이 코드는 `monsterHp`를 0으로 만든다.
+
+## 포인터 매개변수도 값으로 전달된다
+
+포인터 매개변수를 사용하는 호출을 흔히 주소 전달(Call by address)이라고 설명한다.
+
+```cpp
+void SetHp(int* hp, int value)
 {
-	// 포인터가 가리키는 주소로 가서 해당 메모리 공간에 100을 대입함
-	*hp = 100;
+    *hp = value;
 }
 
 int main()
 {
-#pragma region 포인터의 기본 개념
-	// 1) 일반 변수 선언
-	// - int 객체 number를 만들고 값 1로 초기화함
-	// - 'number = 1'은 해당 주소에 1이라는 데이터를 직접 넣는 행위임
-	int number = 1;
-
-	// 2) 포인터 변수 선언 및 주소 할당
-	// - TYPE* : 해당 타입의 데이터가 저장된 '주소'를 저장하는 변수임을 명시함
-	// - &연산자 : 변수의 메모리 시작 주소를 추출함
-	// - 포인터 크기는 구현에 따라 정해지며 sizeof로 확인할 수 있음
-	int* ptr = &number;
-
-	// 3) 역참조(Dereference) 연산
-	// - *ptr : ptr에 저장된 주소번지로 직접 찾아가서 그곳에 담긴 값을 읽거나 씀
-	int value = *ptr; // 주소의 값을 복사하여 value에 할당함
-	*ptr = 2;        // 주소의 실제 데이터를 2로 변경함 (원본 number가 수정됨)
-
-	cout << "역참조를 통한 값 확인 : " << *ptr << endl;
-#pragma endregion
-
-#pragma region 타입 불일치와 메모리 오염
-	// 포인터의 타입은 가리키는 주소의 데이터를 '어떻게 해석할지' 결정하는 기준임
-	// __int64(8바이트) 포인터로 int(4바이트) 주소를 강제 캐스팅하여 조작할 경우 위험함
-	__int64* ptr2 = (__int64*)&number;
-
-	// 4바이트 영역을 넘어 인접한 다른 메모리 영역까지 덮어쓰는 메모리 오염 발생 가능
-	// *ptr2 = 0xAABBCCDDEEFF;
-#pragma endregion
-
-#pragma region 실전 활용: 원본 값 변경
-	int hp = 10;
-
-	// hp의 주소값을 전달하여 함수 내부에서 외부 지역 변수를 직접 수정하도록 유도함
-	SetHP(&hp);
-
-	cout << "SetHP 호출 후 원본 HP : " << hp << endl;
-#pragma endregion
-
-	return 0;
+    int playerHp = 100;
+    SetHp(&playerHp, 80);
 }
 ```
----
-## 타입, 대상, 유효한 수명
 
-### 변수와 포인터의 메모리 구조 비교
-일반 변수가 데이터를 직접 담는 바구니라면, 포인터는 그 바구니가 위치한 메모리 상의 '주소'를 저장하는 특수한 바구니
+함수는 전달받은 포인터를 역참조해 호출자의 `playerHp`를 변경한다. 하지만 C++의 매개변수 전달 관점에서 `hp` 자체는 포인터값으로 초기화된 별도 매개변수 객체다.
 
+```text
+호출자
+&playerHp ── 포인터값 전달 ──▶ hp 매개변수
+    │                              │
+    └──────── 둘 다 같은 ─────────┘
+              int 객체를 가리킴
+```
 
+함수 안에서 매개변수 포인터가 가리키는 대상을 바꾸는 것은 호출자의 포인터를 바꾸지 않는다.
 
-| 구분 | 일반 변수 (Variable) | 포인터 변수 (Pointer) |
+```cpp
+void ClearPointer(int* pointer)
+{
+    pointer = nullptr;
+}
+
+int main()
+{
+    int value = 10;
+    int* pointer = &value;
+    ClearPointer(pointer);
+}
+```
+
+`ClearPointer` 안의 매개변수 복사본만 `nullptr`이 된다. `main`의 `pointer`는 계속 `value`를 가리킨다.
+
+포인터가 가리키는 객체를 수정하는 것과 포인터 객체 자체를 수정하는 것은 다른 작업이다.
+
+## `nullptr`은 현재 가리키는 객체가 없음을 표현한다
+
+포인터가 당장 가리킬 대상이 없다면 `nullptr`로 초기화한다.
+
+```cpp
+int* selectedTarget = nullptr;
+```
+
+`nullptr`은 C++11부터 제공되는 null pointer literal이다. 정수 0이나 `NULL`보다 포인터를 의도한다는 사실이 타입 수준에서 분명하다.
+
+대상을 선택한 뒤 유효한 객체를 가리키게 할 수 있다.
+
+```cpp
+int monsterHp = 50;
+selectedTarget = &monsterHp;
+```
+
+선택을 해제할 때 다시 `nullptr`을 대입할 수 있다.
+
+```cpp
+selectedTarget = nullptr;
+```
+
+null 포인터는 “객체가 없음”을 표현하는 정상적인 포인터 상태다. 하지만 역참조할 수 있는 상태는 아니다.
+
+```cpp
+// *selectedTarget = 0;
+```
+
+null 포인터를 역참조하면 정의되지 않은 동작(Undefined behavior)이 발생한다.
+
+## 포인터는 선언할 때 초기화한다
+
+초기화하지 않은 자동 저장 기간 포인터는 유효한 대상을 가리킨다고 기대할 수 없다.
+
+```cpp
+int* pointer;
+// *pointer = 10;
+```
+
+`pointer`를 역참조하는 코드는 올바른 대상이 있다는 근거가 없다. 포인터가 가리킬 객체를 알고 있다면 즉시 주소로 초기화한다.
+
+```cpp
+int value = 0;
+int* pointer = &value;
+```
+
+아직 대상이 없다면 `nullptr`로 초기화한다.
+
+```cpp
+int* pointer = nullptr;
+```
+
+초기화는 포인터의 현재 상태를 분명하게 만들지만, 이후에도 대상 객체의 수명이 끝날 수 있다는 점은 별도로 확인해야 한다.
+
+## null 검사는 역참조의 최소 조건이다
+
+대상이 없을 수 있는 포인터 매개변수라면 역참조 전에 검사한다.
+
+```cpp
+bool TrySetHp(int* hp, int value)
+{
+    if (hp == nullptr)
+    {
+        return false;
+    }
+
+    *hp = value;
+    return true;
+}
+```
+
+호출자는 성공 여부를 처리할 수 있다.
+
+```cpp
+int playerHp = 100;
+
+if (!TrySetHp(&playerHp, 80))
+{
+    // 대상이 없을 때의 처리
+}
+```
+
+대상이 없다는 사실이 정상적인 입력 상태라면 포인터와 실패 결과가 자연스러운 인터페이스가 될 수 있다.
+
+하지만 `hp != nullptr`만 확인했다고 모든 포인터가 안전한 것은 아니다. 포인터가 가리키던 객체의 수명이 이미 끝났다면 값이 null이 아니어도 역참조할 수 없다.
+
+## 댕글링 포인터는 null이 아니어도 유효하지 않다
+
+포인터가 가리키던 객체의 수명이 끝났는데 포인터값이 남아 있으면 댕글링 포인터(Dangling pointer)가 된다.
+
+```cpp
+int* pointer = nullptr;
+
+{
+    int value = 10;
+    pointer = &value;
+}
+
+// value의 수명은 이미 끝났다.
+// int copiedValue = *pointer;
+```
+
+블록이 끝나면 `value` 객체의 수명이 끝난다. `pointer`의 비트 패턴이 남아 있고 `pointer != nullptr`일 수 있지만 더 이상 살아 있는 `int` 객체를 가리키지 않는다.
+
+```text
+블록 안
+pointer ──▶ value(10)  유효
+
+블록 밖
+pointer ──▶ 수명이 끝난 저장 공간  댕글링
+```
+
+댕글링 포인터를 역참조하면 정의되지 않은 동작이 발생한다. null 검사는 “대상이 없다고 명시한 상태”만 찾을 뿐 대상의 수명을 자동으로 추적하지 않는다.
+
+## 지역 객체의 주소를 반환하지 않는다
+
+함수 안의 일반 지역 객체는 함수가 반환될 때 수명이 끝난다.
+
+```cpp
+int* CreateScorePointer()
+{
+    int score = 100;
+    return &score;
+}
+```
+
+반환된 포인터는 이미 소멸한 `score`를 가리키므로 사용할 수 없다. 컴파일러가 경고할 수 있지만 경고가 없다고 안전한 코드가 되는 것은 아니다.
+
+계산 결과 하나를 전달하려면 값으로 반환한다.
+
+```cpp
+int CreateScore()
+{
+    int score = 100;
+    return score;
+}
+```
+
+호출자가 결과로 자신의 객체를 초기화한다.
+
+```cpp
+int playerScore = CreateScore();
+```
+
+주소가 숫자 형태로 남아 있을 가능성과 해당 주소에서 유효한 객체를 사용할 수 있다는 사실은 다르다. 객체의 수명 규칙으로 유효성을 판단한다.
+
+## 포인터는 대상 객체를 소유한다는 뜻이 아니다
+
+원시 포인터(Raw pointer) 하나만 보고 대상 객체를 누가 소멸해야 하는지 알 수 없다.
+
+```cpp
+int value = 10;
+int* pointer = &value;
+```
+
+이 포인터는 자동 저장 기간의 지역 객체 `value`를 잠시 가리킨다. `pointer`가 `value`를 소유하거나 직접 소멸시키지 않는다.
+
+동적 객체를 소유해야 한다면 소유권을 표현하는 RAII 타입을 우선 사용한다.
+
+```cpp
+#include <memory>
+
+auto owner = std::make_unique<int>(10);
+int* observer = owner.get();
+```
+
+`owner`는 동적 `int` 객체의 소유권을 가진다. `observer`는 같은 객체를 가리키지만 소유하지 않는 관찰용 포인터다.
+
+```text
+owner ───────▶ 동적 int(10)  소유
+observer ────▶ 동적 int(10)  관찰
+```
+
+`owner`가 객체를 소멸시키면 `observer`는 자동으로 `nullptr`이 되지 않는다. 계속 남아 있다면 댕글링 포인터가 된다. 비소유 포인터를 사용할 때는 소유자가 대상보다 오래 살아 있다는 조건을 보장해야 한다.
+
+## 포인터 타입은 가리킬 대상의 타입을 나타낸다
+
+`int*`는 `int` 객체를, `double*`은 `double` 객체를 가리키는 포인터 타입이다.
+
+```cpp
+int integerValue = 10;
+double floatingValue = 3.5;
+
+int* integerPointer = &integerValue;
+double* floatingPointer = &floatingValue;
+```
+
+서로 다른 객체 타입의 포인터를 일반 대입으로 섞을 수 없다.
+
+```cpp
+// double* wrongPointer = &integerValue;
+```
+
+포인터 타입은 단순히 “몇 바이트를 읽을지”만 정하지 않는다. 어떤 타입의 객체에 어떤 연산을 적용하는지, 요구되는 정렬과 별칭 규칙을 포함한 C++ 타입 시스템의 일부다.
+
+강제 변환으로 컴파일을 통과시켰다고 실제 `int` 객체가 `double` 객체로 바뀌는 것은 아니다.
+
+```cpp
+// double* wrongPointer = reinterpret_cast<double*>(&integerValue);
+// double value = *wrongPointer;
+```
+
+이런 포인터를 `double` 객체처럼 역참조하면 정렬, 객체 타입, 접근 범위 등의 규칙을 위반해 정의되지 않은 동작이 발생할 수 있다. 원본 코드에 있던 다른 크기의 정수 포인터로 강제 변환해 쓰는 방식도 같은 이유로 사용하지 않는다.
+
+바이트 단위 표현을 다뤄야 한다면 `char`, `unsigned char`, `std::byte`와 `std::memcpy` 같은 해당 목적의 규칙을 사용한다. 타입을 바꾸고 싶다면 새 타입의 객체를 만들고 값 변환을 수행한다.
+
+```cpp
+double convertedValue = static_cast<double>(integerValue);
+double* convertedPointer = &convertedValue;
+```
+
+## 포인터로 대상의 수정 가능성을 제한한다
+
+일반 `int*`를 역참조하면 가리키는 `int`를 수정할 수 있다.
+
+```cpp
+int value = 10;
+int* pointer = &value;
+*pointer = 20;
+```
+
+대상을 읽기만 해야 한다면 `const int*`를 사용한다.
+
+```cpp
+const int* pointerToConst = &value;
+int copiedValue = *pointerToConst;
+// *pointerToConst = 20;
+```
+
+`pointerToConst` 포인터 자체는 다른 `int` 객체를 가리키도록 바꿀 수 있지만, 이 포인터를 통해 대상 값을 수정할 수는 없다.
+
+```cpp
+int otherValue = 30;
+pointerToConst = &otherValue;
+```
+
+포인터 자체를 다른 대상으로 바꾸지 못하게 할 수도 있다.
+
+```cpp
+int* const constPointer = &value;
+*constPointer = 40;
+// constPointer = &otherValue;
+```
+
+대상과 포인터를 모두 변경하지 못하게 하려면 두 위치에 `const`가 필요하다.
+
+```cpp
+const int* const constPointerToConst = &value;
+```
+
+| 선언 | 대상 수정 | 포인터가 다른 대상 가리키기 |
+| :--- | :---: | :---: |
+| `int* pointer` | 가능 | 가능 |
+| `const int* pointer` | 불가능 | 가능 |
+| `int* const pointer` | 가능 | 불가능 |
+| `const int* const pointer` | 불가능 | 불가능 |
+
+`const`가 `*`의 왼쪽에 있으면 가리키는 대상을, 포인터 이름 쪽에 있으면 포인터 객체 자체를 제한한다고 읽을 수 있다.
+
+## const 객체는 수정 가능한 포인터로 가리킬 수 없다
+
+처음부터 `const`로 선언한 객체는 `const` 대상 포인터로 가리킨다.
+
+```cpp
+const int MaxHp = 100;
+const int* maxHpPointer = &MaxHp;
+```
+
+수정 가능한 `int*`로 받으면 포인터를 통해 원래 `const` 객체를 변경할 수 있는 것처럼 보이므로 허용되지 않는다.
+
+```cpp
+// int* wrongPointer = &MaxHp;
+```
+
+`const_cast`로 제한을 제거해 실제 `const` 객체를 수정하면 정의되지 않은 동작이 발생한다. 함수가 입력을 읽기만 한다면 처음부터 `const T*`를 매개변수로 받아 계약을 지킨다.
+
+```cpp
+void PrintHp(const int* hp)
+{
+    if (hp == nullptr)
+    {
+        return;
+    }
+
+    std::cout << "HP: " << *hp << '\n';
+}
+```
+
+## 포인터 크기는 대상 구현에서 확인한다
+
+포인터 객체도 저장 공간을 차지하므로 `sizeof`로 크기를 확인할 수 있다.
+
+```cpp
+#include <iostream>
+
+int main()
+{
+    std::cout << "sizeof(int*): " << sizeof(int*) << '\n';
+    std::cout << "sizeof(double*): " << sizeof(double*) << '\n';
+}
+```
+
+흔한 32비트 환경의 데이터 포인터는 4바이트, 흔한 64비트 환경에서는 8바이트인 경우가 많다. 그러나 C++은 모든 종류의 포인터가 같은 크기이거나 포인터 크기가 CPU 이름의 비트 수를 단순히 8로 나눈 값이라고 보장하지 않는다.
+
+데이터 포인터와 함수 포인터의 표현이 다를 수 있고, 특수한 아키텍처에서는 주소 외의 정보가 포인터 표현에 포함될 수도 있다. 필요한 환경의 실제 결과는 해당 타입에 `sizeof`를 적용해 확인한다.
+
+대상 타입이 커져도 포인터 크기가 반드시 함께 커지는 것은 아니다.
+
+```cpp
+struct LargeData
+{
+    int values[1024];
+};
+
+LargeData data{};
+LargeData* pointer = &data;
+```
+
+`pointer`는 `LargeData` 객체 전체를 복사해 담는 것이 아니라 해당 객체를 가리키는 포인터값을 가진다. 다만 “가볍게 복사할 수 있다”는 사실과 포인터를 안전하게 사용할 수 있다는 사실은 별개다. 대상 수명과 소유권 규칙은 계속 필요하다.
+
+## 주소 출력은 디버깅 정보일 뿐 유효성 증명이 아니다
+
+포인터값을 출력해 두 포인터가 같은 대상을 가리키는지 관찰할 수 있다.
+
+```cpp
+#include <iostream>
+
+int main()
+{
+    int value = 10;
+    int* pointer = &value;
+    std::cout << "Address: " << static_cast<const void*>(pointer) << '\n';
+}
+```
+
+출력 형식과 실제 주소값은 실행 환경에 따라 달라질 수 있다. 주소가 0이 아닌 숫자로 출력되거나 이전 실행과 같은 값처럼 보여도 현재 유효한 객체를 가리킨다는 증거가 되지는 않는다.
+
+포인터의 안전성은 다음 조건으로 판단한다.
+
+- 포인터가 null이 아닌가?
+- 가리키는 타입에 맞는 객체가 실제로 존재하는가?
+- 해당 객체의 수명이 아직 끝나지 않았는가?
+- 수행하려는 접근이 그 객체의 경계와 타입 규칙 안에 있는가?
+- 수정하려면 해당 포인터를 통한 수정 권한이 있는가?
+
+주소 출력은 디버깅을 돕는 관찰값이지 이런 조건을 대신하지 않는다.
+
+## 포인터와 참조는 인터페이스의 의미로 선택한다
+
+호출자의 원본을 수정하는 데 포인터와 참조를 모두 사용할 수 있다.
+
+```cpp
+void ApplyDamageByReference(int& hp, int damage)
+{
+    hp -= damage;
+}
+
+bool TryApplyDamageByPointer(int* hp, int damage)
+{
+    if (hp == nullptr)
+    {
+        return false;
+    }
+
+    *hp -= damage;
+    return true;
+}
+```
+
+두 방식의 핵심 차이는 호출 문법의 짧고 긴 정도가 아니다.
+
+| 질문 | 참조 `T&` | 포인터 `T*` |
 | :--- | :--- | :--- |
-| **저장 데이터** | 실제 값 (Value) | 메모리 주소 (Address) |
-| **변수 크기** | 데이터 타입(int, double 등)에 따라 상이함 | 아키텍처에 따라 고정됨 (32bit: 4B, 64bit: 8B) |
-| **핵심 연산** | 값의 대입 및 산술 연산 | 주소 추출(`&`), 역참조(`*`) |
+| 대상이 반드시 필요한가? | 필요하다는 계약에 적합 | `nullptr`로 없음을 표현할 수 있음 |
+| 다른 대상을 다시 가리키는가? | 참조 자체는 다시 바인딩하지 않음 | 포인터값을 바꿀 수 있음 |
+| 호출부에서 주소 전달이 보이는가? | 일반 변수처럼 전달 | `&object` 형태로 보임 |
+| 사용 전에 null 검사가 필요한가? | 유효한 객체가 전달된다는 전제 | null 가능 계약이라면 필요 |
 
-### 포인터 타입(Type) 선언의 목적
-포인터 변수 자체의 크기는 주소 저장용으로 고정되어 있으나, 앞에 붙는 타입(int, float 등)은 가리키는 주소에 도달했을 때 데이터를 어떻게 해석하고 처리할지를 결정
+대상이 반드시 있어야 하는 함수라면 참조가 자연스럽다. 대상이 없을 수 있거나 탐색 결과를 표현하고, 다른 대상을 선택해야 한다면 포인터가 자연스러울 수 있다.
 
-* **해석의 기준**: 해당 주소로부터 몇 바이트를 읽어 들일지(Size)와 어떤 형식(정수/실수)으로 읽을지를 명시
-* **타입 불일치 위험**: 가리키는 대상보다 큰 타입을 선언하여 조작할 경우, 인접한 메모리 영역을 침범하는 메모리 오염(Memory Corruption)이 발생할 수 있음
+어느 방식을 사용해도 대상 객체는 포인터나 참조를 통해 접근하는 모든 시점에 살아 있어야 한다. 참조 역시 이미 소멸한 객체에 연결되어 있다면 안전하지 않다.
 
-### 아키텍처별 포인터 크기 수식
-포인터 크기를 단순히 CPU 주소 버스 폭과 동일하다고 일반화할 수는 없다. 데이터 포인터 종류와 구현에 따라 표현 방식이 다를 수 있으므로 대상 환경에서 `sizeof`로 확인한다.
+## 전체 예제로 null 가능 대상과 원본 변경을 확인한다
 
-$$S = B / 8 \text{ (bytes)}$$
+Text RPG의 선택된 캐릭터를 포인터로 표현하고 피해를 적용하는 예제다.
 
-* **32-bit 환경**: $32 / 8 = 4 \text{ bytes}$
-* **64-bit 환경**: $64 / 8 = 8 \text{ bytes}$
+```cpp
+#include <algorithm>
+#include <iostream>
 
----
+struct Character
+{
+    const char* name;
+    int hp;
+};
 
-## 역참조 전에 확인할 조건
+void PrintCharacter(const Character* character)
+{
+    if (character == nullptr)
+    {
+        std::cout << "No character selected.\n";
+        return;
+    }
 
-### 핵심 요약 및 주의사항
-* **원본 수정의 필요성**: 포인터나 비const 참조를 전달하면 함수가 호출자의 객체를 변경할 수 있다. 포인터는 “대상이 없을 수 있음”도 `nullptr`로 표현할 수 있다는 차이가 있다.
-* **메모리 오염 경계**: 포인터 타입을 강제로 캐스팅하여 다른 크기의 데이터를 덮어쓰는 행위는 매우 위험함. 이는 프로그램의 예기치 않은 종료나 보안 취약점을 유발하는 주원인이 됨
-* **역참조(Dereference)의 개념**: `*ptr` 연산은 "ptr에 적힌 주소로 가서 그곳의 문을 열어라"는 의미와 같으며, 이를 통해 실제 메모리 공간에 직접 접근하여 값을 수정
+    std::cout << character->name << " HP: " << character->hp << '\n';
+}
 
-### Tip
-* **nullptr 초기화**: 당장 가리킬 대상이 없다면 `nullptr`로 초기화한다. 하지만 null 검사만으로 충분하지 않으며 대상 객체가 이미 소멸한 댕글링 포인터도 역참조하면 안 된다.
-* **const 활용**: 주소에 담긴 값을 수정하지 않고 참조만 할 계획이라면 `const int* ptr`과 같이 선언하여 코드의 안정성을 높이는 것이 권장
-* **포인터 vs 참조**: C++에서는 포인터의 강력한 제어 능력과 변수의 사용 편의성을 결합한 참조(Reference, `&`) 문법을 제공함. 단순 원본 수정이 목적이라면 참조 사용을 우선적으로 고려하는 것이 유지보수에 유리
+bool TryApplyDamage(Character* target, int damage)
+{
+    if (target == nullptr)
+    {
+        return false;
+    }
 
-## 마무리
+    int appliedDamage = std::max(0, damage);
+    target->hp = std::max(0, target->hp - appliedDamage);
+    return true;
+}
 
-포인터를 안전하게 사용하려면 주소 숫자보다 세 질문이 먼저다. 어떤 타입을 가리키는가, 현재 유효한 객체를 가리키는가, 그 객체는 포인터를 사용하는 동안 살아 있는가? 다음 글에서는 이 포인터에 산술 연산이 허용되는 범위를 다룬다.
+int main()
+{
+    Character player{"Player", 100};
+    Character monster{"Monster", 50};
+    Character* selectedTarget = nullptr;
+
+    PrintCharacter(selectedTarget);
+
+    selectedTarget = &monster;
+    PrintCharacter(selectedTarget);
+
+    if (TryApplyDamage(selectedTarget, 20))
+    {
+        PrintCharacter(selectedTarget);
+    }
+
+    selectedTarget = &player;
+    TryApplyDamage(selectedTarget, 30);
+    PrintCharacter(&player);
+
+    selectedTarget = nullptr;
+
+    if (!TryApplyDamage(selectedTarget, 10))
+    {
+        std::cout << "Damage was not applied.\n";
+    }
+}
+```
+
+`selectedTarget`은 선택 전과 선택 해제 후에 `nullptr`이고, 그 사이에는 `monster` 또는 `player`를 가리킨다. 포인터를 다른 대상에 다시 대입해도 두 캐릭터 객체 자체의 수명에는 영향을 주지 않는다.
+
+`TryApplyDamage`는 대상이 없으면 `false`를 반환하고, 대상이 있으면 해당 캐릭터의 체력을 변경한다. 포인터는 소유권을 갖지 않으며 `main`의 두 지역 캐릭터가 살아 있는 동안만 사용한다.
+
+`character->name`과 `character->hp`는 구조체 포인터를 통해 멤버에 접근하는 문법이다. 다음 글에서 `(*character).name`과의 관계를 포인터 연산자와 함께 자세히 살펴본다.
+
+## 역참조하기 전에 확인할 기준
+
+포인터를 사용할 때는 주소값보다 다음 질문을 먼저 확인한다.
+
+1. 포인터를 선언과 동시에 유효한 주소 또는 `nullptr`로 초기화했는가?
+2. `nullptr`이 정상적인 상태라면 역참조 전에 검사했는가?
+3. null이 아니더라도 대상 객체의 수명이 끝나지 않았는가?
+4. 포인터 타입과 실제 객체 타입이 일치하는가?
+5. 이 포인터를 통해 대상을 수정해도 되는가?
+6. 포인터는 대상을 소유하는가, 잠시 관찰하는가?
+7. 소유자가 포인터의 사용 기간보다 오래 살아 있는가?
+8. 강제 캐스트로 타입과 정렬 규칙을 우회하고 있지는 않은가?
+
+포인터는 임의의 메모리를 자유롭게 읽고 쓰게 하는 문법이 아니다. 살아 있는 객체를 타입 규칙 안에서 간접적으로 지정하는 값이다. null 검사, 대상 수명, 타입과 소유권 중 하나라도 불분명하다면 역참조하기 전에 인터페이스부터 다시 확인한다.
+
+## 다음 학습: 배열 경계 안에서 포인터 이동하기
+
+포인터는 객체를 가리키고, 역참조는 그 대상 객체에 접근한다. 하지만 포인터가 null이 아니더라도 대상의 수명이 끝났거나 실제 객체 타입과 맞지 않으면 역참조할 수 없다. 원시 포인터는 대상의 소유 여부도 자동으로 알려주지 않는다.
+
+다음 글에서는 주소 연산자와 역참조 연산자를 다시 연결한 뒤, 구조체 포인터의 `->` 연산과 포인터 산술을 살펴본다. 포인터에 1을 더하는 연산이 임의의 주소 이동이 아니라 같은 배열 객체의 경계 안에서만 의미가 있다는 점을 중심으로 정리한다.

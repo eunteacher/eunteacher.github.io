@@ -7,119 +7,795 @@ tags: [C++, Function, Overloading, Recursion, StackOverflow]
 use_math: true
 ---
 
-# [C++] 같은 이름의 선택지와 자기 호출의 종료 조건
+앞에서는 함수 선언이 호출 방법을 제공하고, 컴파일러가 호출 위치에서 인자의 개수와 타입을 검사한다는 점을 살펴봤다. 그런데 같은 이름의 함수가 여러 개 보이거나, 일부 인자를 생략하거나, 함수가 자신의 결과를 만들기 위해 다시 자신을 호출한다면 호출은 어떻게 해석될까?
 
-다양한 조건의 함수 정의 기법(오버로딩, 기본값)을 알아보고, 재귀 호출 시 발생하는 메모리 스택 구조의 특성과 오버플로우 현상을 분석
+오버로딩, 기본 인자, 재귀는 모두 함수 호출 문법과 관련되지만 해결하는 문제는 서로 다르다.
 
-## 세 문법이 해결하는 서로 다른 문제
+| 기능 | 해결하려는 문제 |
+| :--- | :--- |
+| 함수 오버로딩 | 같은 개념의 동작을 서로 다른 입력 형태에 제공한다. |
+| 기본 인자 | 자주 사용하는 인자값을 생략해 호출을 짧게 만든다. |
+| 재귀 함수 | 큰 문제를 같은 형태의 더 작은 문제로 나눈다. |
+
+세 문법을 각각의 선택 기준과 실패 조건을 중심으로 살펴본다.
+
+## 오버로딩은 같은 이름에 여러 호출 방법을 제공한다
+
+정수 덧셈과 실수 덧셈에 같은 `Add`라는 이름을 사용할 수 있다.
+
+```cpp
+int Add(int left, int right)
+{
+    return left + right;
+}
+
+double Add(double left, double right)
+{
+    return left + right;
+}
+```
+
+두 함수는 이름은 같지만 매개변수 타입이 다르다.
+
+```cpp
+int integerResult = Add(10, 20);
+double floatingResult = Add(1.5, 2.5);
+```
+
+첫 호출은 `int` 버전을, 두 번째 호출은 `double` 버전을 선택한다. 호출자가 `AddInteger`, `AddDouble`처럼 타입 정보를 이름에 반복하지 않아도 같은 의미의 연산이라는 점이 드러난다.
+
+함수 오버로딩(Function overloading)은 런타임에 조건문으로 분기하는 기능이 아니다. 컴파일러가 호출 위치에서 보이는 함수 후보와 인자 타입을 바탕으로 호출할 함수를 결정한다.
+
+## 매개변수 개수나 타입이 달라야 서로 다른 후보가 된다
+
+다음 함수들은 같은 이름을 사용할 수 있다.
+
+```cpp
+void PrintValue(int value);
+void PrintValue(double value);
+void PrintValue(int value, int width);
+```
+
+매개변수 타입 또는 개수가 다르므로 각 호출을 구분할 수 있다.
+
+```cpp
+PrintValue(10);
+PrintValue(3.5);
+PrintValue(10, 5);
+```
+
+입문 단계에서 오버로딩 가능 여부를 판단할 때는 다음 기준을 먼저 볼 수 있다.
+
+| 차이 | 오버로딩 가능 여부 | 예시 |
+| :--- | :--- | :--- |
+| 매개변수 개수 | 가능 | `Print(int)`, `Print(int, int)` |
+| 매개변수 타입 | 가능 | `Print(int)`, `Print(double)` |
+| 매개변수 타입 순서 | 가능 | `Convert(int, double)`, `Convert(double, int)` |
+| 매개변수 이름만 다름 | 불가능 | `Add(int left)`, `Add(int value)` |
+| 반환 타입만 다름 | 불가능 | `int GetValue()`, `double GetValue()` |
+
+매개변수 이름은 호출자가 전달하는 타입을 바꾸지 않으므로 함수를 구분하는 기준이 되지 않는다.
+
+```cpp
+int Add(int left, int right);
+// int Add(int first, int second); // 같은 함수의 재선언
+```
+
+## 반환 타입만으로는 오버로드할 수 없다
+
+다음 두 함수를 함께 선언할 수는 없다.
+
+```cpp
+int GetValue();
+// double GetValue();
+```
+
+호출 결과를 사용하지 않는 문장도 문법적으로 가능하기 때문이다.
+
+```cpp
+GetValue();
+```
+
+이 호출에는 원하는 반환 타입을 판단할 문맥이 없다. C++의 오버로드 결정은 대입받는 변수의 타입을 이용해 반환 타입만 다른 함수를 고르는 방식으로 동작하지 않는다.
+
+필요한 의미가 다르다면 이름으로 차이를 표현한다.
+
+```cpp
+int GetRoundedValue();
+double GetExactValue();
+```
+
+이 경우에는 단순히 타입만 다른 것이 아니라 반환 결과의 의미도 이름에 나타난다.
+
+## 컴파일러는 오버로드 후보 중 가장 적합한 함수를 찾는다
+
+오버로드 호출은 개념적으로 다음 흐름으로 결정된다.
+
+```text
+호출 위치에서 같은 이름의 후보 찾기
+                │
+                ▼
+인자 개수와 변환 가능성을 만족하는 후보 선별
+                │
+                ▼
+각 인자에 필요한 변환의 우선순위 비교
+                │
+                ▼
+하나의 가장 적합한 함수 선택
+```
+
+호출할 수 있는 후보가 없으면 오류가 발생한다. 호출 가능한 후보가 여러 개지만 어느 하나가 더 낫다고 결정할 수 없어도 모호한 호출 오류가 발생한다.
+
+정확한 오버로드 결정 규칙에는 참조 바인딩, 사용자 정의 변환, 템플릿 후보 등 더 많은 조건이 있다. 여기서는 기본 타입 호출에서 먼저 확인할 핵심 흐름에 집중한다.
+
+## 변환이 적은 후보가 일반적으로 우선한다
+
+두 오버로드를 정의해 보자.
 
 ```cpp
 #include <iostream>
-using namespace std;
 
-// 1. 함수 오버로딩 (Function Overloading)
-// - 동일한 이름의 함수를 매개변수 타입이나 개수를 다르게 하여 중복 정의함
-// - 반환 형식(Return Type)만 다를 경우에는 오버로딩이 불가능함
-int Add(int a, int b)
+void PrintType(int value)
 {
-    return a + b;
+    std::cout << "int: " << value << '\n';
 }
 
-float Add(float a, float b)
+void PrintType(double value)
 {
-    return a + b;
+    std::cout << "double: " << value << '\n';
+}
+```
+
+인자 타입이 매개변수 타입과 정확히 일치하면 해당 후보를 선택할 수 있다.
+
+```cpp
+PrintType(10);
+PrintType(10.0);
+```
+
+`10`은 `int` 리터럴이고 `10.0`은 `double` 리터럴이다. 첫 호출은 `PrintType(int)`, 두 번째 호출은 `PrintType(double)`과 정확히 일치한다.
+
+기본 타입의 표준 변환을 단순화해 보면 다음과 같은 우선순위를 관찰할 수 있다.
+
+```text
+정확히 일치하는 타입
+        ↓
+정수·부동소수점 승격
+        ↓
+그 밖의 표준 변환
+```
+
+예를 들어 `short`는 정수 승격을 통해 `int` 후보를 선택한다.
+
+```cpp
+short level = 10;
+PrintType(level);
+```
+
+실제 규칙은 플랫폼의 기본 타입 표현과 후보 전체에 따라 판단되므로 “가까워 보이는 타입”이라는 감각만으로 예상하지 않고 컴파일러가 보는 정확한 인자 타입을 확인한다.
+
+## 리터럴의 타입도 오버로드 선택에 영향을 준다
+
+겉으로 비슷한 숫자도 표기에 따라 타입이 다르다.
+
+| 표현 | 기본 타입 |
+| :--- | :--- |
+| `10` | `int` |
+| `10u` | `unsigned int` |
+| `10.0` | `double` |
+| `10.0f` | `float` |
+
+다음 오버로드 집합을 다시 보자.
+
+```cpp
+void PrintType(int value);
+void PrintType(double value);
+```
+
+`unsigned int` 인자를 전달하면 `int`와 `double` 중 어느 쪽도 정확히 일치하지 않는다.
+
+```cpp
+// PrintType(10u);
+```
+
+이 호출에서 `unsigned int → int`와 `unsigned int → double`은 모두 변환이 필요하며, 두 오버로드 중 하나를 더 좋은 함수로 정할 수 없어 호출이 모호해진다.
+
+의도가 분명하다면 리터럴과 변수의 타입을 실제로 필요한 인터페이스에 맞춘다.
+
+```cpp
+PrintType(10.0);
+PrintType(static_cast<int>(10u));
+```
+
+캐스트는 모호성을 억지로 숨기는 도구가 아니라 어떤 타입으로 처리할지 명시할 때 사용한다. 인터페이스 자체가 불필요하게 비슷한 후보를 너무 많이 제공하고 있지는 않은지도 함께 검토한다.
+
+## 형 변환이 가능하다고 항상 좋은 호출은 아니다
+
+다음 함수는 정수 체력을 받는다.
+
+```cpp
+void SetHp(int hp)
+{
+    // 상태 적용
+}
+```
+
+실수도 `int`로 변환할 수 있으므로 호출이 컴파일될 수 있다.
+
+```cpp
+SetHp(99.9);
+```
+
+하지만 소수 부분이 버려지는 호출이 게임 규칙에 맞는지는 별개의 문제다. 오버로드가 있으면 컴파일러가 타입 규칙에 따라 가장 적합한 함수를 고를 뿐, 그 변환이 도메인 의미까지 올바른지는 판단하지 않는다.
+
+경고를 활성화하고, 손실이 의도된 경우에는 변환과 반올림 정책을 코드에 명시한다.
+
+```cpp
+#include <cmath>
+
+int roundedHp = static_cast<int>(std::round(99.9));
+SetHp(roundedHp);
+```
+
+## 오버로드는 같은 개념을 유지해야 한다
+
+문법적으로 오버로드할 수 있다고 해서 관련 없는 동작까지 같은 이름으로 묶는 것은 좋지 않다.
+
+```cpp
+int FindPlayer(int playerId);
+int FindPlayer(const char* playerName);
+```
+
+두 함수가 모두 플레이어를 찾는 같은 개념을 제공한다면 하나의 이름이 자연스럽다.
+
+반면 한 오버로드는 플레이어를 찾고 다른 오버로드는 플레이어를 삭제한다면 호출자가 이름만 보고 동작을 예측하기 어렵다.
+
+```cpp
+int FindPlayer(int playerId);
+// void FindPlayer(const char* playerName); // 내부에서 삭제까지 수행한다면 이름과 책임이 어긋남
+```
+
+오버로드들은 입력 형태는 달라도 같은 종류의 결과와 비슷한 의미를 제공해야 한다. 타입에 따라 부작용이나 성능 특성이 크게 달라진다면 별도의 이름이 더 명확할 수 있다.
+
+## 기본 인자는 자주 사용하는 값을 호출부에서 생략하게 한다
+
+캐릭터 정보를 설정하는 함수에서 공격력과 길드 ID에 흔히 사용하는 값이 있다고 가정하자.
+
+```cpp
+void SetPlayerInformation(int hp, int mp, int power = 10, int guildId = 0);
+```
+
+호출자는 오른쪽 인자를 생략할 수 있다.
+
+```cpp
+SetPlayerInformation(100, 40);
+SetPlayerInformation(100, 40, 15);
+SetPlayerInformation(100, 40, 15, 3);
+```
+
+각 호출은 개념적으로 다음 인자 목록을 사용한다.
+
+| 호출 | 적용되는 인자 |
+| :--- | :--- |
+| `SetPlayerInformation(100, 40)` | `100, 40, 10, 0` |
+| `SetPlayerInformation(100, 40, 15)` | `100, 40, 15, 0` |
+| `SetPlayerInformation(100, 40, 15, 3)` | `100, 40, 15, 3` |
+
+기본 인자는 별도의 함수를 만드는 기능이 아니다. 호출 위치에서 생략된 인자에 기본 표현식을 보충해 하나의 함수를 호출한다.
+
+## 기본 인자는 오른쪽부터 연속해서 제공한다
+
+기본값이 있는 매개변수 뒤에는 같은 매개변수 목록 안에서 기본값 없는 매개변수를 둘 수 없다.
+
+```cpp
+// void SetPlayerInformation(int hp, int mp = 40, int power);
+```
+
+`SetPlayerInformation(100, 20)`처럼 두 인자를 전달했을 때 두 번째 인자를 `mp`로 해석하고 `power`를 생략할 방법이 없기 때문이다. C++ 함수 호출에는 일반적인 이름 기반 인자 지정 문법이 없으며, 제공한 인자는 왼쪽 매개변수부터 대응한다.
+
+올바른 선언은 기본값을 오른쪽부터 연속해서 둔다.
+
+```cpp
+void SetPlayerInformation(int hp, int mp, int power = 10, int guildId = 0);
+```
+
+중간 인자인 `power`만 생략하고 마지막 `guildId`만 전달할 수도 없다.
+
+```cpp
+// SetPlayerInformation(100, 40, /* power 생략 */, 3);
+```
+
+이런 호출이 자주 필요하다면 매개변수 순서가 사용 패턴에 맞는지, 설정 구조체나 별도 함수가 더 적합한지 검토한다.
+
+## 기본값은 호출 위치에서 보이는 선언에 둔다
+
+헤더에 함수 선언과 기본값을 제공한다.
+
+```cpp
+// Player.h
+#pragma once
+
+void SetPlayerInformation(int hp, int mp, int power = 10, int guildId = 0);
+```
+
+소스 파일의 정의에서는 기본값을 반복하지 않는다.
+
+```cpp
+// Player.cpp
+#include "Player.h"
+
+void SetPlayerInformation(int hp, int mp, int power, int guildId)
+{
+    // 전달받은 값으로 플레이어 상태 구성
+}
+```
+
+같은 스코프에서 이미 제공한 기본 인자를 뒤의 선언이나 정의에 다시 적으면 안 된다.
+
+```cpp
+void PrintResult(int value = 0);
+// void PrintResult(int value = 0);
+```
+
+호출자가 포함하는 공개 선언에 기본값을 두면 어느 값을 생략할 수 있는지 인터페이스에서 바로 확인할 수 있다.
+
+## 기본 인자 표현식은 호출할 때 평가된다
+
+기본 인자가 단순한 숫자일 필요는 없다.
+
+```cpp
+int GetNextId()
+{
+    static int nextId = 1;
+    return nextId++;
 }
 
-// 2. 기본 매개변수 (Default Parameter)
-// - 매개변수에 기본값을 지정하면 호출 시 생략이 가능함
-// - 조심해야 할 점은 기본값 지정은 항상 오른쪽(마지막) 매개변수부터 순차적으로 이루어져야 함
-void SetPlayerInformation(int hp, int mp, int power = 10, int guildId = 0)
+void SpawnPlayer(int playerId = GetNextId())
 {
-    // 로직 수행 생략
+    // playerId를 사용해 플레이어 생성
 }
+```
 
-// 3. 재귀 함수 (Recursive Function)와 스택 오버플로우
-// - 함수 내부에서 자기 자신을 다시 호출하는 구조 (예: 팩토리얼 연산)
-// - n! = n * (n - 1)!
-int Factorial(int n)
+인자를 생략한 각 호출에서 기본 표현식 `GetNextId()`가 평가된다.
+
+```cpp
+SpawnPlayer();
+SpawnPlayer();
+SpawnPlayer(100);
+```
+
+첫 두 호출은 `GetNextId()`를 각각 실행하고, 세 번째 호출은 명시적으로 전달한 100을 사용하므로 기본 표현식을 평가하지 않는다.
+
+기본값이 실행 중 상태에 의존하면 호출식만 보고 실제 인자를 예측하기 어려워질 수 있다. 단순하고 안정적인 값은 기본 인자에 잘 맞지만, 복잡한 객체 생성이나 숨은 전역 상태 접근은 별도 함수로 드러내는 편이 나을 수 있다.
+
+## 기본 인자는 호출 코드를 컴파일할 때 결정된다
+
+기본 인자는 호출 위치에서 보이는 선언을 기준으로 보충된다.
+
+```cpp
+void PrintLevel(int level = 1);
+
+int main()
 {
-    // 명확한 탈출 조건(Base Case)이 없으면 무한 루프에 빠짐
-    if (n <= 1)
+    PrintLevel();
+}
+```
+
+호출 코드는 개념적으로 `PrintLevel(1)`을 호출하도록 컴파일된다. 나중에 라이브러리의 선언을 다음처럼 바꾸더라도 이미 만들어진 호출 코드를 다시 컴파일하지 않으면 이전 기본값이 남을 수 있다.
+
+```cpp
+void PrintLevel(int level = 10);
+```
+
+공개 라이브러리의 기본값 변경은 함수 구현만 바꾸는 일과 다르다. 해당 헤더를 사용한 호출 코드를 다시 빌드해야 새 기본값이 반영된다.
+
+## 기본 인자와 오버로드가 같은 호출을 만들면 모호해질 수 있다
+
+다음 두 함수를 함께 제공한다고 가정하자.
+
+```cpp
+void SpawnMonster(int level);
+void SpawnMonster(int level, int count = 1);
+```
+
+인자 하나를 전달하면 두 후보 모두 호출 가능하다.
+
+```cpp
+// SpawnMonster(10);
+```
+
+첫 번째 후보는 그대로 호출할 수 있고, 두 번째 후보는 `count`의 기본값을 사용해 호출할 수 있다. 어느 하나를 선택할 근거가 없어 모호한 호출이 된다.
+
+다음 중 한 가지 인터페이스를 선택한다.
+
+```cpp
+void SpawnMonster(int level, int count = 1);
+```
+
+또는 두 동작의 의미가 실제로 다르다면 이름으로 차이를 표현한다.
+
+```cpp
+void SpawnSingleMonster(int level);
+void SpawnMonsterGroup(int level, int count);
+```
+
+기본 인자와 오버로드를 동시에 추가할 때는 기존 호출이 새로운 후보와 충돌하지 않는지 확인한다.
+
+## 매개변수가 많아지면 설정 구조체가 더 명확할 수 있다
+
+기본 인자가 늘어나면 호출부의 숫자가 무엇을 뜻하는지 알기 어려워진다.
+
+```cpp
+SetPlayerInformation(100, 40, 15, 3);
+```
+
+서로 연관된 설정을 구조체로 묶을 수 있다.
+
+```cpp
+struct PlayerSettings
+{
+    int hp = 100;
+    int mp = 40;
+    int power = 10;
+    int guildId = 0;
+};
+
+void SetPlayerInformation(const PlayerSettings& settings);
+```
+
+```cpp
+PlayerSettings settings;
+settings.power = 15;
+settings.guildId = 3;
+SetPlayerInformation(settings);
+```
+
+기본 인자는 매개변수 한두 개의 흔한 값을 생략할 때 간결하다. 독립적으로 조합할 선택지가 많다면 설정 객체가 각 값의 의미와 기본 상태를 더 분명하게 표현할 수 있다.
+
+## 재귀 함수는 자신의 문제를 더 작은 같은 문제로 바꾼다
+
+재귀 함수(Recursive function)는 직접 또는 간접적으로 자신을 다시 호출한다. 팩토리얼은 재귀 구조를 설명하는 대표적인 예다.
+
+$$n! = n \times (n - 1)!$$
+
+계산을 끝낼 기준도 필요하다.
+
+$$0! = 1$$
+
+이를 코드로 옮기면 다음과 같다.
+
+```cpp
+#include <cstdint>
+
+std::uint64_t Factorial(unsigned int number)
+{
+    if (number <= 1)
     {
         return 1;
     }
-    return n * Factorial(n - 1);
+
+    return number * Factorial(number - 1);
+}
+```
+
+`number <= 1`인 경우 더 이상 자신을 호출하지 않는다. 이를 종료 조건 또는 기저 조건(Base case)이라고 한다. 그 외에는 `number - 1`이라는 더 작은 문제를 호출한다.
+
+## 재귀에는 종료 조건과 진행 조건이 모두 필요하다
+
+종료 조건을 작성했다는 사실만으로 재귀가 반드시 끝나는 것은 아니다.
+
+```cpp
+int Countdown(int number)
+{
+    if (number <= 0)
+    {
+        return 0;
+    }
+
+    return Countdown(number + 1);
+}
+```
+
+양수로 시작하면 재귀 호출의 `number`가 계속 커지므로 `number <= 0`에 가까워지지 않는다. 올바른 재귀에는 다음 세 요소가 필요하다.
+
+1. 더 나누지 않고 직접 답을 반환하는 종료 조건
+2. 다음 호출이 종료 조건에 가까워지도록 만드는 진행
+3. 하위 호출의 결과로 현재 문제의 답을 만드는 결합 규칙
+
+`Countdown`은 다음처럼 종료 조건에 가까워져야 한다.
+
+```cpp
+int Countdown(int number)
+{
+    if (number <= 0)
+    {
+        return 0;
+    }
+
+    return Countdown(number - 1);
+}
+```
+
+함수 최상단에 종료 조건을 두는 것은 자주 사용하는 읽기 쉬운 형태지만, 중요한 규칙은 위치 자체가 아니라 모든 유효한 입력이 실제로 종료 조건에 도달하는가이다.
+
+## 재귀 호출마다 별도의 매개변수와 지역 상태가 있다
+
+`Factorial(4)`의 호출을 펼치면 다음과 같다.
+
+```text
+Factorial(4)
+  └─ 4 × Factorial(3)
+           └─ 3 × Factorial(2)
+                    └─ 2 × Factorial(1)
+                             └─ 1 반환
+                    └─ 2 × 1 = 2 반환
+           └─ 3 × 2 = 6 반환
+  └─ 4 × 6 = 24 반환
+```
+
+동시에 활성화된 호출마다 서로 다른 `number` 매개변수가 존재한다. 일반적인 구현에서는 각 호출에 필요한 실행 문맥을 호출 스택에 유지한다. 그러나 모든 값이 반드시 메모리 스택에 놓인다고 단정할 수는 없으며, 실제 프레임 구성은 ABI와 최적화에 따라 달라진다.
+
+재귀의 핵심 비용은 단순히 “함수 한 줄을 다시 실행한다”는 데 있지 않다. 아직 끝나지 않은 이전 호출들이 결과를 기다린다는 점에 있다.
+
+## 종료 조건이 없어도 반드시 특정 예외가 발생하는 것은 아니다
+
+끝나지 않는 재귀 호출은 활성 호출을 계속 늘릴 수 있다.
+
+```cpp
+void Repeat()
+{
+    Repeat();
+}
+```
+
+일반적인 환경에서는 호출 스택 등에 사용할 수 있는 자원이 고갈되어 프로그램이 비정상적으로 종료될 수 있으며, 흔히 이를 스택 오버플로(Stack overflow)라고 부른다.
+
+C++ 표준이 모든 환경에서 동일한 스택 크기나 특정한 스택 오버플로 예외를 보장하는 것은 아니다. 따라서 `try-catch`로 항상 안전하게 복구할 수 있는 일반 C++ 예외라고 가정해서는 안 된다.
+
+종료 조건이 있더라도 입력에 비례해 호출 깊이가 너무 커진다면 같은 문제가 발생할 수 있다.
+
+## 팩토리얼은 스택보다 먼저 결과 타입의 범위도 확인해야 한다
+
+재귀 함수가 정상적으로 반환돼도 계산 결과가 타입의 범위를 벗어날 수 있다. `std::uint64_t`가 표현할 수 있는 범위에서도 20 팩토리얼까지는 들어가지만 21 팩토리얼은 들어가지 않는다.
+
+```text
+20! = 2,432,902,008,176,640,000
+21! = 51,090,942,171,709,440,000
+```
+
+재귀 깊이만 확인하고 결과 범위를 확인하지 않으면 잘못된 값이 나올 수 있다. 부호 없는 정수 연산은 표현 범위를 넘어가면 $2^N$을 기준으로 나머지 값으로 계산되므로 프로그램이 멈추지 않고 다른 값을 만들 수 있다.
+
+입력 범위를 먼저 제한할 수 있다.
+
+```cpp
+#include <cstdint>
+
+bool TryFactorial(unsigned int number, std::uint64_t& result)
+{
+    if (number > 20)
+    {
+        return false;
+    }
+
+    if (number <= 1)
+    {
+        result = 1;
+        return true;
+    }
+
+    std::uint64_t previous = 0;
+
+    if (!TryFactorial(number - 1, previous))
+    {
+        return false;
+    }
+
+    result = number * previous;
+    return true;
+}
+```
+
+이 함수는 지원 범위를 벗어난 입력과 정상 결과를 `bool`과 출력 참조 매개변수로 구분한다. 최상위 호출에서 `number > 20`을 먼저 거절하므로 과도한 깊이로 내려가지 않는다.
+
+일반적인 계산에서는 고정된 20을 외우기보다 곱셈 전에 `std::numeric_limits<std::uint64_t>::max() / number`와 비교하는 방식도 사용할 수 있다. 어떤 방식을 선택하든 함수가 지원하는 입력 범위와 실패 표현을 인터페이스에 드러내야 한다.
+
+## 재귀 호출 횟수와 호출 깊이는 다르다
+
+단일 경로로 내려가는 팩토리얼은 입력 `n`에 대해 호출 횟수와 최대 깊이가 모두 대략 `n`에 비례한다.
+
+반면 단순한 피보나치 재귀는 한 호출에서 두 갈래로 나뉜다.
+
+```cpp
+int Fibonacci(int number)
+{
+    if (number <= 1)
+    {
+        return number;
+    }
+
+    return Fibonacci(number - 1) + Fibonacci(number - 2);
+}
+```
+
+`Fibonacci(5)`를 계산할 때 `Fibonacci(3)`, `Fibonacci(2)` 같은 같은 문제가 여러 번 반복된다.
+
+```text
+F(5)
+├─ F(4)
+│  ├─ F(3)
+│  └─ F(2)
+└─ F(3)
+   ├─ F(2)
+   └─ F(1)
+```
+
+최대 호출 깊이는 `n`에 비례하지만 전체 호출 횟수는 훨씬 빠르게 증가한다. 단순 구현의 시간 복잡도는 흔히 $O(2^n)$으로 상한을 설명하고, 호출 깊이에 따른 추가 공간은 $O(n)$이다.
+
+재귀 함수의 성능을 볼 때는 깊이뿐 아니라 같은 하위 문제를 몇 번 다시 계산하는지도 확인한다. 메모이제이션이나 반복 계산으로 중복을 줄일 수 있지만, 이는 알고리즘 설계에서 별도로 다룰 주제다.
+
+## 반복문이 더 단순하다면 재귀를 고집하지 않는다
+
+팩토리얼은 반복문으로도 자연스럽게 표현할 수 있다.
+
+```cpp
+#include <cstdint>
+
+std::uint64_t FactorialIterative(unsigned int number)
+{
+    std::uint64_t result = 1;
+
+    for (unsigned int value = 2; value <= number; ++value)
+    {
+        result *= value;
+    }
+
+    return result;
+}
+```
+
+재귀와 반복 중 어느 쪽이 항상 우수한 것은 아니다.
+
+| 기준 | 재귀가 자연스러운 경우 | 반복이 자연스러운 경우 |
+| :--- | :--- | :--- |
+| 문제 구조 | 트리, 분할 정복, 중첩 구조 | 선형 범위, 단순 누적 |
+| 종료 조건 | 하위 문제와 직접 대응 | 반복 조건으로 쉽게 표현 |
+| 호출 깊이 | 작거나 제한됨 | 입력에 따라 매우 커질 수 있음 |
+| 상태 관리 | 호출별 상태가 문제 구조를 표현 | 몇 개의 누적 변수로 충분 |
+
+재귀가 수학식과 비슷하다는 이유만으로 선택하거나, 함수 호출 비용이 있다는 이유만으로 무조건 피하지 않는다. 문제 구조, 최대 깊이, 중복 계산과 가독성을 함께 본다.
+
+## 꼬리 재귀 최적화에 안전성을 맡기지 않는다
+
+함수의 마지막 작업이 재귀 호출 결과를 그대로 반환하는 꼬리 재귀 형태가 있다.
+
+```cpp
+int Countdown(int number)
+{
+    if (number <= 0)
+    {
+        return 0;
+    }
+
+    return Countdown(number - 1);
+}
+```
+
+컴파일러는 조건이 맞으면 현재 호출의 실행 문맥을 재사용할 수 있다. 그러나 일반 C++ 함수에 꼬리 호출 최적화를 반드시 적용해야 한다는 보장은 없다.
+
+“꼬리 재귀이므로 입력 크기와 관계없이 스택 사용량이 일정하다”라고 가정하지 않는다. 매우 깊은 입력을 처리해야 한다면 반복문으로 명시적으로 바꾸거나 대상 빌드의 생성 코드를 확인한다.
+
+## 세 기능을 하나의 예제에서 구분한다
+
+레벨별 경험치 비용을 계산하고 누적 비용을 출력하는 예제다.
+
+```cpp
+#include <iostream>
+
+int CalculateLevelCost(int level)
+{
+    return level * 100;
+}
+
+int CalculateLevelCost(int level, double eventRate)
+{
+    return static_cast<int>(level * 100 * eventRate);
+}
+
+void PrintCost(int cost, const char* label = "Total cost")
+{
+    std::cout << label << ": " << cost << '\n';
+}
+
+bool TryCalculateTotalCost(int level, int& totalCost)
+{
+    constexpr int MaxSupportedLevel = 20;
+
+    if (level < 0 || level > MaxSupportedLevel)
+    {
+        return false;
+    }
+
+    if (level == 0)
+    {
+        totalCost = 0;
+        return true;
+    }
+
+    int previousCost = 0;
+
+    if (!TryCalculateTotalCost(level - 1, previousCost))
+    {
+        return false;
+    }
+
+    totalCost = previousCost + CalculateLevelCost(level);
+    return true;
 }
 
 int main()
 {
-    // [오버로딩 테스트]
-    // 매개변수 타입에 따라 적절한 함수가 자동 바인딩됨
-    int resultInt = Add(1, 2);
-    cout << "정수 덧셈: " << resultInt << endl;
+    int normalCost = CalculateLevelCost(5);
+    int eventCost = CalculateLevelCost(5, 0.5);
+    PrintCost(normalCost, "Level 5 cost");
+    PrintCost(eventCost, "Event cost");
 
-    float resultFloat = Add(1.5f, 2.1f);
-    cout << "실수 덧셈: " << resultFloat << endl;
+    int totalCost = 0;
 
-    // [기본 매개변수 테스트]
-    // power와 guildId는 지정된 기본값(10, 0)으로 자동 대입됨
-    SetPlayerInformation(100, 40);
-
-    // [재귀 함수 테스트]
-    int factor = Factorial(5);
-    cout << "5! 결과: " << factor << endl;
-
-    // [스택 오버플로우 유발 예시]
-    // 너무 큰 값을 넣으면 함수가 과도하게 호출되어 스택 메모리가 가득 차서 터짐
-    // Factorial(100000000);
-
-    return 0;
+    if (TryCalculateTotalCost(5, totalCost))
+    {
+        PrintCost(totalCost);
+    }
+    else
+    {
+        std::cout << "Unsupported level\n";
+    }
 }
 ```
----
-## 호출할 함수를 고르는 규칙
 
+각 기능이 맡은 역할은 겹치지 않는다.
 
+| 코드 | 역할 |
+| :--- | :--- |
+| `CalculateLevelCost(int)` | 일반 레벨 비용을 계산하는 오버로드 |
+| `CalculateLevelCost(int, double)` | 이벤트 비율을 적용하는 오버로드 |
+| `PrintCost`의 `label` | 흔한 출력 제목을 생략하게 하는 기본 인자 |
+| `TryCalculateTotalCost` | 현재 레벨 비용과 이전 레벨까지의 누적 비용을 재귀적으로 결합 |
+| `MaxSupportedLevel` 검사 | 지원하지 않는 입력과 과도한 재귀 깊이를 제한 |
 
-### 함수 오버로딩 (Function Overloading) 성립 조건
+`CalculateLevelCost(5)`와 `CalculateLevelCost(5, 0.5)`는 인자 개수가 달라 명확하게 구분된다. `PrintCost(totalCost)`는 호출 위치에서 기본 문자열을 보충한다. `TryCalculateTotalCost(5, totalCost)`는 0레벨에 도달한 뒤 반환하면서 각 레벨 비용을 더한다.
 
-함수의 이름이 같더라도 매개변수의 시그니처가 다르면 다른 함수로 취급하여 컴파일러가 알아서 분기 처리
+실제 경험치 테이블이 배열이나 데이터 파일로 주어진다면 반복문으로 합산하는 편이 더 단순할 수 있다. 여기서는 세 문법이 호출 과정에서 각각 어떤 일을 하는지 비교하기 위해 작은 재귀 예제를 사용했다.
 
-| 조건 | 오버로딩 가능 여부 | 비고 |
-| :--- | :--- | :--- |
-| **매개변수 개수가 다름** | 가능 | `Add(int a)`, `Add(int a, int b)` |
-| **매개변수 타입이 다름** | 가능 | `Add(int a, int b)`, `Add(float a, float b)` |
-| **반환 타입만 다름** | 불가능 | 컴파일 에러 발생 (호출 시 모호함) |
+## 함수 인터페이스를 확장할 때 확인할 기준
 
-### 기본 매개변수 (Default Parameter) 규칙
+오버로드를 추가할 때는 다음 내용을 확인한다.
 
-기본값을 설정할 때는 반드시 매개변수 목록의 가장 오른쪽 끝에서부터 왼쪽으로 채워나가야 하고,
-이는 함수 호출 시 전달되는 인자가 왼쪽에서 오른쪽으로 순서대로 매핑되기 때문임
+1. 모든 오버로드가 같은 개념과 비슷한 부작용을 제공하는가?
+2. 기존 호출이 새로운 후보 때문에 모호해지지 않는가?
+3. 암시적 변환으로 예상하지 않은 후보가 선택되지 않는가?
+4. 반환 타입만으로 함수를 구분하려 하지는 않았는가?
 
+기본 인자를 추가할 때는 다음 내용을 확인한다.
 
+1. 오른쪽부터 자연스럽게 생략할 수 있는 매개변수 순서인가?
+2. 호출 위치에서 보이는 선언에 기본값이 있는가?
+3. 같은 기본값을 선언과 정의에 반복하지 않았는가?
+4. 오버로드와 결합해 같은 호출 형태를 만들지 않는가?
+5. 공개 기본값 변경 후 호출 코드를 다시 빌드하는가?
 
-### 재귀 함수와 스택 오버플로우 (Stack Overflow)
+재귀 함수를 작성할 때는 다음 내용을 확인한다.
 
-* 팩토리얼과 같은 재귀적 연산을 구현할 때 유용하며 수학적 점화식을 그대로 코드로 옮길 수 있음
-  $$n! = n \times (n - 1)!$$
-* 함수가 호출될 때 메모리의 스택(Stack) 영역에 스택 프레임(Stack Frame)이 독립적인 공간으로 할당
-* 재귀 함수(Recursive Function)를 구현할 때 명확한 탈출 조건(Base Case)이 없거나 호출 깊이가 너무 깊으면, 스택 프레임이 무한히 쌓여 스택 메모리 한계를 초과하는 스택 오버플로우(Stack Overflow) 에러가 발생
+1. 직접 답을 반환하는 종료 조건이 있는가?
+2. 모든 유효한 입력이 종료 조건에 가까워지는가?
+3. 최대 호출 깊이를 제한할 수 있는가?
+4. 결과 타입이 계산 범위를 표현할 수 있는가?
+5. 같은 하위 문제를 불필요하게 반복 계산하지 않는가?
+6. 반복문이나 명시적인 자료구조가 더 단순하지 않은가?
 
-## 모호한 호출과 깊은 재귀 점검하기
+오버로딩은 호출 후보를 늘리고, 기본 인자는 하나의 호출에서 생략 가능한 입력을 정하며, 재귀는 실행 중 같은 함수의 활성 호출을 늘린다. 모두 함수 호출에 영향을 주지만 컴파일 시점의 선택과 실행 시점의 반복이라는 차이를 구분해야 한다.
 
-### 핵심 요약 및 주의사항
+## 다음 학습: 한 파일짜리 게임의 책임 분리
 
-* **기본 매개변수 선언 위치**: 기본 매개변수는 함수의 원형(선언부)과 구현부(정의부) 중 한 곳에만 지정해야 하며, 보통 헤더 파일의 선언부에 작성하는 것이 관례
-* **오버로딩 모호성**: 여러 후보에 필요한 변환의 우선순위가 같으면 호출이 모호해진다. `1.0`은 `double`, `1.0f`는 `float`이므로 리터럴 타입도 후보 선택에 영향을 준다.
-* **탈출 조건 필수**: 재귀 함수 설계 시 무한 루프를 막기 위한 기저 조건(Base Case)을 함수 최상단에 배치
+함수 인터페이스를 확장할 때 편리함만 늘리면 호출의 의미가 모호해질 수 있다. 오버로드는 입력 타입별로 같은 개념을 유지하고, 기본 인자는 안정적인 흔한 값을 제공하며, 재귀는 종료와 깊이 조건이 명확한 문제에 사용한다.
 
-### Tip
-
-* 호출 깊이가 입력에 비례하고 크게 자랄 수 있다면 반복문 변환을 검토한다. 재귀가 항상 느리거나 반복문이 항상 낫다는 뜻은 아니며, 트리 탐색처럼 문제 구조를 잘 표현하는 경우도 있다. C++은 꼬리 호출 최적화를 보장하지 않는다.
-* 매개변수가 많은 함수의 경우, 기본 매개변수를 무분별하게 사용하기보다는 구조체(Struct)나 클래스(Class)로 연관된 데이터를 묶어서 전달하는 것이 가독성을 높이는 방법
-
-기본 인자는 호출 지점에서 채워지며 가상 함수처럼 동적 디스패치되지 않는다. 공개 API의 기본값을 바꾸면 이미 빌드된 호출 코드에는 이전 값이 남을 수 있다는 점도 기억한다.
-
-## 마무리
-
-오버로딩은 타입에 따른 인터페이스 선택, 기본 인자는 흔한 호출의 축약, 재귀는 문제의 자기 유사 구조를 표현한다. 편리함보다 호출이 모호하지 않은지와 종료·깊이 조건이 명확한지를 먼저 확인한다.
+다음 글에서는 지금까지 배운 조건문, 반복문과 함수를 실제 Text RPG 코드에 적용한다. 전역 변수에 섞여 있는 플레이어·몬스터 상태와 입력·전투·출력 책임을 구분하고, 한 파일짜리 절차적 프로그램을 단계적으로 읽고 리팩터링한다.

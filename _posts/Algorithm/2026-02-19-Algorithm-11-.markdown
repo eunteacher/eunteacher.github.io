@@ -1,152 +1,493 @@
 ---
 layout: post
-title: '[Algorithm 11] 그래프 너비 우선 탐색 (BFS) 구현 및 분석'
+title: '[Algorithm 11] 너비 우선 탐색: 거리 순서와 최단 경로 복원'
 date: 2026-02-19
 categories: [Dev, Algorithm]
-tags: [C++, Algorithm, Graph, DFS, Recursion]
+tags: [C++, Graph, BFS, Queue, Shortest Path]
 use_math: true
 ---
 
-# [Algorithm] 래프 너비 우선 탐색 (BFS)
+너비 우선 탐색(Breadth First Search, BFS)은 시작점에서 가까운 정점부터 거리 순서대로 탐색한다.
 
-큐(Queue)를 활용한 그래프의 너비 우선 탐색(BFS) 알고리즘 구현 및 최단 경로 측정 원리 분석
+```text
+거리 0:              0
+                    / \
+거리 1:            1   3
+                   |   |
+거리 2:            2   4
+```
 
-## 1. 소스 코드 (Source Code)
+같은 거리에 있는 정점을 먼저 모두 처리한 뒤 다음 거리로 넘어가기 위해 FIFO 구조인 큐를 사용한다. 이 순서 덕분에 가중치가 없는 그래프에서 최소 간선 수 경로를 구할 수 있다.
+
+## DFS와 BFS는 다음 정점을 선택하는 방식이 다르다
+
+두 탐색 모두 방문 여부를 기록하면서 그래프를 순회하지만, 앞으로 처리할 정점을 보관하는 방식이 다르다.
+
+```text
+DFS: 가장 최근에 발견한 정점을 먼저 처리 → Stack / 재귀
+BFS: 가장 먼저 발견한 정점을 먼저 처리 → Queue
+```
+
+다음 그래프에서 이웃을 작은 번호부터 확인한다고 하자.
+
+```text
+0: 1, 3
+1: 0, 2, 3
+2: 없음
+3: 4
+4: 없음
+5: 4
+```
+
+정점 0에서 시작한 대표적인 방문 순서는 다음과 같다.
+
+```text
+DFS: 0 → 1 → 2 → 3 → 4
+BFS: 0 → 1 → 3 → 2 → 4
+```
+
+DFS는 1을 선택한 뒤 2까지 깊게 들어간다. BFS는 0에서 한 간선 떨어진 1과 3을 먼저 처리한 뒤 두 간선 떨어진 2와 4로 넘어간다.
+
+방문 순서는 이웃 저장 순서에 따라 달라질 수 있지만 BFS가 거리가 감소하지 않는 순서로 정점을 발견한다는 성질은 유지된다.
+
+## 큐가 거리의 계층을 유지한다
+
+시작점 0을 큐에 넣고 탐색 과정을 따라가 보자.
+
+```text
+초기
+queue: [0]
+distance[0] = 0
+
+0 처리 → 1, 3 발견
+queue: [1, 3]
+distance[1] = 1
+distance[3] = 1
+
+1 처리 → 2 발견
+queue: [3, 2]
+distance[2] = 2
+
+3 처리 → 4 발견
+queue: [2, 4]
+distance[4] = 2
+
+2 처리
+queue: [4]
+
+4 처리
+queue: [ ]
+```
+
+거리 1인 정점 1과 3이 모두 큐 앞쪽에 있고, 그 정점들이 발견한 거리 2의 정점 2와 4는 뒤쪽에 들어간다. FIFO 순서 때문에 거리 2가 거리 1보다 먼저 처리될 수 없다.
+
+## 발견 시점과 처리 시점을 구분한다
+
+BFS에서 정점은 보통 다음 두 상태를 거친다.
+
+```text
+발견(Discover): 처음 만나 큐에 넣은 시점
+처리(Process):  큐의 Front에서 꺼낸 시점
+```
+
+방문 여부는 큐에서 꺼낼 때가 아니라 **큐에 넣을 때** 표시한다.
 
 ```cpp
-#include <iostream>
-#include <vector>
-#include <queue>
-using namespace std;
+queue.push(start);
+discovered[start] = true;
 
-struct Vertex
+while (!queue.empty())
 {
-    // 필요 시 정점의 데이터(Data) 보관 용도로 사용
-};
+    int here = queue.front();
+    queue.pop();
 
-vector<Vertex> Vertices;
-vector<vector<int>> Adjacent;
-vector<bool> Discovered;
-
-// 그래프 초기화 및 인접 행렬 구성
-void CreateGraph()
-{
-    Vertices.resize(6);
-
-    // 6x6 인접 행렬(Adjacency Matrix)을 통한 그래프 간선 정의
-    // 1: 간선 연결됨, 0: 간선 없음
-    Adjacent = vector<vector<int>>
+    for (int next : graph[here])
     {
-        { 0, 1, 0, 1, 0, 0 },
-        { 1, 0, 1, 1, 0, 0 },
-        { 0, 0, 0, 0, 0, 0 },
-        { 0, 0, 0, 0, 1, 0 },
-        { 0, 0, 0, 0, 0, 0 },
-        { 0, 0, 0, 0, 1, 0 },
-    };
-}
-
-// 너비 우선 탐색(BFS) 핵심 로직 구현
-void Bfs(int here)
-{
-    // 스패닝 트리(Spanning Tree) 구성을 위한 부모 노드 추적 배열
-    vector<int> parent(6, -1);
-    // 시작 정점으로부터의 최단 거리 측정 (가중치가 없는 그래프 기준)
-    vector<int> distance(6, -1);
-
-    queue<int> q;
-    q.push(here);
-    Discovered[here] = true;
-
-    parent[here] = here;
-    distance[here] = 0;
-
-    while (q.empty() == false)
-    {
-        here = q.front();
-        q.pop();
-
-        cout << "Visited : " << here << endl;
-
-        // 현재 정점과 연결된 모든 인접 정점 탐색
-        for (int there = 0; there < 6; there++)
+        if (discovered[next])
         {
-            // 간선이 존재하지 않으면 스킵
-            if (Adjacent[here][there] == 0)
-            {
-                continue;
-            }
-
-            // 이미 발견되어 큐에 들어갔거나 방문한 정점이면 스킵
-            if (Discovered[there])
-            {
-                continue;
-            }
-
-            // 다음 방문을 위해 큐에 삽입 및 발견 처리
-            q.push(there);
-            Discovered[there] = true;
-
-            // 경로 추적 정보 업데이트
-            parent[there] = here;
-            distance[there] = distance[here] + 1;
+            continue;
         }
+
+        discovered[next] = true;
+        queue.push(next);
     }
 }
+```
 
-// 단절된 그래프(Disconnected Graph)를 고려한 전체 탐색 보정 함수
-void BfsAll()
+표시가 늦으면 여러 정점이 같은 이웃을 큐에 중복으로 넣을 수 있다.
+
+```text
+1 → 3
+0 → 3
+
+0과 1을 처리할 때 3이 아직 미처리 상태라면
+3이 큐에 두 번 들어갈 수 있음
+```
+
+발견과 동시에 표시하면 한 정점은 최대 한 번만 큐에 들어간다.
+
+## 거리 배열은 시작점에서 지나온 간선 수다
+
+시작점의 거리를 0으로 두고 새로운 이웃을 발견할 때 현재 거리보다 1 크게 기록한다.
+
+```cpp
+distance[start] = 0;
+distance[next] = distance[here] + 1;
+```
+
+```text
+0 발견: distance[0] = 0
+0에서 3 발견: distance[3] = 1
+3에서 4 발견: distance[4] = 2
+```
+
+아직 발견하지 않은 정점은 `-1`로 두면 도달할 수 없는 상태도 함께 표현할 수 있다.
+
+```text
+distance: [0, 1, 2, 1, 2, -1]
+                                    ↑
+                         0에서 5로 도달 불가
+```
+
+거리 타입이 unsigned라면 `-1` 대신 별도의 discovered 배열이나 충분히 큰 sentinel 값을 사용한다.
+
+## 부모 배열은 정점을 처음 발견한 경로를 기록한다
+
+정점 `next`를 `here`에서 처음 발견했다면 부모를 다음처럼 저장한다.
+
+```cpp
+parent[next] = here;
+```
+
+예제 그래프의 부모 관계는 다음과 같다.
+
+```text
+parent[0] = 0
+parent[1] = 0
+parent[3] = 0
+parent[2] = 1
+parent[4] = 3
+parent[5] = -1
+```
+
+부모 간선을 모으면 BFS tree가 된다.
+
+```text
+        0
+       / \
+      1   3
+      |   |
+      2   4
+
+5는 tree에 포함되지 않음
+```
+
+그래프에 최단 경로가 여러 개라면 이웃을 먼저 발견한 순서에 따라 그중 하나가 부모로 선택된다.
+
+## 목적지에서 부모를 따라가면 경로가 복원된다
+
+정점 4에서 시작해 부모를 계속 따라가 보자.
+
+```text
+4 → parent[4] = 3
+3 → parent[3] = 0
+0 → 시작점
+```
+
+이 순서는 목적지에서 시작점 방향이므로 마지막에 뒤집는다.
+
+```cpp
+std::vector<int> BuildPath(int start, int goal, const std::vector<int>& parent)
 {
-    for (int i = 0; i < 6; i++)
-        if (Discovered[i] == false)
+    if (parent[goal] == -1)
+    {
+        return {};
+    }
+
+    std::vector<int> path;
+
+    for (int current = goal; current != start; current = parent[current])
+    {
+        path.push_back(current);
+    }
+
+    path.push_back(start);
+    std::reverse(path.begin(), path.end());
+    return path;
+}
+```
+
+```text
+역추적 결과: 4, 3, 0
+뒤집은 결과: 0, 3, 4
+```
+
+목적지가 발견되지 않았다면 `parent[goal] == -1`이므로 빈 경로를 반환한다. 시작점의 부모를 자기 자신으로 설정하면 시작점과 다른 정점을 같은 배열 안에서 구분하기 쉽다.
+
+## BFS가 최단 경로를 보장하는 이유
+
+시작점에서 거리 $d$인 정점이 큐에서 처리될 때 새로 발견하는 이웃의 거리는 $d+1$이다. FIFO 큐에는 이미 거리 $d$인 나머지 정점들이 거리 $d+1$인 정점보다 앞에 있다.
+
+따라서 큐는 다음 순서를 유지한다.
+
+```text
+거리 0 → 거리 1 → 거리 2 → 거리 3 → ...
+```
+
+어떤 정점을 처음 발견한 경로보다 간선 수가 적은 다른 경로가 있다고 가정하면, 그 짧은 경로의 이전 정점은 더 작은 거리 계층에 있어 먼저 처리됐어야 한다. 그러면 현재 정점도 이미 더 일찍 발견됐어야 하므로 모순이다.
+
+결국 첫 발견 시 저장한 거리가 최소 간선 수가 된다.
+
+## 모든 그래프에서 BFS가 최단 비용을 찾는 것은 아니다
+
+BFS의 `distance + 1`은 모든 간선의 비용을 똑같이 한 번으로 취급한다.
+
+```text
+0 ──100──→ 1
+0 ──  1──→ 2 ──1──→ 1
+```
+
+간선 수만 보면 `0→1`이 한 간선이라 짧지만 비용 합은 100이다. `0→2→1`은 두 간선이지만 비용 합은 2다.
+
+```text
+가중치 없음 또는 모든 가중치 동일 → BFS
+가중치가 0과 1                   → 0-1 BFS
+음수가 없는 다양한 가중치       → Dijkstra
+음수 가중치가 있을 수 있음       → Bellman-Ford 등 조건에 맞는 알고리즘
+```
+
+“가중치가 없는 그래프의 최단 경로”는 최소 간선 수 경로를 뜻한다. 모든 간선의 가중치가 같은 양수라면 같은 논리가 성립한다.
+
+## 인접 행렬로 BFS를 구현한다
+
+인접 행렬에서는 현재 정점의 행 전체를 확인한다.
+
+```cpp
+for (int next = 0; next < vertexCount; ++next)
+{
+    if (matrix[here][next] == 0 || discovered[next])
+    {
+        continue;
+    }
+
+    discovered[next] = true;
+    distance[next] = distance[here] + 1;
+    parent[next] = here;
+    queue.push(next);
+}
+```
+
+도달한 정점마다 $V$개의 열을 확인하므로 전체 시간 복잡도는 $O(V^2)$이다.
+
+```text
+큐 push/pop 자체: O(V)
+행렬의 이웃 확인: O(V²)
+전체 지배 항:     O(V²)
+```
+
+## 인접 리스트에서는 실제 간선만 확인한다
+
+```cpp
+for (int next : graph[here])
+{
+    if (discovered[next])
+    {
+        continue;
+    }
+
+    discovered[next] = true;
+    distance[next] = distance[here] + 1;
+    parent[next] = here;
+    queue.push(next);
+}
+```
+
+모든 정점을 최대 한 번 큐에 넣고, 저장된 모든 간선을 한 번씩 확인한다.
+
+$$
+O(V+E)
+$$
+
+보조 배열과 큐는 각각 최대 $V$개의 값을 저장하므로 추가 공간은 $O(V)$다. 그래프 자체의 저장 공간은 인접 리스트 $O(V+E)$, 인접 행렬 $O(V^2)$로 별도 계산한다.
+
+## 목적지를 발견하면 언제 멈출 수 있을까
+
+최단 경로 하나만 필요하다면 목적지를 처음 발견한 순간 거리와 부모가 확정된다.
+
+```cpp
+if (next == goal)
+{
+    // distance[goal]과 parent[goal] 확정
+}
+```
+
+그 즉시 탐색을 끝내도 시작점에서 목적지까지의 최단 경로는 얻을 수 있다. 다만 시작점에서 모든 정점까지의 거리나 전체 BFS tree가 필요하면 큐가 빌 때까지 계속해야 한다.
+
+목적지를 큐에서 꺼낼 때 종료하는 방식도 올바르다. 발견 시 종료보다 같은 거리 계층의 일부 정점을 더 처리할 수 있을 뿐 목적지의 최단 거리는 바뀌지 않는다.
+
+## 전체 그래프 순회와 단일 시작점 거리는 목적이 다르다
+
+한 시작점의 최단 거리를 구할 때는 BFS를 한 번 실행한다. 도달하지 못한 정점의 거리는 `-1`로 남겨 두는 것이 의미 있다.
+
+그래프의 모든 정점을 방문하는 것이 목적이면 아직 발견하지 않은 정점마다 BFS를 새로 시작할 수 있다.
+
+```cpp
+for (int start = 0; start < vertexCount; ++start)
+{
+    if (!discovered[start])
+    {
+        Bfs(start);
+    }
+}
+```
+
+하지만 두 번째 BFS의 거리 0은 첫 번째 시작점으로부터의 거리가 아니다. 각 BFS tree의 새로운 root를 기준으로 한 거리다.
+
+무방향 그래프에서는 BFS가 새로 시작된 횟수로 연결 요소 수를 셀 수 있다. 방향 그래프에서는 이 횟수를 강한 연결 요소 수로 해석할 수 없다.
+
+## BFS와 DFS를 목적에 맞게 선택한다
+
+| 비교 | BFS | DFS |
+|---|---|---|
+| 핵심 자료구조 | Queue | Stack 또는 재귀 |
+| 탐색 순서 | 가까운 거리부터 | 한 방향을 깊게 |
+| 가중치 없는 최단 경로 | 보장 | 보장하지 않음 |
+| 대표 활용 | 최소 간선 수, 레벨 탐색 | 사이클, 위상 정렬, backtracking |
+| 보조 공간 | 최악 $O(V)$ | 최악 $O(V)$ |
+
+트리에서 루트로부터 각 정점의 깊이를 구하거나 격자에서 최소 이동 횟수를 구하는 문제는 BFS의 거리 계층과 잘 맞는다. 모든 경로를 탐색하거나 진입·종료 시점이 필요한 문제는 DFS가 자연스러울 수 있다.
+
+## 전체 검증 예제
+
+다음 코드는 인접 리스트로 BFS를 실행해 방문 순서, 거리와 부모를 저장한다. 정점 4의 최단 경로를 복원하고 도달할 수 없는 정점 5의 경로가 비어 있는지도 확인한다.
+
+```cpp
+#include <algorithm>
+#include <cassert>
+#include <iostream>
+#include <queue>
+#include <vector>
+
+using Graph = std::vector<std::vector<int>>;
+
+struct BfsResult
+{
+    std::vector<int> order;
+    std::vector<int> distance;
+    std::vector<int> parent;
+};
+
+BfsResult Bfs(int start, const Graph& graph)
+{
+    BfsResult result;
+    result.distance.assign(graph.size(), -1);
+    result.parent.assign(graph.size(), -1);
+
+    std::queue<int> pending;
+    pending.push(start);
+    result.distance[start] = 0;
+    result.parent[start] = start;
+
+    while (!pending.empty())
+    {
+        int here = pending.front();
+        pending.pop();
+        result.order.push_back(here);
+
+        for (int next : graph[here])
         {
-            Bfs(i);
+            if (result.distance[next] != -1)
+            {
+                continue;
+            }
+
+            result.distance[next] = result.distance[here] + 1;
+            result.parent[next] = here;
+            pending.push(next);
         }
+    }
+
+    return result;
+}
+
+std::vector<int> BuildPath(int start, int goal, const std::vector<int>& parent)
+{
+    if (parent[goal] == -1)
+    {
+        return {};
+    }
+
+    std::vector<int> path;
+
+    for (int current = goal; current != start; current = parent[current])
+    {
+        path.push_back(current);
+    }
+
+    path.push_back(start);
+    std::reverse(path.begin(), path.end());
+    return path;
+}
+
+void Print(const char* name, const std::vector<int>& values)
+{
+    std::cout << name << ':';
+
+    for (int value : values)
+    {
+        std::cout << ' ' << value;
+    }
+
+    std::cout << '\n';
 }
 
 int main()
 {
-    CreateGraph();
+    const Graph graph{{1, 3}, {0, 2, 3}, {}, {4}, {}, {4}};
+    BfsResult result = Bfs(0, graph);
+    std::vector<int> pathToFour = BuildPath(0, 4, result.parent);
+    std::vector<int> pathToFive = BuildPath(0, 5, result.parent);
 
-    // 방문 배열 초기화
-    Discovered = vector<bool>(6, false);
+    assert((result.order == std::vector<int>{0, 1, 3, 2, 4}));
+    assert((result.distance == std::vector<int>{0, 1, 2, 1, 2, -1}));
+    assert((pathToFour == std::vector<int>{0, 3, 4}));
+    assert(pathToFive.empty());
 
-    // 0번 정점을 시작으로 BFS 수행
-    Bfs(0);
-
-    return 0;
+    Print("BFS order", result.order);
+    Print("distance", result.distance);
+    Print("path 0 -> 4", pathToFour);
+    std::cout << "path 0 -> 5 exists: " << std::boolalpha << !pathToFive.empty() << '\n';
 }
 ```
-## 2. 이론 정리 (Study Notes)
 
-그래프 탐색 알고리즘 중 하나인 **너비 우선 탐색(Breadth First Search, BFS)**은 시작 정점에서 가까운 정점부터 먼저 방문하는 탐색 방식이고,
-주로 큐(Queue) 자료구조를 활용하여 구현하며, 가중치가 없는 그래프에서 **최단 경로(Shortest Path)**를 찾을 때 가장 효율적인 방식
+실행 결과는 다음과 같다.
 
-| 비교 항목 | 인접 행렬 (Adjacency Matrix) | 인접 리스트 (Adjacency List) |
-| :--- | :--- | :--- |
-| **공간 복잡도** | $O(|V|^2)$ | $O(|V| + |E|)$ |
-| **간선 확인 시간** | $O(1)$ | $O(Degree(V))$ |
-| **전체 탐색 시간** | $O(|V|^2)$ | $O(|V| + |E|)$ |
-| **적합한 환경** | 밀집 그래프(Dense Graph) | 희소 그래프(Sparse Graph) |
+```text
+BFS order: 0 1 3 2 4
+distance: 0 1 2 1 2 -1
+path 0 -> 4: 0 3 4
+path 0 -> 5 exists: false
+```
 
-**수식 표현:**
+정점 1과 3이 거리 1에서 먼저 처리되고, 정점 2와 4가 거리 2에서 처리된다. 정점 4의 부모는 3이므로 경로는 `0→3→4`다. 정점 5는 0에서 도달할 수 없어 거리와 부모가 `-1`로 남는다.
 
-정점의 개수를 $V$, 간선의 개수를 $E$라고 할 때, 인접 행렬을 사용한 BFS의 시간 복잡도는 다음과 같이 정의됨
-$$T(V) = O(|V|^2)$$
-각 정점을 큐에 넣고 빼는 과정에서 $O(V)$의 시간이 소요되며, 각 정점마다 $V$번의 인접 정점 확인(이중 루프 구조)이 필요하므로 위와 같은 시간 복잡도를 가짐
+## BFS를 구현할 때 확인할 기준
 
+1. 시작점을 큐에 넣고 즉시 발견 표시하는가?
+2. 이웃도 큐에 넣는 순간 발견 표시하는가?
+3. 같은 정점이 큐에 여러 번 들어가지 않는가?
+4. 시작점의 거리를 0으로 설정하는가?
+5. 새 정점의 거리를 `distance[here] + 1`로 기록하는가?
+6. 부모를 정점을 처음 발견한 시점에 한 번만 기록하는가?
+7. 도달하지 못한 정점과 거리 0을 구분하는가?
+8. 역추적한 경로를 시작점 방향으로 뒤집는가?
+9. 목적지가 발견되지 않았다면 빈 경로로 처리하는가?
+10. 모든 간선의 비용이 동일한 문제인지 확인했는가?
+11. 인접 행렬과 인접 리스트의 전체 탐색 비용을 구분하는가?
+12. 전체 순회와 단일 시작점 최단 거리 계산의 목적을 구분하는가?
 
-## 3. 종합 의견 (Review)
+BFS의 핵심은 큐를 사용하는 문법만이 아니다. 정점을 발견하는 순간 거리와 부모를 확정하고, FIFO 순서로 거리 계층을 유지하기 때문에 가중치 없는 그래프의 최단 경로가 만들어진다.
 
-### 핵심 요약 및 주의사항
+## 다음 학습: 격자 미로에서 BFS 사용하기
 
-* 큐(Queue) 자료구조의 FIFO(First-In-First-Out) 특성을 이용하여 현재 정점과 인접한 정점들을 우선적으로 탐색
-* `discovered` 배열을 통해 중복 방문을 방지하는 것이 무한 루프를 막는 가장 중요한 핵심 로직
-* 모든 간선의 가중치가 동일한 그래프의 경우, BFS 과정에서 순차적으로 증가시킨 `distance` 값이 곧 시작점으로부터의 최단 거리가 됨
-* 단절된 그래프(Disconnected Graph)가 존재할 수 있으므로, 단일 `Bfs` 호출로 끝나지 않고 모든 정점을 순회하며 방문하지 않은 노드를 찔러주는 `BfsAll`과 같은 전체 탐색 로직이 필요할 수 있음
-
-### Tip
-
-* `parent` 배열을 역추적(Backtracking)하면 시작점부터 목표 정점까지의 실제 경로(Path)를 쉽게 복원할 수 있음
-* 실무에서 정점 개수가 매우 많은 희소 그래프(Sparse Graph)를 다룰 때는 메모리 초과 방지를 위해 인접 행렬(`vector<vector<int>>`)보다 인접 리스트(`vector<int>` 혹은 `vector<pair<int, int>>` 구조 내에 연결 정점만 저장)를 사용하는 것이 메모리 및 성능 측면에서 압도적으로 유리함
-* C++ `std::queue` 사용 시 `front()`로 요소를 반환받은 후, 반드시 `pop()`을 호출하여 큐에서 요소를 명시적으로 제거해야 함
+다음 글에서는 정점 번호 대신 `(y, x)` 좌표를 큐에 넣는다. 상하좌우로 이동 가능한 칸을 발견하고 부모 좌표를 저장한 뒤, 출구에서 입구까지 역추적해 실제 미로의 최단 경로를 복원한다.

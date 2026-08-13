@@ -1,159 +1,556 @@
 ---
 layout: post
-title: '[Algorithm 13] 다익스트라(Dijkstra) 최단 경로 알고리즘 구현 및 분석'
+title: '[Algorithm 13] 다익스트라: 간선 완화와 최소 비용 경로'
 date: 2026-02-25
 categories: [Dev, Algorithm]
-tags: [C++, Algorithm, Graph, Dijkstra, Pathfinding]
+tags: [C++, Graph, Dijkstra, Priority Queue, Shortest Path]
 use_math: true
 ---
 
-# [Algorithm] 다익스트라(Dijkstra) 최단 경로 알고리즘 구현
+BFS는 모든 간선의 이동 비용이 같을 때 최소 간선 수 경로를 찾는다. 간선마다 비용이 다르면 가장 적은 간선을 지나는 경로와 전체 비용이 가장 작은 경로가 달라질 수 있다.
 
-가중치가 있는 그래프에서 시작 정점으로부터 다른 모든 정점까지의 최단 경로를 구하는 다익스트라 알고리즘 분석 및 구현체
+```text
+0 ──35──→ 3
+│         ↑
+15        10
+│         │
+└────→ 1 ─┘
 
-## 1. 소스 코드 (Source Code)
+0 → 3       비용 35
+0 → 1 → 3   비용 15 + 10 = 25
+```
+
+다익스트라(Dijkstra) 알고리즘은 음수 가중치가 없는 그래프에서 하나의 시작점부터 다른 정점까지의 최소 누적 비용을 구한다.
+
+## 가중치 그래프를 인접 리스트로 저장한다
+
+각 간선에는 도착 정점과 가중치가 필요하다.
 
 ```cpp
-#include <iostream>
-#include <vector>
-#include <list>
-#include <stack>
-#include <queue>
-using namespace std;
-
-struct Vertex
+struct Edge
 {
-    // 필요 시 정점의 데이터(Data) 보관 용도로 사용
+    int to;
+    int weight;
 };
 
-vector<Vertex> Vertices;
-// 인접 행렬 기반 그래프 (가중치 저장, -1은 연결되지 않음을 의미)
-vector<vector<int>> Adjacent;
+using Graph = std::vector<std::vector<Edge>>;
+```
 
-// 그래프 초기화 및 가중치 간선 구성
-void CreateGraph()
+예제 그래프의 방향 간선은 다음과 같다.
+
+```text
+0 → 1  비용 15
+0 → 3  비용 35
+1 → 0  비용 15
+1 → 2  비용 5
+1 → 3  비용 10
+3 → 4  비용 5
+5 → 4  비용 5
+```
+
+```cpp
+Graph graph(6);
+graph[0] = {{1, 15}, {3, 35}};
+graph[1] = {{0, 15}, {2, 5}, {3, 10}};
+graph[3] = {{4, 5}};
+graph[5] = {{4, 5}};
+```
+
+방향 그래프이므로 `5→4`가 있다고 해서 `4→5`가 존재하지는 않는다. 무방향 간선이라면 같은 가중치의 반대 방향 간선도 함께 넣는다.
+
+## best 배열은 현재까지 알려진 최소 비용이다
+
+시작점 자신까지의 비용은 0이고 나머지는 아직 알 수 없으므로 무한대(INF)로 초기화한다.
+
+```cpp
+using Distance = long long;
+constexpr Distance Infinity = std::numeric_limits<Distance>::max() / 4;
+
+std::vector<Distance> best(vertexCount, Infinity);
+best[start] = 0;
+```
+
+```text
+초기 best
+[0, INF, INF, INF, INF, INF]
+```
+
+`std::numeric_limits<Distance>::max()`를 그대로 사용한 상태에서 가중치를 더하면 정수 오버플로가 발생할 수 있다. 충분히 큰 값을 INF로 선택하고, 도달 가능한 정점에서만 덧셈한다.
+
+입력의 최대 정점 수, 최대 가중치와 가능한 최장 경로 비용을 확인해 INF가 모든 유효 비용보다 큰지도 확인해야 한다.
+
+## 가장 비용이 작은 후보부터 처리한다
+
+아직 처리할 후보 중 시작점에서의 누적 비용이 가장 작은 정점을 고른다.
+
+```text
+후보: (정점 1, 비용 15), (정점 3, 비용 35)
+선택: (정점 1, 비용 15)
+```
+
+모든 간선 가중치가 0 이상이면 현재 가장 작은 후보보다 더 싼 우회 경로가 나중에 나타날 수 없다. 아직 처리하지 않은 다른 후보를 거치려면 현재 비용 이상의 지점에서 출발해 0 이상의 간선 비용을 더해야 하기 때문이다.
+
+이 선택이 다익스트라의 greedy 성질이다.
+
+## 간선 완화는 더 짧은 경로를 발견하는 연산이다
+
+현재 정점 `here`까지의 최저 비용을 알고 있을 때 간선 `here→next`를 사용한 새 비용을 계산한다.
+
+$$
+newCost = best[here] + weight(here, next)
+$$
+
+새 비용이 기존 값보다 작으면 갱신한다.
+
+$$
+best[next] = \min(best[next], newCost)
+$$
+
+이를 간선 완화(Relaxation)라고 한다.
+
+```cpp
+Distance nextCost = best[here] + edge.weight;
+
+if (nextCost < best[edge.to])
 {
-    Vertices.resize(6);
-    // 모든 간선을 -1(연결 안 됨)로 초기화
-    Adjacent = vector<vector<int>>(6, vector<int>(6, -1));
-
-    Adjacent[0][1] = 15;
-    Adjacent[0][3] = 35;
-    Adjacent[1][0] = 15;
-    Adjacent[1][2] = 5;
-    Adjacent[1][3] = 10;
-    Adjacent[3][4] = 5;
-    Adjacent[5][4] = 5;
+    best[edge.to] = nextCost;
+    parent[edge.to] = here;
 }
+```
 
-// 다익스트라 최단 경로 알고리즘 구현
-void Dijikstra(int here)
+예제에서 정점 3의 비용은 두 번 발견된다.
+
+```text
+0에서 직접 발견
+best[3] = 35
+
+1을 거쳐 다시 발견
+best[1] + weight(1,3) = 15 + 10 = 25
+
+25 < 35
+→ best[3]을 25로 갱신
+→ parent[3]을 1로 갱신
+```
+
+처음 발견한 경로가 최단이라고 확정할 수 없다는 점이 BFS와 다르다. 더 싼 경로를 찾을 때마다 비용과 부모를 바꾼다.
+
+## 부모 배열은 최소 비용 경로를 기억한다
+
+완화에 성공했을 때 해당 정점으로 들어온 이전 정점을 기록한다.
+
+```cpp
+parent[next] = here;
+```
+
+최종 부모 관계는 다음과 같다.
+
+```text
+parent[0] = 0
+parent[1] = 0
+parent[2] = 1
+parent[3] = 1
+parent[4] = 3
+parent[5] = -1
+```
+
+정점 4부터 부모를 따라가면 다음 역순 경로가 나온다.
+
+```text
+4 ← 3 ← 1 ← 0
+```
+
+이를 뒤집으면 시작점부터 목적지까지의 최소 비용 경로가 된다.
+
+```text
+0 → 1 → 3 → 4
+비용: 15 + 10 + 5 = 30
+```
+
+목적지의 best가 INF라면 도달할 수 없으므로 부모 역추적을 시작하지 않는다.
+
+## 최소 힙으로 다음 후보를 고른다
+
+C++의 `std::priority_queue`는 기본적으로 가장 큰 값을 먼저 꺼내는 최대 힙이다. 다익스트라는 최소 비용을 먼저 꺼내야 하므로 `std::greater`를 사용해 최소 힙으로 만든다.
+
+```cpp
+using Candidate = std::pair<Distance, int>;
+std::priority_queue<Candidate, std::vector<Candidate>, std::greater<Candidate>> pending;
+```
+
+pair는 첫 번째 값부터 비교하므로 `{누적 비용, 정점 번호}` 순서로 넣는다.
+
+```cpp
+pending.push({0, start});
+```
+
+```text
+Top = 누적 비용이 가장 작은 후보
+비용이 같으면 정점 번호가 작은 후보가 먼저 나옴
+```
+
+비용에 음수를 붙여 최대 힙을 최소 힙처럼 사용하는 방법도 가능하지만, 부호 반전 과정의 가독성과 최솟값 오버플로 가능성을 생각하면 비교자를 명시하는 편이 의미가 분명하다.
+
+## 우선순위 큐에는 오래된 후보가 남을 수 있다
+
+정점 3은 처음에 비용 35로 큐에 들어간 뒤 비용 25로 다시 들어간다.
+
+```text
+pending 안의 후보
+(25, 3), (35, 3)
+```
+
+`std::priority_queue`는 중간 항목을 찾아 값을 수정하거나 제거하는 인터페이스를 제공하지 않는다. 더 좋은 후보를 새로 넣고, 오래된 후보가 나중에 나오면 건너뛰는 방식을 사용한다.
+
+```cpp
+auto [cost, here] = pending.top();
+pending.pop();
+
+if (cost != best[here])
 {
-    // 정점과 해당 정점까지의 누적 비용을 묶어 관리하는 구조체
-    struct VertexCost
+    continue;
+}
+```
+
+비용 25 후보가 처리된 뒤 35 후보를 꺼내면 `best[3]`은 이미 25이므로 오래된 항목임을 알 수 있다.
+
+이 검사는 결과의 정확성을 유지하면서 같은 정점의 이웃을 불필요하게 다시 완화하지 않게 한다.
+
+## 전체 알고리즘 흐름
+
+```cpp
+while (!pending.empty())
+{
+    auto [cost, here] = pending.top();
+    pending.pop();
+
+    if (cost != best[here])
     {
-        int vertex;
-        int cost;
-    };
+        continue;
+    }
 
-    // 탐색 대기열 (우선순위 큐 대체용 리스트)
-    list<VertexCost> discovered;
-    // 시작점으로부터 각 정점까지의 최소 비용을 저장하는 배열 (무한대로 초기화)
-    vector<int> best(6, INT32_MAX);
-    // 경로 역추적을 위한 부모 노드 배열
-    vector<int> parent(6, -1);
-
-    // 시작점 초기화
-    discovered.push_back(VertexCost{ here, 0 });
-    best[here] = 0;
-    parent[here] = here;
-
-    while (discovered.empty() == false)
+    for (const Edge& edge : graph[here])
     {
-        // 현재 발견된 후보들 중 가장 비용이 적은 정점 탐색 (선형 탐색)
-        list<VertexCost>::iterator bestIt;
-        int bestCost = INT32_MAX;
+        Distance nextCost = cost + edge.weight;
 
-        for (auto it = discovered.begin(); it != discovered.end(); it++)
-        {
-            if (it->cost < bestCost)
-            {
-                bestCost = it->cost;
-                bestIt = it;
-            }
-        }
-
-        int cost = bestIt->cost;
-        here = bestIt->vertex;
-        // 선택된 최적의 정점을 대기열에서 제거
-        discovered.erase(bestIt);
-
-        // 이미 더 짧은 경로를 통해 방문 및 처리된 정점이라면 스킵 (최적화)
-        if (best[here] < cost)
+        if (nextCost >= best[edge.to])
         {
             continue;
         }
 
-        // 현재 정점과 연결된 모든 인접 정점 탐색
-        for (int there = 0; there < 6; there++)
+        best[edge.to] = nextCost;
+        parent[edge.to] = here;
+        pending.push({nextCost, edge.to});
+    }
+}
+```
+
+```text
+1. 시작점 비용을 0으로 설정하고 최소 힙에 넣는다.
+2. 누적 비용이 가장 작은 후보를 꺼낸다.
+3. 오래된 후보라면 건너뛴다.
+4. 현재 정점에서 나가는 모든 간선을 완화한다.
+5. 비용이 줄어든 정점을 새 후보로 넣는다.
+6. 후보가 없을 때까지 반복한다.
+```
+
+## 예제 그래프를 단계별로 계산한다
+
+시작점은 0이다.
+
+### 정점 0 처리
+
+```text
+0 → 1: 0 + 15 = 15
+0 → 3: 0 + 35 = 35
+
+best = [0, 15, INF, 35, INF, INF]
+```
+
+### 정점 1 처리
+
+현재 가장 작은 후보는 비용 15인 정점 1이다.
+
+```text
+1 → 0: 15 + 15 = 30  기존 0보다 크므로 유지
+1 → 2: 15 + 5  = 20  갱신
+1 → 3: 15 + 10 = 25  기존 35보다 작으므로 갱신
+
+best = [0, 15, 20, 25, INF, INF]
+```
+
+### 정점 2 처리
+
+정점 2는 나가는 간선이 없다.
+
+```text
+best = [0, 15, 20, 25, INF, INF]
+```
+
+### 정점 3 처리
+
+비용 25인 후보가 비용 35인 오래된 후보보다 먼저 나온다.
+
+```text
+3 → 4: 25 + 5 = 30
+
+best = [0, 15, 20, 25, 30, INF]
+```
+
+정점 5는 0에서 도달할 수 있는 방향 간선이 없어 INF로 남는다.
+
+## 음수 간선에서는 greedy 확정이 성립하지 않는다
+
+다익스트라의 정확성은 모든 간선 가중치가 0 이상이라는 조건에 의존한다.
+
+```text
+현재 가장 작은 후보를 선택
+→ 이후 다른 경로를 거쳐도 음수가 더해지지 않음
+→ 더 작은 비용으로 돌아올 수 없음
+```
+
+음수 간선이 있으면 나중에 처리한 정점을 거쳐 이미 선택한 정점의 비용이 더 작아질 수 있어 이 논리가 깨진다.
+
+음수 간선이 있다고 반드시 무한 반복하는 것은 아니다. 하지만 표준 다익스트라의 최단 거리 보장은 사라진다. 음수 사이클이 있으면 경로를 돌 때마다 비용이 계속 줄어 최단 경로 자체가 정의되지 않을 수 있다.
+
+```text
+음수 간선 없음      → Dijkstra 사용 가능
+음수 간선 있음      → Bellman-Ford 등 사용
+음수 사이클 존재    → 도달 가능한 일부 최단 비용이 정의되지 않음
+```
+
+입력 조건에서 가중치 범위를 먼저 확인한다.
+
+## BFS와 다익스트라의 관계
+
+| 비교 | BFS | Dijkstra |
+|---|---|---|
+| 간선 비용 | 모두 동일 | 서로 달라도 되지만 0 이상 |
+| 다음 후보 | 먼저 발견한 정점 | 누적 비용이 가장 작은 정점 |
+| 자료구조 | Queue | Min Priority Queue |
+| 갱신 값 | `distance + 1` | `cost + weight` |
+| 인접 리스트 시간 | $O(V+E)$ | $O((V+E)\log V)$ |
+
+모든 간선 비용이 1이라면 BFS의 거리 계층만으로 충분하다. 가중치가 서로 다르면 발견 순서가 아니라 누적 비용 순서로 후보를 처리해야 한다.
+
+## 선형 탐색과 우선순위 큐의 비용
+
+다음 후보를 고르는 방법에 따라 복잡도가 달라진다.
+
+### 모든 정점에서 최소 비용을 선형 탐색
+
+아직 확정하지 않은 $V$개 정점 중 최소 best를 매번 찾고, 인접 행렬의 한 행을 확인하는 구현은 $O(V^2)$이다. 정점 수가 작거나 그래프가 매우 밀집되어 있으면 단순한 구현이 유용할 수 있다.
+
+### 후보 리스트를 매번 선형 탐색
+
+완화할 때마다 후보 항목을 새로 추가하는 lazy 방식에서 리스트 전체를 선형 탐색하면 후보가 중복될 수 있다. 성공한 완화는 최대 $O(E)$번이고 후보 목록도 $O(E)$까지 커질 수 있어 단순히 $O(V^2)$라고 볼 수 없다. 거친 최악 상한은 후보 선택에 $O(E^2)$까지 들 수 있다.
+
+### 인접 리스트와 최소 힙
+
+각 성공한 완화에서 힙에 후보를 넣고 꺼내는 비용이 $O(\log V)$ 또는 lazy 항목 수를 기준으로 $O(\log E)$다. 일반적으로 다음과 같이 표현한다.
+
+$$
+O((V+E)\log V)
+$$
+
+연결된 그래프처럼 $E \geq V-1$인 상황에서는 흔히 $O(E\log V)$로 줄여 쓴다.
+
+## 목적지 하나만 필요하면 조기 종료할 수 있다
+
+최소 힙에서 목적지를 꺼냈고 그 비용이 `best[goal]`과 같다면 목적지의 최소 비용이 확정됐다.
+
+```cpp
+if (here == goal)
+{
+    break;
+}
+```
+
+목적지를 큐에 처음 넣은 순간에는 종료하면 안 된다. 이후 다른 정점을 거쳐 더 싼 경로가 발견될 수 있기 때문이다.
+
+```text
+3을 비용 35로 처음 발견
+→ 아직 종료하면 안 됨
+1을 처리한 뒤 3의 비용이 25로 감소할 수 있음
+```
+
+모든 정점까지의 최단 비용이 필요하면 목적지와 관계없이 우선순위 큐가 빌 때까지 실행한다.
+
+## 전체 검증 예제
+
+다음 코드는 최소 힙 기반 다익스트라로 0번 정점부터 모든 정점까지의 비용을 구한다. 부모 배열로 4번 정점까지의 경로를 복원하고 5번 정점에는 도달할 수 없는지도 확인한다.
+
+```cpp
+#include <algorithm>
+#include <cassert>
+#include <functional>
+#include <iostream>
+#include <limits>
+#include <queue>
+#include <utility>
+#include <vector>
+
+using Distance = long long;
+constexpr Distance Infinity = std::numeric_limits<Distance>::max() / 4;
+
+struct Edge
+{
+    int to;
+    int weight;
+};
+
+using Graph = std::vector<std::vector<Edge>>;
+
+struct DijkstraResult
+{
+    std::vector<Distance> best;
+    std::vector<int> parent;
+};
+
+DijkstraResult Dijkstra(int start, const Graph& graph)
+{
+    using Candidate = std::pair<Distance, int>;
+
+    DijkstraResult result;
+    result.best.assign(graph.size(), Infinity);
+    result.parent.assign(graph.size(), -1);
+
+    std::priority_queue<Candidate, std::vector<Candidate>, std::greater<Candidate>> pending;
+    pending.push({0, start});
+    result.best[start] = 0;
+    result.parent[start] = start;
+
+    while (!pending.empty())
+    {
+        auto [cost, here] = pending.top();
+        pending.pop();
+
+        if (cost != result.best[here])
         {
-            // 간선이 존재하지 않으면 스킵
-            if (Adjacent[here][there] == -1)
+            continue;
+        }
+
+        for (const Edge& edge : graph[here])
+        {
+            assert(edge.weight >= 0);
+            Distance nextCost = cost + edge.weight;
+
+            if (nextCost >= result.best[edge.to])
             {
                 continue;
             }
 
-            // 현재 정점을 거쳐서 가는 새로운 경로의 비용 계산
-            int nextCost = best[here] + Adjacent[here][there];
-
-            // 기존에 발견된 경로 비용보다 크거나 같으면 갱신 불필요
-            if (nextCost >= best[there])
-            {
-                continue;
-            }
-
-            // 더 나은 경로를 찾았으므로 대기열에 추가 및 정보 갱신 (Relaxation)
-            discovered.push_back(VertexCost{ there, nextCost });
-            best[there] = nextCost;
-            parent[there] = here;
+            result.best[edge.to] = nextCost;
+            result.parent[edge.to] = here;
+            pending.push({nextCost, edge.to});
         }
     }
+
+    return result;
+}
+
+std::vector<int> BuildPath(int start, int goal, const DijkstraResult& result)
+{
+    if (result.best[goal] == Infinity)
+    {
+        return {};
+    }
+
+    std::vector<int> path;
+
+    for (int current = goal; current != start; current = result.parent[current])
+    {
+        path.push_back(current);
+    }
+
+    path.push_back(start);
+    std::reverse(path.begin(), path.end());
+    return path;
+}
+
+void PrintDistances(const std::vector<Distance>& best)
+{
+    std::cout << "best:";
+
+    for (Distance distance : best)
+    {
+        if (distance == Infinity)
+        {
+            std::cout << " INF";
+        }
+        else
+        {
+            std::cout << ' ' << distance;
+        }
+    }
+
+    std::cout << '\n';
+}
+
+void PrintPath(const std::vector<int>& path)
+{
+    std::cout << "path 0 -> 4:";
+
+    for (int vertex : path)
+    {
+        std::cout << ' ' << vertex;
+    }
+
+    std::cout << '\n';
 }
 
 int main()
 {
-    CreateGraph();
-    // 0번 정점을 시작점으로 다익스트라 알고리즘 수행
-    Dijikstra(0);
+    Graph graph(6);
+    graph[0] = {{1, 15}, {3, 35}};
+    graph[1] = {{0, 15}, {2, 5}, {3, 10}};
+    graph[3] = {{4, 5}};
+    graph[5] = {{4, 5}};
 
-    return 0;
+    DijkstraResult result = Dijkstra(0, graph);
+    std::vector<int> pathToFour = BuildPath(0, 4, result);
+    std::vector<int> pathToFive = BuildPath(0, 5, result);
+
+    assert((result.best == std::vector<Distance>{0, 15, 20, 25, 30, Infinity}));
+    assert((pathToFour == std::vector<int>{0, 1, 3, 4}));
+    assert(pathToFive.empty());
+
+    PrintDistances(result.best);
+    PrintPath(pathToFour);
+    std::cout << "cost 0 -> 4: " << result.best[4] << '\n';
+    std::cout << "path 0 -> 5 exists: " << std::boolalpha << !pathToFive.empty() << '\n';
 }
 ```
----
-## 2. 이론 정리 (Study Notes)
 
-다익스트라(Dijkstra) 알고리즘은 하나의 시작 정점으로부터 모든 다른 정점까지의 최단 경로를 찾는 알고리즘
-음의 가중치를 가지는 간선이 없을 때만 정상적으로 동작하며, 그리디(Greedy) 방식과 다이나믹 프로그래밍(DP)의 개념이 혼합된 형태를 띰
+실행 결과는 다음과 같다.
 
-| 탐색 대기열 구조 | 시간 복잡도 | 장단점 및 특징 |
-| :--- | :--- | :--- |
-| **선형 배열 / 리스트** | $O(\vert V \vert^2)$ | 구현이 직관적이나, 매번 최소 비용을 찾기 위해 전체를 순회해야 하므로 비효율적임 |
-| **우선순위 큐 (Heap)** | $O((\vert V \vert + \vert E \vert) \log \vert V \vert)$ | 삽입/삭제 시 정렬이 유지되어 성능이 우수하며, 실무에서 표준으로 사용됨 |
+```text
+best: 0 15 20 25 30 INF
+path 0 -> 4: 0 1 3 4
+cost 0 -> 4: 30
+path 0 -> 5 exists: false
+```
 
-**비용 갱신(Relaxation) 수식:**
+정점 3의 비용은 직접 간선의 35보다 정점 1을 거친 25가 작다. 정점 4는 그 경로에 비용 5를 더한 30이고, 정점 5는 시작점 0에서 도달할 수 없어 INF로 남는다.
 
-어떤 정점 $u$를 거쳐서 정점 $v$로 가는 경로의 비용이 기존에 알려진 $v$까지의 비용보다 작을 경우 갱신을 수행함
-$$d(v) = \min(d(v), d(u) + w(u, v))$$
-여기서 $d(v)$는 시작점에서 $v$까지의 최단 거리, $w(u, v)$는 $u$에서 $v$로 가는 간선의 가중치를 의미함
+## 다익스트라를 구현할 때 확인할 기준
 
-## 3. 종합 의견 (Review)
+1. 모든 간선 가중치가 0 이상인가?
+2. 방향 간선과 무방향 간선을 정확히 저장했는가?
+3. 거리 타입이 가능한 누적 비용을 담을 만큼 큰가?
+4. INF에 가중치를 더할 때 오버플로되지 않는가?
+5. 시작점의 비용과 부모를 각각 0과 자기 자신으로 설정했는가?
+6. 최소 비용 후보가 먼저 나오도록 최소 힙을 구성했는가?
+7. 완화 조건을 `nextCost < best[next]`로 검사하는가?
+8. 완화에 성공했을 때 비용, 부모와 큐 후보를 함께 갱신하는가?
+9. 우선순위 큐에서 꺼낸 오래된 후보를 건너뛰는가?
+10. 도달하지 못한 목적지에서 부모 역추적을 시작하지 않는가?
+11. 목적지를 처음 발견한 순간이 아니라 최소 힙에서 확정된 순간에 종료하는가?
+12. 그래프 표현과 후보 선택 방식에 따른 복잡도를 구분하는가?
+13. 모든 간선 비용이 같다면 BFS가 더 단순하다는 점을 고려했는가?
+14. 음수 간선이 있다면 조건에 맞는 다른 알고리즘을 선택하는가?
 
-### 핵심 요약 및 주의사항
-* 너비 우선 탐색(BFS)과 유사하지만, 단순 큐(Queue) 대신 누적 가중치가 가장 적은 노드를 먼저 꺼내는 방식을 사용
-* 음수 간선이 포함된 그래프에서는 무한 루프에 빠지거나 잘못된 최단 거리를 도출할 수 있으므로 벨만-포드(Bellman-Ford) 알고리즘을 사용해야 함
-* 한 번 방문 처리되어 최단 거리가 확정된 노드는 다시 처리하지 않는 로직(`best[here] < cost`)이 성능 최적화의 핵심
+다익스트라의 핵심은 우선순위 큐 자체가 아니다. 현재까지 가장 싼 후보를 선택하고, 그 정점을 거쳐 이웃으로 가는 비용을 반복해서 완화하는 greedy 구조에 있다. 음수 간선이 없다는 조건이 이 선택을 되돌리지 않아도 되는 근거가 된다.
 
-### Tip
-* 본문의 소스 코드는 학습을 위해 `std::list`를 순회하며 최소값을 찾도록 구현되었으나, 실무 및 코딩 테스트에서는 반드시 `std::priority_queue`를 사용하여 $O(E \log V)$의 시간 복잡도를 확보해야 함
-* 우선순위 큐 사용 시 C++의 `priority_queue`는 기본적으로 최대 힙(Max Heap)이므로, 최소 힙(Min Heap)으로 사용하기 위해 `greater` 비교 연산자를 활용하거나 넣을 때 가중치에 음수(-) 기호를 붙여 넣는 트릭을 자주 사용
-* `parent` 배열을 역추적하면 최단 거리 계산뿐만 아니라 실제 이동해야 할 최적의 경로(Path)를 쉽게 복원
+## 다음 학습: 트리 자료구조
+
+다음 글에서는 하나의 루트에서 자식 방향으로 계층이 펼쳐지는 트리를 다룬다. 일반 트리의 노드와 자식 목록을 구성하고, 재귀 순회와 높이 계산을 통해 그래프와 다른 계층 구조의 특징을 살펴본다.

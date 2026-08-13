@@ -1,0 +1,513 @@
+---
+layout: post
+title: '[C++ 70] 전달 참조와 std::forward: 인자의 원래 값 범주 보존하기'
+date: 2026-05-26
+categories: [Dev, C++]
+tags: [C++, Modern C++, Forwarding Reference, Perfect Forwarding, std::forward]
+---
+
+함수가 받은 인자를 다른 함수나 생성자에 그대로 전달해야 할 때가 있다. 왼값으로 받은 인자는 왼값으로, 오른값으로 받은 인자는 오른값으로 넘겨야 호출자가 기대한 복사·이동 오버로드가 선택된다.
+
+인자 하나라면 `const T&`와 `T&&` 오버로드를 각각 작성할 수 있다. 인자 수와 타입 조합이 늘어나면 필요한 오버로드 수도 빠르게 증가한다. 전달 참조(forwarding reference)와 `std::forward`는 하나의 함수 템플릿에서 인자의 타입과 값 범주를 보존해 다음 호출로 전달한다.
+
+```cpp
+template<typename T>
+void Relay(T&& value)
+{
+    Consume(std::forward<T>(value));
+}
+```
+
+표면의 `T&&`만 보고 오른값 참조라고 단정하면 안 된다. 전달 참조가 되려면 `T`가 해당 호출에서 추론되는 cv 한정 없는 템플릿 매개변수여야 한다.
+
+## 특정 타입의 T&&는 오른값 참조다
+
+구체적인 타입이 정해진 다음 선언은 오른값 참조다.
+
+```cpp
+void Consume(Knight&& knight);
+```
+
+임시 객체나 `std::move` 결과에는 바인딩할 수 있지만 일반 왼값에는 직접 바인딩할 수 없다.
+
+```cpp
+Knight knight;
+
+Consume(Knight{});
+Consume(std::move(knight));
+// Consume(knight); // 왼값에는 바인딩할 수 없음
+```
+
+여기에는 함수 호출로부터 추론할 `T`가 없다. `Knight&&`는 항상 `Knight`의 오른값 참조다.
+
+## 추론되는 T&&는 전달 참조가 될 수 있다
+
+함수 템플릿에서 다음 형태는 전달 참조다.
+
+```cpp
+template<typename T>
+void Relay(T&& value);
+```
+
+왼값과 오른값을 모두 받을 수 있다.
+
+```cpp
+Knight knight;
+
+Relay(knight);
+Relay(Knight{});
+Relay(std::move(knight));
+```
+
+왼값을 전달하면 `T` 자체가 왼값 참조로 추론되고, 오른값을 전달하면 `T`가 비참조 타입으로 추론된다.
+
+```text
+인자 표현식         추론된 T       매개변수 T&&의 결과
+Knight 왼값         Knight&         Knight&
+const Knight 왼값   const Knight&   const Knight&
+Knight 오른값       Knight          Knight&&
+```
+
+이 결과는 참조 축약 규칙에서 나온다.
+
+## 참조 축약에서는 하나라도 &이면 &가 된다
+
+템플릿 치환이나 타입 별칭 과정에서 참조가 겹치면 다음 규칙으로 하나의 참조 타입이 된다.
+
+```text
+T&  &  → T&
+T&  && → T&
+T&& &  → T&
+T&& && → T&&
+```
+
+`Knight` 왼값을 `Relay`에 전달하면 `T`는 `Knight&`로 추론된다. 매개변수의 선언 `T&&`에 대입하면 개념적으로 다음 타입이 된다.
+
+```text
+T&&
+= Knight& &&
+= Knight&
+```
+
+따라서 `T&&` 표기로 작성한 하나의 템플릿이 왼값 참조와 오른값 참조 역할을 모두 할 수 있다.
+
+“`&&`와 `&`를 두 번 쓰면 오른값 참조가 된다”는 식으로 이해하지 않는다. 실제 결과는 템플릿 추론과 참조 축약 규칙이 함께 결정한다.
+
+## 모든 템플릿의 T&&가 전달 참조는 아니다
+
+`const`가 붙은 다음 매개변수는 전달 참조가 아니라 const 오른값 참조다.
+
+```cpp
+template<typename T>
+void Inspect(const T&& value);
+```
+
+```cpp
+Knight knight;
+
+Inspect(Knight{});
+// Inspect(knight); // 왼값에 바인딩할 수 없음
+```
+
+전달 참조의 조건은 cv 한정이 없는 `T&&` 형태다.
+
+클래스 템플릿의 타입 매개변수가 이미 클래스 생성 시 정해진 경우도 주의한다.
+
+```cpp
+template<typename T>
+class Box
+{
+public:
+    void Set(T&& value); // Box<T>의 T는 Set 호출에서 새로 추론되지 않음
+};
+```
+
+`Box<Knight>::Set`의 매개변수는 이미 `Knight&&`로 정해졌으므로 전달 참조가 아니다.
+
+멤버 함수 자체의 새 템플릿 매개변수를 추론하면 전달 참조를 만들 수 있다.
+
+```cpp
+template<typename T>
+class Box
+{
+public:
+    template<typename U>
+    void Set(U&& value);
+};
+```
+
+핵심은 템플릿 문맥에 있다는 사실이 아니라 **그 함수 호출에서 해당 타입 매개변수가 추론되는가**다.
+
+## auto&&도 추론이 일어나면 전달 참조처럼 동작한다
+
+`auto&&`는 초기화 식에서 타입을 추론하므로 왼값과 오른값을 모두 받을 수 있다.
+
+```cpp
+Knight knight;
+
+auto&& first = knight;            // Knight&
+auto&& second = Knight{};         // Knight&&
+auto&& third = std::move(knight); // Knight&&
+```
+
+```cpp
+static_assert(std::is_same_v<decltype(first), Knight&>);
+static_assert(std::is_same_v<decltype(second), Knight&&>);
+```
+
+범위 기반 `for`에서 `auto&&`를 사용하면 컨테이너가 반환하는 요소 참조 형태를 폭넓게 받을 수 있다.
+
+```cpp
+for (auto&& element : range)
+{
+    // element는 range가 제공하는 참조 성격을 따라감
+}
+```
+
+다만 `auto&& values = {1, 2, 3}`처럼 중괄호 초기화 목록은 별도 추론 규칙이 적용되므로 일반적인 전달 참조 사례와 똑같이 보지 않는다.
+
+## 이름 있는 전달 참조 매개변수는 함수 안에서 왼값이다
+
+호출 시 오른값이 들어왔더라도 매개변수 이름 `value`를 사용하는 표현식은 왼값이다.
+
+```cpp
+template<typename T>
+void Relay(T&& value)
+{
+    Consume(value); // value 표현식은 항상 왼값
+}
+```
+
+`Relay(Knight{})`로 호출해도 위 구현은 `Consume(const Knight&)` 같은 왼값 경로를 선택할 수 있다. 매개변수에는 이름이 있고 함수 안에서 반복해서 식별할 수 있기 때문이다.
+
+```text
+Relay 호출 인자: 오른값
+매개변수 선언 타입: Knight&&
+함수 본문의 value 표현식: 왼값
+```
+
+호출자의 값 범주를 보존하려면 `std::forward<T>(value)`가 필요하다.
+
+## std::forward는 추론된 T로 값 범주를 복원한다
+
+전달 함수의 기본 형태는 다음과 같다.
+
+```cpp
+template<typename T>
+void Relay(T&& value)
+{
+    Consume(std::forward<T>(value));
+}
+```
+
+왼값 인자에서는 `T`가 `Knight&`로 추론된다. `std::forward<Knight&>(value)`는 왼값을 반환한다.
+
+오른값 인자에서는 `T`가 `Knight`로 추론된다. `std::forward<Knight>(value)`는 오른값 계열인 xvalue를 반환한다.
+
+```text
+호출                    T           std::forward<T>(value)
+Relay(knight)           Knight&     Knight 왼값
+Relay(constKnight)      const Knight& const Knight 왼값
+Relay(Knight{})         Knight      Knight xvalue
+```
+
+`std::forward`가 복사나 이동 생성자를 직접 호출하는 것은 아니다. 값 범주를 복원한 표현식을 다음 함수에 전달하고, 그 결과 선택된 오버로드가 실제 복사나 이동을 수행한다.
+
+## std::move와 std::forward의 목적이 다르다
+
+두 함수 모두 캐스트 성격의 유틸리티지만 의도가 다르다.
+
+```text
+std::move(value)       : value를 무조건 이동 가능한 xvalue로 취급
+std::forward<T>(value) : 호출자에게서 받은 원래 값 범주를 조건부로 복원
+```
+
+전달 함수에서 무조건 `std::move`를 사용하면 왼값 인자의 자원까지 이동시킬 수 있다.
+
+```cpp
+template<typename T>
+void WrongRelay(T&& value)
+{
+    Consume(std::move(value));
+}
+```
+
+```cpp
+Knight knight;
+WrongRelay(knight); // 호출자는 왼값을 전달했지만 이동 경로로 강제됨
+```
+
+반대로 현재 함수가 실제로 소유권을 소비하는 API라면 `std::move`가 맞을 수 있다. 전달인지 소비인지 함수의 책임을 먼저 정한다.
+
+```cpp
+void Store(Knight knight)
+{
+    storedKnight = std::move(knight);
+}
+```
+
+`std::forward`를 이동의 더 안전한 버전처럼 일반 코드에 대신 쓰지 않는다. 전달 참조와 그 추론 타입이 있을 때 원래 값 범주를 보존하는 도구다.
+
+## 완벽한 전달은 오버로드 조합 폭발을 줄인다
+
+두 인자를 받는 생성 래퍼에서 각 인자는 왼값 또는 오른값일 수 있다.
+
+```text
+첫 인자   두 번째 인자
+왼값      왼값
+왼값      오른값
+오른값    왼값
+오른값    오른값
+```
+
+인자 세 개면 조합은 여덟 개로 늘어난다. 각각 `const&`와 `&&` 오버로드를 작성하는 대신 가변 인자 템플릿과 전달 참조를 사용할 수 있다.
+
+```cpp
+template<typename T, typename... Args>
+std::unique_ptr<T> MakeOwned(Args&&... args)
+{
+    return std::unique_ptr<T>(new T(std::forward<Args>(args)...));
+}
+```
+
+각 `Args`는 독립적으로 추론되고 각 인자에 `std::forward<Args>`가 적용된다. 왼값 인자는 복사 가능한 형태로, 오른값 인자는 이동 가능한 형태로 `T`의 생성자에 도달한다.
+
+실제 코드에서는 같은 기능을 제공하는 `std::make_unique<T>(...)`를 사용한다. 여기서는 완벽한 전달 구조를 이해하기 위해 축소 구현을 작성한 것이다.
+
+## emplace 계열도 전달을 사용한다
+
+`vector::emplace_back`은 생성자 인자를 받아 컨테이너 저장 위치에서 요소를 직접 생성한다.
+
+```cpp
+std::vector<Player> players;
+players.emplace_back(10, "Knight");
+```
+
+개념적으로 생성자 인자를 전달 참조로 받고 `Player` 생성자에 전달한다.
+
+```cpp
+template<typename... Args>
+reference emplace_back(Args&&... args);
+```
+
+하지만 `emplace_back`이 언제나 `push_back`보다 빠르다고 단정하면 안 된다.
+
+```cpp
+Player player(10, "Knight");
+players.emplace_back(player); // 왼값 Player이므로 복사
+players.push_back(std::move(player)); // 이동
+```
+
+어떤 값을 어떤 생성자 인자로 전달했는지가 실제 복사·이동 횟수를 결정한다. 또한 `emplace`는 명시적 생성자까지 직접 호출할 수 있으므로 코드의 변환 의도가 지나치게 숨지 않는지 확인한다.
+
+## 전달은 const와 배열 타입도 보존한다
+
+전달 참조는 왼값의 const도 추론 타입에 포함한다.
+
+```cpp
+const Knight knight;
+Relay(knight); // T = const Knight&
+```
+
+문자열 리터럴을 전달하면 포인터로 무조건 decay시키지 않고 배열 참조로 추론할 수 있다.
+
+```cpp
+template<typename T>
+void Inspect(T&& value);
+
+Inspect("hello"); // T는 const char(&)[6] 형태로 추론 가능
+```
+
+완벽한 전달 래퍼가 대상 함수와 똑같은 오버로드 결과를 내도록 하는 데 이런 보존이 중요하다. 반대로 래퍼가 값을 저장하거나 특정 타입으로 정규화해야 한다면 그대로 보존하는 것이 목적에 맞지 않을 수도 있다.
+
+## 완벽한 전달에도 실패하거나 주의할 표현식이 있다
+
+“완벽한 전달”이라는 이름에도 모든 문법을 자동으로 전달할 수 있는 것은 아니다.
+
+중괄호 초기화 목록은 자체 타입이 없는 문법 구조이므로 일반 전달 템플릿에서 `T`를 추론하지 못할 수 있다.
+
+```cpp
+template<typename T>
+void Relay(T&& value);
+
+// Relay({1, 2, 3}); // T를 일반적인 방식으로 추론할 수 없음
+```
+
+필요하면 `std::initializer_list<int>` 오버로드를 별도로 제공하거나 타입을 명시한다.
+
+```cpp
+Relay(std::vector<int>{1, 2, 3});
+```
+
+오버로드된 함수 이름도 단독으로는 어느 함수 포인터 타입인지 정할 수 없어 추론에 실패할 수 있다.
+
+```cpp
+void Process(int);
+void Process(double);
+
+// Relay(Process); // 어느 오버로드인지 결정할 문맥 부족
+```
+
+정확한 함수 포인터 타입으로 변환하거나 대상 래퍼의 인터페이스를 구체화한다.
+
+비트 필드는 비const 참조에 바인딩할 수 없고, `0`이나 `NULL` 같은 오래된 null 표현은 대상 함수에서 기대한 포인터 의미 대신 정수 타입으로 추론될 수 있다. 포인터에는 `nullptr`를 사용한다.
+
+## 전달한 오른값은 한 번만 소비한다
+
+같은 전달 참조를 여러 곳에 오른값으로 전달하면 첫 호출이 자원을 가져간 뒤 다음 호출은 이동된 객체를 받게 된다.
+
+```cpp
+template<typename T>
+void DuplicateRelay(T&& value)
+{
+    First(std::forward<T>(value));
+    Second(std::forward<T>(value)); // 오른값이었다면 이미 이동됐을 수 있음
+}
+```
+
+왼값 인자에서는 두 호출 모두 같은 원본을 관찰할 수 있지만 오른값 인자에서는 첫 소비 뒤 상태가 달라진다. 전달 함수는 일반적으로 인자를 최종 소비 지점 한 곳에 한 번 전달한다.
+
+값을 여러 곳에서 사용해야 한다면 복사 정책, 공유 소유권 또는 관찰과 소비 순서를 API에서 명확하게 설계한다.
+
+## 반환에 std::forward를 습관적으로 사용하지 않는다
+
+전달 참조 매개변수를 그대로 반환하는 함수는 참조 수명과 반환 타입이 매우 까다롭다.
+
+```cpp
+template<typename T>
+decltype(auto) Identity(T&& value)
+{
+    return std::forward<T>(value);
+}
+```
+
+임시 객체로 호출하면 반환 참조가 함수 호출 문장 이후 소멸한 객체를 가리킬 수 있다.
+
+```cpp
+// auto&& dangling = Identity(std::string("temporary"));
+```
+
+완벽한 전달은 주로 다른 함수의 인자나 객체 생성으로 즉시 넘길 때 사용한다. 참조를 반환하거나 저장할 때는 대상 수명과 소유권을 별도로 검토해야 한다.
+
+지역 객체 반환에는 앞 글처럼 일반 반환과 복사 생략을 우선한다.
+
+## 전체 구현
+
+오버로드 전달과 생성자 인자 전달을 통해 왼값은 복사, 오른값은 이동 경로에 도달하는지 확인한다.
+
+```cpp
+#include <cassert>
+#include <iostream>
+#include <memory>
+#include <string>
+#include <type_traits>
+#include <utility>
+
+class Item
+{
+public:
+    explicit Item(std::string name) : name_(std::move(name)) {}
+
+    Item(const Item& other) : name_(other.name_)
+    {
+        ++copyCount;
+    }
+
+    Item(Item&& other) noexcept : name_(std::move(other.name_))
+    {
+        ++moveCount;
+    }
+
+    const std::string& name() const noexcept { return name_; }
+
+    inline static int copyCount = 0;
+    inline static int moveCount = 0;
+
+private:
+    std::string name_;
+};
+
+void Inspect(const Item& item)
+{
+    std::cout << "Inspect lvalue: " << item.name() << '\n';
+}
+
+void Inspect(Item&& item)
+{
+    std::cout << "Inspect rvalue: " << item.name() << '\n';
+}
+
+template<typename T>
+void Relay(T&& value)
+{
+    Inspect(std::forward<T>(value));
+}
+
+template<typename T, typename... Args>
+std::unique_ptr<T> MakeOwned(Args&&... args)
+{
+    return std::unique_ptr<T>(new T(std::forward<Args>(args)...));
+}
+
+int main()
+{
+    Item named("named");
+    const Item constant("constant");
+
+    static_assert(std::is_same_v<decltype(std::forward<Item&>(named)), Item&>);
+    static_assert(std::is_same_v<decltype(std::forward<Item>(named)), Item&&>);
+
+    Relay(named);
+    Relay(constant);
+    Relay(Item("temporary"));
+
+    Item::copyCount = 0;
+    Item::moveCount = 0;
+
+    auto copied = MakeOwned<Item>(named);
+    auto moved = MakeOwned<Item>(Item("movable"));
+
+    assert(copied->name() == "named");
+    assert(moved->name() == "movable");
+    assert(Item::copyCount == 1);
+    assert(Item::moveCount == 1);
+
+    std::cout << "Copies through MakeOwned: " << Item::copyCount << '\n';
+    std::cout << "Moves through MakeOwned: " << Item::moveCount << '\n';
+}
+```
+
+실행 결과는 다음과 같다.
+
+```text
+Inspect lvalue: named
+Inspect lvalue: constant
+Inspect rvalue: temporary
+Copies through MakeOwned: 1
+Moves through MakeOwned: 1
+```
+
+`named`와 `constant`는 왼값이므로 `Relay`를 거친 뒤에도 `Inspect(const Item&)`가 선택된다. 임시 `Item`은 `std::forward`에 의해 오른값으로 복원되어 `Inspect(Item&&)`에 도달한다.
+
+`MakeOwned<Item>(named)`에서는 생성자에 왼값이 전달되어 복사 생성이 한 번 발생한다. 임시 객체를 전달한 호출에서는 오른값 범주가 유지되어 이동 생성이 한 번 발생한다. `MakeOwned` 자체가 복사와 이동을 결정한 것이 아니라, 보존된 값 범주를 받은 `Item` 생성자의 오버로드가 결정했다.
+
+## 전달 참조를 사용할 때 확인할 기준
+
+1. 현재 `T&&`의 `T`가 해당 함수 호출에서 실제로 추론되는가?
+2. `const T&&`나 이미 정해진 클래스 템플릿의 `T&&`를 전달 참조로 오해하지 않는가?
+3. 왼값 인자에서 `T`가 `T&`로 추론되고 참조 축약이 적용됨을 이해하는가?
+4. 이름 있는 전달 참조 매개변수가 함수 본문에서는 왼값이라는 점을 아는가?
+5. 전달 함수에서 `std::move`가 아니라 `std::forward<T>`로 원래 값 범주를 보존하는가?
+6. `std::forward`가 직접 복사하거나 이동하지 않는다는 점을 아는가?
+7. 함수가 단순 전달인지 실제 소유권 소비인지 책임을 구분했는가?
+8. 가변 인자 각각에 대응하는 템플릿 타입으로 개별 전달하는가?
+9. 중괄호 목록, 오버로드 함수 이름, 비트 필드처럼 추론이 어려운 인자를 고려했는가?
+10. 같은 오른값 인자를 여러 번 전달해 이미 이동된 상태를 다시 소비하지 않는가?
+11. 전달 참조를 저장하거나 반환할 때 참조 대상의 수명을 검토했는가?
+12. 표준 `make_unique`, `emplace`처럼 이미 검증된 전달 API가 있는가?
+
+전달 참조의 목적은 모든 인자를 무조건 이동시키는 것이 아니다. 호출자가 왼값을 넘겼다는 사실과 오른값을 넘겼다는 사실을 래퍼 함수가 지우지 않고, 최종 함수나 생성자가 원래와 같은 오버로드를 선택하도록 보존하는 것이다.
+
+## 다음 학습: 람다 표현식과 캡처
+
+다음 글에서는 이름 없는 함수 객체를 만드는 람다 표현식을 살펴본다. 값·참조 캡처, `mutable`, 제네릭 람다와 캡처 수명이 표준 알고리즘 및 비동기 콜백에서 어떤 차이를 만드는지 정리한다.

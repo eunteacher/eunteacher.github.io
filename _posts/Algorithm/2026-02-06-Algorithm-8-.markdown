@@ -1,184 +1,442 @@
 ---
 layout: post
-title: "[Algorithm 08] 자료구조별 시간 복잡도와 스택을 활용한 미로 최적화"
+title: '[Algorithm 08] 스택으로 미로의 왕복 경로 정리하기'
 date: 2026-02-06
 categories: [Dev, Algorithm]
-tags: [C++, TimeComplexity, Stack, PathFinding, Optimization]
+tags: [C++, Stack, Maze, Pathfinding, Backtracking]
 use_math: true
 ---
 
-# [Algorithm] 자료구조 효율성 비교 및 미로 경로 최적화
+오른손 법칙으로 미로를 탐색하면 출구에는 도착할 수 있지만 이동 기록에는 막다른 길을 들어갔다가 되돌아온 구간이 남는다.
 
-## 1. 이론 정리 : 선형 자료구조와 시간 복잡도
-알고리즘 문제 해결 시 상황에 맞는 적절한 자료구조를 선택하는 것이 중요.
-주요 선형 자료구조의 연산별 시간 복잡도는 다음과 같음
+```text
+기록된 이동
+A → B → C → D → C → B → E
 
-| 자료구조 | 접근 (Access) | 탐색 (Search) | 삽입 (Insertion) | 삭제 (Deletion) | 비고 |
-| :--- | :---: | :---: | :---: | :---: | :--- |
-| **배열 (Array)** | $O(1)$ | $O(N)$ | $O(N)$ | $O(N)$ | 인덱스 접근 빠름, 크기 고정 |
-| **동적 배열 (Vector)** | $O(1)$ | $O(N)$ | $O(N)$ | $O(N)$ | 크기 유동적, 재할당 비용 존재 (Amortized $O(1)$ 삽입) |
-| **연결 리스트 (List)** | $O(N)$ | $O(N)$ | $O(1)$ | $O(1)$ | 임의 접근 불가, 중간 삽입/삭제 효율적 |
-| **스택 (Stack)** | $O(1)^*$ | $O(N)$ | $O(1)$ | $O(1)$ | LIFO 구조, Top에서만 연산 수행 (*Top 접근 한정) |
-| **큐 (Queue)** | $O(1)^*$ | $O(N)$ | $O(1)$ | $O(1)$ | FIFO 구조, Front/Back에서만 연산 수행 |
+왕복 구간
+        C → D → C
+    B → C       → B
 
-> **Note:** 스택과 큐는 특정 위치(Top/Front/Rear)에서의 연산만 허용되므로 해당 위치 기준 $O(1)$임
+정리된 경로
+A → B → E
+```
 
-### 1.2 시간 복잡도 상세 분석 (Why?)
+가장 최근에 지나온 길부터 역순으로 취소하므로 LIFO 구조인 스택을 사용할 수 있다. 이번 글에서는 이동 기록에서 직접 되돌아간 구간을 제거하는 원리와 이 방식이 성립하는 조건을 살펴본다.
 
-#### **1. 배열 (Array) & 동적 배열 (Vector)**
-* **접근(Access) - $O(1)$:**
-  * 메모리 상에 데이터가 **연속적**으로 저장.
-  * `시작 주소 + (데이터 크기 * 인덱스)` 공식을 통해 단 한 번의 연산으로 해당 위치를 계산할 수 있음
-* **중간 삽입/삭제 - $O(N)$:**
-  * 데이터가 연속되어야 하므로, 중간에 값을 넣거나 빼면 뒤에 있는 모든 데이터를 한 칸씩 밀거나(Shift Right) 당겨야(Shift Left) 함
-  * 최악의 경우(맨 앞 삽입/삭제) $N$개의 데이터를 이동시켜야 하므로 $O(N)$이 소요
-* **Vector의 맨 뒤 삽입 - Amortized $O(1)$:**
-  * 평소에는 $O(1)$이지만, 공간(Capacity)이 꽉 차면 **재할당(Reallocation)** 및 **전체 복사**가 발생하여 $O(N)$이 걸림. 이를 평균 내면 $O(1)$로 간주
+## 길 찾기와 경로 정리는 서로 다른 단계다
 
-#### **2. 연결 리스트 (Linked List)**
-* **접근(Access) - $O(N)$:**
-  * 메모리에 데이터가 흩어져 있고 포인터로 연결
-  * $N$번째 데이터를 찾으려면 첫 노드(Head)부터 포인터를 타고 $N$번 이동해야 하므로 $O(N)$이 소요
-* **중간 삽입/삭제 - $O(1)$:**
-  * 삽입/삭제할 위치의 노드만 알고 있다면(Iterator 등), 앞뒤 노드의 **포인터 연결만 변경**하면 됨
-  * 배열처럼 데이터를 밀거나 당기는 이동 과정이 필요 없음
+오른손 법칙은 현재 위치와 방향을 사용해 다음 이동을 결정한다. 실제로 이동할 때마다 좌표를 기록하면 출구에 도착한 전체 이동 경로가 만들어진다.
 
-#### **3. 스택 (Stack) & 큐 (Queue)**
-* **삽입/삭제 - $O(1)$:**
-  * **Stack:** 구조상 입구와 출구가 `Top` 하나로 제한됨. 항상 맨 위에서만 작업하므로 데이터 개수($N$)와 무관하게 즉시 처리 가능
-  * **Queue:** `Front`(삭제)와 `Rear`(삽입)가 분리되어 관리됨. 맨 앞을 빼거나 맨 뒤에 넣는 작업은 포인터나 인덱스 조정만으로 가능하므로 $O(1)$임
+```text
+탐색 단계
+현재 위치·방향 → 오른쪽 확인 → 직진 확인 → 회전 → 이동 기록
 
----
+경로 정리 단계
+전체 이동 기록 → 왕복 구간 제거 → 시작점부터 출구까지의 단순 경로
+```
 
-## 2. 소스 코드 (Source Code)
+탐색 중에는 막다른 길인지 미리 알 수 없으므로 일단 이동한다. 막다른 길에서 돌아온 뒤에야 그 구간이 출구로 이어지지 않았다는 사실을 알게 된다.
 
-### 2.1 우수법(Right-Hand Rule)과 경로 최적화 구현
-기본적인 우수법 알고리즘은 막다른 길에 다다르면 왔던 길을 되돌아 나오기 때문에, 불필요한 왕복 경로가 포함됨. 이를 **스택(Stack)**을 활용하여 최적화하는 로직
+탐색과 경로 정리를 분리하면 다음 두 데이터를 구분할 수 있다.
+
+```text
+Walk: 실제로 움직인 모든 좌표
+Path: 왕복을 제거하고 남긴 좌표
+```
+
+Walk는 탐색 과정을 재생하거나 방문 횟수를 분석할 때 의미가 있고, Path는 출구까지 다시 이동할 좌표만 필요할 때 사용할 수 있다.
+
+## 왕복은 A → B → A 형태로 나타난다
+
+한 칸씩 이동하는 경로에서 방금 지나온 간선을 되돌아가면 세 좌표가 다음 모양이 된다.
+
+```text
+A → B → A
+```
+
+스택에 현재까지 남길 경로가 `A → B`로 들어 있고 다음 좌표가 `A`라면, `B`는 막다른 방향으로 갔다가 돌아오는 과정에 포함된 좌표다.
+
+```text
+현재 스택: [A, B]
+다음 좌표: A
+
+스택의 Top 바로 아래 == 다음 좌표
+→ B를 pop
+
+결과: [A]
+```
+
+긴 왕복도 같은 규칙을 반복하면 안쪽부터 차례로 사라진다.
+
+```text
+입력: A → B → C → D → C → B → E
+
+A 처리       [A]
+B 처리       [A, B]
+C 처리       [A, B, C]
+D 처리       [A, B, C, D]
+C 처리       [A, B, C]       D 왕복 제거
+B 처리       [A, B]          C 왕복 제거
+E 처리       [A, B, E]
+```
+
+스택의 Top은 항상 현재 경로의 마지막 위치다. 다음 좌표가 Top의 바로 아래 위치라면 방금 지나온 간선을 반대로 이동한 것이므로 Top을 제거한다.
+
+## 이동 좌표를 하나씩 처리하는 구현
+
+`std::vector`의 뒤쪽을 스택처럼 사용하면 정리된 경로를 처음부터 올바른 순서로 보관할 수 있다.
 
 ```cpp
-#include <iostream>
-#include <vector>
-#include <stack>
-#include <algorithm>
-using namespace std;
-
-void Player::Init(Board* InBoard)
+template<typename T>
+std::vector<T> RemoveBacktracking(const std::vector<T>& walk)
 {
-    Position = InBoard->GetEnterPos();
-    MazeBoard = InBoard;
+    std::vector<T> path;
+    path.reserve(walk.size());
 
-    // 현재 위치 및 경로 초기화
-    Pos CurrentPosition = Position;
-    Path.clear();
-    Path.push_back(CurrentPosition);
-
-    // 목적지 설정
-    Pos Destination = InBoard->GetExitPos();
-
-    // 방향 벡터 (상, 좌, 하, 우)
-    Pos Front[4] =
+    for (const T& position : walk)
     {
-        Pos{-1, 0}, // Up
-        Pos{0, -1}, // Left
-        Pos{1, 0},  // Down
-        Pos{0, 1},  // Right
-    };
-
-    // 1. 우수법(Right-Hand Rule)을 통한 길 찾기
-    // 목적지에 도착할 때까지 루프
-    while (CurrentPosition != Destination)
-    {
-        // [1] 현재 방향 기준 '오른쪽' 확인
-        // 방향 전환 공식: (Current - 1 + Max) % Max
-        int32 newDirection = (Direction - 1 + Dir_Count) % Dir_Count;
-
-        if (CanGo(CurrentPosition + Front[newDirection]))
+        if (path.size() >= 2 && path[path.size() - 2] == position)
         {
-            // 오른쪽으로 회전 후 전진
-            Direction = newDirection;
-            CurrentPosition += Front[newDirection];
-            Path.push_back(CurrentPosition);
-        }
-        // [2] 현재 방향으로 '직진' 확인
-        else if (CanGo(CurrentPosition + Front[Direction]))
-        {
-            // 방향 유지 후 전진
-            CurrentPosition += Front[Direction];
-            Path.push_back(CurrentPosition);
-        }
-        // [3] 갈 곳이 없으면 '왼쪽'으로 회전 (반시계)
-        else
-        {
-            Direction = (Direction + 1) % Dir_Count;
-        }
-    }
-
-    // 2. 스택(Stack)을 활용한 경로 최적화 (불필요한 되돌아가기 제거)
-    // 원리: 내가 가려는 다음 경로(Path[i+1])가 방금 스택에 넣은 위치(Top)와 같다면, 이는 왔던 길을 되돌아가는 것이므로 스택에서 제거(Pop)
-    stack<Pos> Stack;
-
-    for (int i = 0; i < Path.size() - 1; i++)
-    {
-        // 되돌아가는 상황 감지: Stack의 Top(직전 위치) == 다음 이동할 위치
-        if (Stack.empty() == false && Stack.top() == Path[i + 1])
-        {
-            Stack.pop(); // 되돌아가는 경로이므로 이전 기록 삭제
+            path.pop_back();
         }
         else
         {
-            Stack.push(Path[i]); // 새로운 경로이므로 저장
+            path.push_back(position);
         }
     }
 
-    // 목적지(마지막 위치) 처리
-    if (Path.empty() == false)
-    {
-        Stack.push(Path.back());
-    }
-
-    // 스택의 내용을 최종 경로 벡터로 변환
-    vector<Pos> optimizedPath;
-    while (Stack.empty() == false)
-    {
-        optimizedPath.push_back(Stack.top());
-        Stack.pop();
-    }
-
-    // 스택은 LIFO 구조이므로 역순으로 저장되어 있음 -> 다시 뒤집어줌
-    std::reverse(optimizedPath.begin(), optimizedPath.end());
-
-    Path = optimizedPath;
+    return path;
 }
 ```
----
-## 3. 이론 정리 (Study Notes)
 
-### 스택을 이용한 경로 최적화 원리
-* **문제 상황**: 우수법(Right-Hand Rule)은 막다른 길(Dead End)을 만나면 진입했던 경로를 그대로 되돌아 나옴
-  * **경로 예시**: $A \rightarrow B \rightarrow C$ (막힘) $\rightarrow B \rightarrow A \rightarrow D$
-  * **실제 유효 경로**: $A \rightarrow D$ ($B$와 $C$는 불필요한 방문)
-* **해결 알고리즘**:
-  1. 이동 경로를 순차적으로 탐색함
-  2. 스택의 최상단(`Top`)이 '다음에 이동할 위치'와 같다면, 이는 **"방금 왔던 곳으로 되돌아간다"**는 의미임
-  3. 이 경우, 새로운 경로를 추가하는 대신 스택의 `Top`을 제거(`Pop`)하여 갔던 기록을 취소함
+`path.back()`은 현재 위치이고 `path[path.size() - 2]`는 그 직전에 있던 위치다. 새 좌표가 직전 위치와 같다면 현재 위치를 제거해 한 번의 되돌아가기를 취소한다.
 
-### 최적화 전후 비교 시각화
+```text
+path.size() >= 2
+```
 
-| 단계 | 이동 경로 (Input Path) | 스택 상태 (Stack) | 동작 설명 |
-| :---: | :--- | :--- | :--- |
-| 1 | $A \rightarrow B$ | `[A]` | A 푸시 |
-| 2 | $A \rightarrow B \rightarrow C$ | `[A, B]` | B 푸시 |
-| 3 | $A \rightarrow B \rightarrow C \rightarrow B$ | `[A, B, C]` | C 푸시 |
-| 4 | $A \rightarrow B \rightarrow C \rightarrow B$ | `[A, B]` | **Backtracking 감지!** (Top C 삭제, B는 무시) |
-| 5 | ... $\rightarrow C \rightarrow B \rightarrow A$ | `[A]` | **Backtracking 감지!** (Top B 삭제, A는 무시) |
-| 6 | ... $\rightarrow B \rightarrow A \rightarrow D$ | `[A, D]` | D 푸시 (최종 경로 형성) |
+이 조건은 Top 아래 원소가 존재하는지 확인한다. 시작 지점 하나만 들어 있는 상태에서는 두 칸 전 위치를 읽을 수 없다.
 
-## 4. 종합 의견 (Review)
+`vector`를 사용했지만 허용하는 연산은 뒤쪽의 `push_back`, `pop_back`과 최근 원소 확인뿐이므로 논리적으로 스택과 같다. 결과를 앞에서부터 바로 순회할 수 있다는 점 때문에 별도의 `reverse`가 필요 없다.
 
-### 핵심 요약 및 주의사항
-* **스택의 활용성**: 스택(Stack)은 함수 호출 스택, 웹 브라우저 뒤로 가기 등 **"이전 상태로 되돌리기(Undo)"**가 필요한 로직에 최적화된 자료구조
-* **데이터 정제**: `Path.size() - 1`까지만 루프를 도는 이유는 $i$와 $i+1$을 비교하기 위함이며, 마지막 목적지 데이터가 누락되지 않도록 루프 종료 후 별도 처리가 필요
+## std::stack을 사용하면 마지막에 순서를 뒤집는다
 
-### Tip
-* **std::reverse**: 스택에서 데이터를 꺼내 `vector`에 담으면 역순(도착점 $\rightarrow$ 시작점)이 되므로, `std::reverse` 함수를 사용하여 순서를 올바르게 뒤집어야 함
-* **디버깅**: 경로가 이상하게 잡힐 경우, `optimizedPath`에 값을 넣을 때마다 좌표를 로그로 찍어보면 스택의 `Push/Pop` 시점을 명확히 파악할 수 있음
+`std::stack`을 직접 사용해도 같은 원리를 표현할 수 있다. 이동 기록에서 현재 좌표와 다음 좌표를 함께 보면서, 다음 좌표가 스택 Top과 같으면 되돌아온 것으로 판단한다.
+
+```cpp
+template<typename T>
+std::vector<T> RemoveBacktrackingWithStack(const std::vector<T>& walk)
+{
+    if (walk.empty())
+    {
+        return {};
+    }
+
+    std::stack<T> path;
+
+    for (std::size_t i = 0; i + 1 < walk.size(); ++i)
+    {
+        if (!path.empty() && path.top() == walk[i + 1])
+        {
+            path.pop();
+        }
+        else
+        {
+            path.push(walk[i]);
+        }
+    }
+
+    path.push(walk.back());
+
+    std::vector<T> result;
+    result.reserve(path.size());
+
+    while (!path.empty())
+    {
+        result.push_back(path.top());
+        path.pop();
+    }
+
+    std::reverse(result.begin(), result.end());
+    return result;
+}
+```
+
+반복 조건을 `i + 1 < walk.size()`로 작성하면 빈 벡터에서 `walk.size() - 1`이 unsigned 값으로 언더플로되는 상황을 피할 수 있다.
+
+루프에서는 마지막 원소를 현재 좌표로 처리하지 않으므로 반복이 끝난 뒤 `walk.back()`을 따로 넣는다. 스택에서 꺼낸 순서는 출구에서 시작점 방향이기 때문에 마지막에 `std::reverse`로 뒤집는다.
+
+두 구현의 결과는 같지만 처리 관점이 다르다.
+
+```text
+vector를 스택처럼 사용
+→ 결과가 시작점부터 저장됨
+→ reverse 불필요
+
+std::stack 사용
+→ Top부터 꺼내면 역순
+→ 마지막에 reverse 필요
+```
+
+## 왜 순환 없는 미로에서 단순 경로가 남는가
+
+Binary Tree 방식으로 생성한 미로의 통로 그래프는 연결돼 있고 순환이 없는 트리다. 트리에서는 임의의 두 정점 사이에 단순 경로가 정확히 하나만 존재한다.
+
+```text
+시작점에서 출구까지 가는 중 막다른 가지에 진입
+→ 그 가지에서 나오는 유일한 방법은 들어간 간선을 역순으로 되짚는 것
+→ 스택의 pop으로 왕복 구간이 모두 취소됨
+```
+
+예를 들어 실제 Walk가 다음과 같다고 하자.
+
+```text
+A → B → C → D → C → B → E → F → E → B → G
+```
+
+두 막다른 가지가 각각 취소된다.
+
+```text
+B → C → D → C → B  제거
+B → E → F → E → B  제거
+
+남은 Path
+A → B → G
+```
+
+트리에는 다른 순환 경로가 없으므로 왕복을 모두 제거하고 나면 시작점과 출구를 잇는 유일한 단순 경로가 남는다. 간선 가중치가 모두 같다면 이 경로는 두 지점 사이의 최단 경로이기도 하다.
+
+중요한 점은 오른손 법칙 자체가 최단 경로를 찾은 것이 아니라는 사실이다. 먼저 출구까지 Walk를 만들고, 트리라는 미로의 성질을 이용해 그 안의 왕복을 제거한 결과가 유일한 경로가 된 것이다.
+
+## 순환이 있는 일반 그래프에서는 한계가 있다
+
+이 스택 규칙이 제거하는 것은 같은 간선을 곧바로 되짚은 구간이다.
+
+```text
+A → B → C → B
+        ← 같은 간선을 역방향으로 이동
+```
+
+반면 다음 경로는 B로 돌아오지만 간선을 역순으로 되짚지 않는다.
+
+```text
+A → B → C → D → B → E
+        └──── 순환 ────┘
+```
+
+`D → B`의 다음 좌표 B는 현재 스택에서 D의 바로 아래에 있는 C와 다르다. 따라서 단순한 왕복 제거 규칙은 `B → C → D → B` 순환을 지우지 못한다.
+
+일반 그래프에서 반복 정점을 제거해 단순 경로를 만들려면 현재 경로에서 각 정점의 위치를 함께 관리할 수 있다.
+
+```text
+정점 B를 다시 만남
+→ 현재 경로 안의 이전 B 위치 확인
+→ 이전 B 뒤에 쌓인 C, D 제거
+→ B부터 탐색 계속
+```
+
+최단 경로가 목적이라면 이동 기록을 나중에 정리하기보다 BFS, Dijkstra나 문제의 가중치 조건에 맞는 탐색 알고리즘을 사용한다.
+
+```text
+왕복 제거: 이미 만든 Walk를 후처리
+BFS:       가중치 없는 그래프의 최단 경로 탐색
+Dijkstra:  음수가 아닌 가중치 그래프의 최단 경로 탐색
+```
+
+## 자료구조의 연산 비용을 조건과 함께 본다
+
+이번 경로 정리에서는 최근 위치를 넣고, 확인하고, 제거하는 연산이 필요하다. 스택이 이 작업에 맞는 이유는 세 연산이 모두 한쪽 끝에서 일어나기 때문이다.
+
+| 자료구조 | 필요한 위치 | 대표 연산 비용 | 조건 |
+|---|---|---:|---|
+| 고정 배열 | 유효 인덱스 | 접근 $O(1)$ | 크기 변경 불가 |
+| `vector` | 뒤쪽 | 추가 분할 상환 $O(1)$, 제거 $O(1)$ | 재할당 한 번은 $O(N)$ |
+| `list` | 알고 있는 노드 | 삽입·삭제 $O(1)$ | 위치 탐색은 $O(N)$ |
+| `stack` | Top | `push`, `pop`, `top`은 기반 컨테이너 비용 | 중간 접근 미지원 |
+| `queue` | Front와 Back | 기본 삽입·삭제 $O(1)$ | FIFO 순서 |
+
+“삽입은 $O(1)$”처럼 연산 이름만 적으면 실제 조건을 놓칠 수 있다. 어느 위치를 처리하는지, 위치를 이미 알고 있는지와 분할 상환 비용인지까지 함께 확인한다.
+
+경로 정리는 가장 최근 좌표만 취소하므로 중간 위치를 탐색하거나 삭제할 필요가 없다. 이 접근 패턴이 스택과 정확히 일치한다.
+
+## 경로 데이터가 만족해야 할 조건
+
+스택으로 정리하기 전에 입력 Walk의 의미를 분명히 해야 한다.
+
+### 실제 이동한 좌표만 기록한다
+
+제자리에서 방향만 바꾼 상태를 좌표 경로에 반복해서 넣으면 같은 위치가 연속으로 나타날 수 있다. 이번 알고리즘은 한 칸 이동할 때만 새 좌표를 기록하는 경로를 전제로 한다.
+
+```text
+방향 회전: 좌표 기록하지 않음
+한 칸 이동: 좌표 기록
+```
+
+### 연속 좌표는 실제로 인접해야 한다
+
+격자 미로라면 연속된 두 좌표의 Manhattan Distance가 1이어야 한다.
+
+$$
+|y_1-y_2| + |x_1-x_2| = 1
+$$
+
+서로 떨어진 좌표가 연속해서 들어 있다면 경로 중간이 생략된 것이므로 간선 왕복 규칙을 그대로 적용할 수 없다.
+
+### 시작점과 목적지를 유지한다
+
+입력이 비어 있지 않다면 정리된 경로의 첫 좌표는 시작점, 마지막 좌표는 목적지여야 한다.
+
+```cpp
+assert(cleaned.front() == walk.front());
+assert(cleaned.back() == walk.back());
+```
+
+경로가 시작점으로 되돌아왔다가 다시 출발하는 경우에도 시작 좌표 하나는 남는다.
+
+## 전체 검증 예제
+
+다음 코드는 트리에서 발생할 수 있는 왕복 경로와 순환 그래프의 경로를 각각 처리한다. 두 가지 스택 구현이 같은 결과를 만드는지도 확인한다.
+
+```cpp
+#include <algorithm>
+#include <cassert>
+#include <cstddef>
+#include <iostream>
+#include <stack>
+#include <vector>
+
+template<typename T>
+std::vector<T> RemoveBacktracking(const std::vector<T>& walk)
+{
+    std::vector<T> path;
+    path.reserve(walk.size());
+
+    for (const T& position : walk)
+    {
+        if (path.size() >= 2 && path[path.size() - 2] == position)
+        {
+            path.pop_back();
+        }
+        else
+        {
+            path.push_back(position);
+        }
+    }
+
+    return path;
+}
+
+template<typename T>
+std::vector<T> RemoveBacktrackingWithStack(const std::vector<T>& walk)
+{
+    if (walk.empty())
+    {
+        return {};
+    }
+
+    std::stack<T> path;
+
+    for (std::size_t i = 0; i + 1 < walk.size(); ++i)
+    {
+        if (!path.empty() && path.top() == walk[i + 1])
+        {
+            path.pop();
+        }
+        else
+        {
+            path.push(walk[i]);
+        }
+    }
+
+    path.push(walk.back());
+
+    std::vector<T> result;
+    result.reserve(path.size());
+
+    while (!path.empty())
+    {
+        result.push_back(path.top());
+        path.pop();
+    }
+
+    std::reverse(result.begin(), result.end());
+    return result;
+}
+
+void Print(const char* name, const std::vector<char>& path)
+{
+    std::cout << name << ':';
+
+    for (char position : path)
+    {
+        std::cout << ' ' << position;
+    }
+
+    std::cout << '\n';
+}
+
+int main()
+{
+    const std::vector<char> treeWalk{'A', 'B', 'C', 'D', 'C', 'B', 'E', 'F', 'E', 'B', 'G'};
+    const std::vector<char> expected{'A', 'B', 'G'};
+    const std::vector<char> cyclicWalk{'A', 'B', 'C', 'D', 'B', 'E'};
+
+    std::vector<char> vectorResult = RemoveBacktracking(treeWalk);
+    std::vector<char> stackResult = RemoveBacktrackingWithStack(treeWalk);
+    std::vector<char> cyclicResult = RemoveBacktracking(cyclicWalk);
+
+    assert(vectorResult == expected);
+    assert(stackResult == expected);
+    assert(cyclicResult == cyclicWalk);
+
+    Print("recorded walk", treeWalk);
+    Print("cleaned path", vectorResult);
+    Print("cyclic result", cyclicResult);
+}
+```
+
+실행 결과는 다음과 같다.
+
+```text
+recorded walk: A B C D C B E F E B G
+cleaned path: A B G
+cyclic result: A B C D B E
+```
+
+트리 형태의 Walk에서는 두 왕복 가지가 제거돼 `A B G`만 남는다. 순환 경로 `B C D B`는 같은 간선을 바로 되짚은 형태가 아니므로 그대로 남는다. 이 결과가 알고리즘의 적용 조건을 보여준다.
+
+## 복잡도
+
+입력 Walk에 좌표가 $N$개 있다고 하자.
+
+각 좌표는 스택에 최대 한 번 들어가고 최대 한 번 제거된다. 마지막 결과를 뒤집는 구현도 남은 원소를 한 번 순회한다.
+
+```text
+시간 복잡도: O(N)
+추가 공간:   O(N)
+```
+
+왕복 구간이 많아도 같은 좌표를 앞에서 다시 탐색하지 않는다. `vector::pop_back`과 스택 Top 확인은 $O(1)$이고, `push_back`은 분할 상환 $O(1)$이다.
+
+경로 생성 단계의 비용은 별도로 계산한다. 예를 들어 $S \times S$ 트리 미로를 오른손 법칙으로 탐색한 Walk의 길이가 $O(S^2)$라면 후처리도 그 길이에 비례해 $O(S^2)$가 된다.
+
+## 경로를 정리할 때 확인할 기준
+
+1. 입력이 실제 이동 순서대로 기록된 Walk인가?
+2. 방향만 바꾼 상태가 중복 좌표로 들어가 있지 않은가?
+3. 연속 좌표가 실제 간선 또는 인접 칸으로 연결되는가?
+4. 다음 좌표가 직전 위치와 같을 때만 pop하는가?
+5. Top 아래 위치를 읽기 전에 원소가 두 개 이상인지 확인하는가?
+6. 빈 입력에서 `size() - 1`이 언더플로되지 않는가?
+7. 마지막 목적지를 결과에 포함하는가?
+8. `std::stack`에서 꺼낸 결과가 역순임을 고려하는가?
+9. 시작점과 목적지가 정리 후에도 유지되는가?
+10. 미로의 통로 그래프가 트리인지, 일반 순환 그래프인지 구분하는가?
+11. 이 후처리를 일반 최단 경로 알고리즘으로 오해하지 않는가?
+12. 탐색 과정인 Walk와 다시 이동할 Path를 목적에 맞게 구분하는가?
+
+이 알고리즘에서 스택은 단순히 좌표를 담는 임시 공간이 아니다. 가장 최근에 선택한 길부터 취소한다는 backtracking의 순서를 그대로 표현한다. 그리고 트리 미로라는 조건이 있을 때, 모든 왕복을 제거한 결과가 시작점과 출구 사이의 유일한 경로가 된다.
+
+## 다음 학습: 그래프의 표현 방식
+
+다음 글에서는 정점과 간선으로 연결 관계를 표현하는 그래프를 다룬다. 같은 그래프를 인접 행렬과 인접 리스트로 저장했을 때 연결 확인, 이웃 순회와 메모리 사용량이 어떻게 달라지는지 비교한다.

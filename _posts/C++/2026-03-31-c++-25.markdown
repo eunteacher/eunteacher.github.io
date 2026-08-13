@@ -7,200 +7,656 @@ tags: [C++, Pointer, Reference, CallByAddress, CallByReference, Memory]
 use_math: true
 ---
 
-# [C++] const는 복사 최적화가 아니라 접근 권한이다
+앞에서는 반드시 존재하며 읽기만 할 대상은 `const T&`, 없을 수 있으며 읽기만 할 대상은 `const T*`로 표현할 수 있다는 점을 살펴봤다. 여기서 `const`를 단순히 “값이 절대 바뀌지 않는다”라고 이해하면 포인터와 참조가 결합될 때 혼란이 생긴다.
 
-함수 호출 시 데이터를 전달하는 세 가지 주요 방식(Value, Address, Reference)의 로우레벨(Low-level) 동작 원리를 비교하고, `const` 키워드를 활용한 데이터 무결성 보장 기법을 분석함
+`const`는 특정 객체나 접근 경로를 통해 허용할 변경 연산을 제한한다. 어떤 이름에 `const`가 적용됐는지, 포인터 자체와 가리키는 대상 중 무엇을 제한하는지 구분해야 한다.
 
-## `const T*`와 `T* const` 읽기
+## `const` 객체는 해당 이름으로 수정할 수 없다
+
+일반 객체는 값을 바꿀 수 있다.
 
 ```cpp
-#include <iostream>
-using namespace std;
+int hp = 100;
+hp = 80;
+```
 
-// 데이터 크기가 큰 구조체 정의
-struct StatInfo
+`const` 객체는 초기화한 뒤 해당 객체를 수정하는 연산을 사용할 수 없다.
+
+```cpp
+const int MaxHp = 100;
+// MaxHp = 200;
+```
+
+기본 타입의 `const` 지역 객체는 나중에 값을 대입할 수 없으므로 선언할 때 값을 제공해야 한다.
+
+```cpp
+// const int MaxHp;
+```
+
+클래스 타입은 사용할 수 있는 기본 생성자가 있다면 그 생성 과정을 통해 초기화될 수 있다. 핵심은 `const` 객체가 생성된 뒤 일반 대입으로 초기 상태를 채우는 방식에 의존할 수 없다는 점이다.
+
+컴파일러는 `MaxHp`를 통한 대입을 거부한다. 이는 성능 최적화 요청이 아니라 소스 코드에서 허용되는 연산을 제한하는 타입 규칙이다.
+
+## `const`와 `constexpr`는 같은 뜻이 아니다
+
+`const`는 객체를 통한 수정을 제한하지만 모든 `const` 값이 컴파일 시간 상수라는 뜻은 아니다.
+
+```cpp
+int ReadMaxHp();
+
+const int maxHp = ReadMaxHp();
+```
+
+`maxHp`는 초기화 이후 바꿀 수 없지만 값은 실행 중 함수 호출로 결정될 수 있다.
+
+컴파일 시간 상수 표현식으로 사용할 값이라면 `constexpr`를 검토한다.
+
+```cpp
+constexpr int MaxPartySize = 4;
+```
+
+`constexpr` 객체도 수정할 수 없지만 추가로 상수 표현식 요구를 가진다. “수정 금지”와 “컴파일 시간 평가 가능”이라는 목적을 구분한다.
+
+## `const T&`는 참조를 통한 변경을 막는다
+
+상수 참조는 반드시 유효한 대상에 바인딩되며, 해당 참조를 통해 대상을 수정할 수 없다.
+
+```cpp
+struct Character
 {
-    int hp;      // 시작 주소 + 0
-    int attack;  // 시작 주소 + 4
-    int defence; // 시작 주소 + 8
+    int hp;
+    int attack;
 };
 
-// 1. 주소 전달 방식 (Call by Address)
-// - 매개변수로 포인터를 사용하여 원본 데이터의 메모리 주소를 전달받음
-// - 복사 오버헤드 없이 원본 데이터 직접 수정이 가능함
-void CreateMonster(StatInfo* Info)
+Character player{100, 20};
+const Character& view = player;
+```
+
+`view`로 멤버를 읽을 수 있다.
+
+```cpp
+int hp = view.hp;
+```
+
+하지만 `view`를 통해 멤버를 수정할 수는 없다.
+
+```cpp
+// view.hp = 50;
+```
+
+원본 `player`가 처음부터 `const` 객체인 것은 아니다. 수정 가능한 다른 이름을 통해서는 값을 바꿀 수 있다.
+
+```cpp
+player.hp = 80;
+```
+
+이후 `view.hp`를 읽으면 변경된 80을 관찰한다. 상수 참조는 원본 객체 전체를 얼리는 장치가 아니라 **그 참조를 통한 수정 권한을 제거한 접근 경로**다.
+
+## 상수 참조 매개변수는 읽기 전용 계약을 표현한다
+
+출력 함수는 캐릭터 상태를 읽기만 한다.
+
+```cpp
+void PrintCharacter(const Character& character)
 {
-    Info->hp = 100;
-    Info->attack = 10;
-    Info->defence = 5;
+    std::cout << "HP: " << character.hp << " ATK: " << character.attack << '\n';
 }
+```
 
-// 2. 값 전달 방식 (Call by Value)
-// - 포인터나 참조를 사용하지 않으므로 구조체 전체가 스택 메모리에 복사됨
-// - 원본 데이터 보존이 가능하나 대용량 객체 전달 시 성능 저하를 유발함
-void CreateMonster(StatInfo Info)
+함수 안에서 `character.hp`에 대입하려 하면 컴파일 오류가 발생한다. 호출자는 수정 가능한 객체와 `const` 객체를 모두 전달할 수 있다.
+
+```cpp
+Character player{100, 20};
+const Character boss{500, 50};
+
+PrintCharacter(player);
+PrintCharacter(boss);
+```
+
+함수 선언만 보고 다음 내용을 알 수 있다.
+
+- 캐릭터 대상이 반드시 필요하다.
+- 함수는 이 참조를 통해 캐릭터를 수정하지 않는다.
+- 캐릭터 객체의 복사본을 요구하지 않는다.
+
+하지만 이 함수가 프로그램의 다른 전역 상태까지 수정하지 않는다는 뜻은 아니다. `const`는 매개변수 접근 권한을 제한할 뿐 함수 전체를 순수 함수로 만들지 않는다.
+
+## `const T&`는 다른 별칭의 변경까지 막지 않는다
+
+한 객체에 수정 가능한 참조와 상수 참조가 함께 연결될 수 있다.
+
+```cpp
+int hp = 100;
+int& writable = hp;
+const int& readable = hp;
+
+writable = 70;
+int currentHp = readable;
+```
+
+`readable`을 통해서는 대입할 수 없지만 `writable`로 원본을 변경할 수 있다. `readable`은 그 변경을 관찰한다.
+
+따라서 `const T&`를 받았다는 이유만으로 대상 값이 함수 실행 내내 절대 바뀌지 않는다고 일반화할 수 없다. 다른 별칭, 콜백이나 다른 스레드가 같은 객체에 접근할 수 있는 설계라면 별도의 동기화와 불변성 규칙이 필요하다.
+
+데이터 경쟁이 발생하는 동시 접근은 `const`만으로 해결되지 않는다.
+
+## 참조는 한 번 바인딩되면 다른 대상을 가리키지 않는다
+
+참조는 선언할 때 대상에 바인딩된다.
+
+```cpp
+int playerHp = 100;
+int monsterHp = 50;
+int& targetHp = playerHp;
+```
+
+참조에 다른 변수를 대입하면 참조가 다시 바인딩되는 것이 아니라 현재 대상에 값을 대입한다.
+
+```cpp
+targetHp = monsterHp;
+```
+
+이 코드는 `playerHp`를 50으로 만든다. `targetHp`가 `monsterHp`의 별명으로 바뀌는 것이 아니다.
+
+상수 참조도 다른 대상에 다시 바인딩할 수 없다.
+
+```cpp
+const int& observedHp = playerHp;
+```
+
+참조의 재바인딩 불가와 `const`를 통한 수정 제한은 서로 다른 규칙이다.
+
+## `const T*`는 가리키는 대상을 수정하지 못하게 한다
+
+포인터 선언에서는 `const`가 포인터 자체에 적용되는지, 가리키는 대상에 적용되는지 확인해야 한다.
+
+```cpp
+int playerHp = 100;
+int monsterHp = 50;
+const int* observedHp = &playerHp;
+```
+
+`observedHp`의 타입은 “`const int`를 가리키는 포인터”다. 포인터를 통해 값을 읽을 수 있지만 수정할 수는 없다.
+
+```cpp
+int currentHp = *observedHp;
+// *observedHp = 80;
+```
+
+포인터 자체는 다른 대상을 가리키도록 바꿀 수 있다.
+
+```cpp
+observedHp = &monsterHp;
+```
+
+`const int*`와 `int const*`는 같은 타입 표기다.
+
+```cpp
+const int* first = &playerHp;
+int const* second = &playerHp;
+```
+
+둘 다 포인터를 통한 `int` 수정은 금지하지만 포인터 재지정은 허용한다.
+
+## `T* const`는 포인터 자체를 변경하지 못하게 한다
+
+`const`가 `*` 뒤에서 포인터 이름을 한정하면 포인터 객체 자체가 상수가 된다.
+
+```cpp
+int* const fixedTarget = &playerHp;
+```
+
+`fixedTarget`은 선언할 때 가리킬 대상을 정해야 하고 이후 다른 주소나 `nullptr`을 대입할 수 없다.
+
+```cpp
+// fixedTarget = &monsterHp;
+// fixedTarget = nullptr;
+```
+
+가리키는 `int`는 `const`가 아니므로 역참조를 통한 수정은 가능하다.
+
+```cpp
+*fixedTarget = 80;
+```
+
+이 코드는 `playerHp`를 80으로 만든다.
+
+## `const T* const`는 대상 수정과 포인터 재지정을 모두 막는다
+
+두 위치를 모두 `const`로 한정할 수 있다.
+
+```cpp
+const int* const fixedObservation = &playerHp;
+```
+
+`fixedObservation`을 통해 `playerHp`를 수정할 수 없고, 포인터가 다른 대상을 가리키도록 변경할 수도 없다.
+
+```cpp
+// *fixedObservation = 70;
+// fixedObservation = &monsterHp;
+```
+
+네 가지 형태를 비교하면 다음과 같다.
+
+| 선언 | 대상 수정 | 다른 대상 가리키기 |
+| :--- | :---: | :---: |
+| `T* pointer` | 가능 | 가능 |
+| `const T* pointer` | 불가능 | 가능 |
+| `T* const pointer` | 가능 | 불가능 |
+| `const T* const pointer` | 불가능 | 불가능 |
+
+어떤 동작을 제한하는지 각각 확인하면 “상수 포인터”라는 모호한 표현에 의존하지 않아도 된다.
+
+## 포인터 선언은 이름에서 바깥쪽으로 읽는다
+
+복잡한 포인터 선언은 포인터 이름에서 시작해 바깥쪽으로 읽을 수 있다.
+
+```cpp
+const Character* target;
+```
+
+`target`은 포인터이고, 그 포인터가 가리키는 대상은 `const Character`다.
+
+```cpp
+Character* const target = &player;
+```
+
+`target`은 `const` 포인터이고, 가리키는 대상은 수정 가능한 `Character`다.
+
+```cpp
+const Character* const target = &player;
+```
+
+`target`은 `const` 포인터이고, 가리키는 대상도 `const Character`로 접근한다.
+
+타입 별칭을 사용하면 선언 의도를 더 분명하게 만들 수 있지만, 별칭 자체에 포함된 포인터와 바깥의 `const` 관계를 이해해야 한다.
+
+```cpp
+using CharacterPointer = Character*;
+CharacterPointer const target = &player;
+```
+
+이 선언의 `target`은 `Character* const`다. `const Character*`가 아니다. `const`는 별칭이 나타내는 전체 포인터 타입을 한정한다.
+
+## 값 매개변수의 top-level `const`는 구현 내부 제한이다
+
+값 매개변수에 `const`를 붙일 수 있다.
+
+```cpp
+void PrintLevel(const int level)
 {
-    Info.hp = 100;
-    Info.attack = 10;
-    Info.defence = 5;
+    // level = 10;
+    std::cout << level << '\n';
 }
+```
 
-// 3. 참조 전달 방식 (Call by Reference)
-// - C++ 전용 문법으로, 원본 변수에 새로운 식별자(Alias)를 부여하여 접근함
-void PrintInfo(StatInfo& Info)
+이 `const`는 함수 안에서 매개변수 복사본 `level`을 다시 대입하지 못하게 한다. 호출자의 원본과는 관계가 없다.
+
+함수 타입을 구분할 때 값 매개변수의 top-level `const`는 제거된다. 따라서 다음 두 선언으로 오버로드를 만들 수 없다.
+
+```cpp
+void PrintLevel(int level);
+// void PrintLevel(const int level);
+```
+
+두 선언은 호출자 관점에서 같은 함수다. 공개 헤더에는 보통 `int level`로 선언하고, 정의에서 매개변수 복사본을 바꾸지 않겠다는 구현 의도를 위해 `const int level`을 사용할 수 있다.
+
+```cpp
+// Game.h
+void PrintLevel(int level);
+```
+
+```cpp
+// Game.cpp
+void PrintLevel(const int level)
 {
-    cout << "hp : " << Info.hp << '\n';
-    cout << "attack : " << Info.attack << '\n';
-    // Info.hp = 1000; // 원본 수정 가능
+    std::cout << level << '\n';
 }
+```
 
-// 4. 상수 참조 전달 방식 (const Call by Reference)
-// - 원본 수정을 방지(Read-Only)하면서 메모리 복사 비용을 없애는 최적화 기법
-void PrintInfo(const StatInfo& Info)
+## 포인터 자체의 top-level `const`도 호출자 계약을 바꾸지 않는다
+
+포인터 매개변수 자체를 `const`로 만들 수 있다.
+
+```cpp
+void ResetHp(int* const hp)
 {
-    cout << "hp : " << Info.hp << '\n';
-    // Info.hp = 1000; // const 한정자로 인해 컴파일 에러 발생
+    if (hp != nullptr)
+    {
+        *hp = 100;
+    }
+
+    // hp = nullptr;
 }
+```
 
-// 전역 객체 선언
-StatInfo GlobalInfo;
+여기서 `int* const hp`는 매개변수 포인터 복사본을 함수 안에서 재지정하지 않겠다는 뜻이다. 가리키는 `int`는 수정할 수 있고 `nullptr`도 인자로 받을 수 있다.
 
-// 5. 상수 포인터 전달 방식 (const Call by Address)
-void PrintInfo(StatInfo* Info)
+함수 타입의 호출자 관점에서는 `int* hp`와 같은 매개변수다.
+
+```cpp
+void ResetHp(int* hp);
+// void ResetHp(int* const hp);
+```
+
+반면 `const int* hp`는 가리키는 대상의 타입을 바꾸므로 호출자에게 보이는 인터페이스 차이다.
+
+```cpp
+void PrintHp(const int* hp);
+```
+
+top-level `const`가 매개변수 객체 자체를 제한하는지, 포인터가 가리키는 대상 타입에 포함되는지 구분한다.
+
+## 수정 가능한 포인터는 읽기 전용 포인터로 변환할 수 있다
+
+수정 가능한 객체를 읽기만 하는 함수에 전달하는 것은 안전하다.
+
+```cpp
+void PrintCharacter(const Character* character)
 {
-    // 포인터 사용 시 반드시 유효성(nullptr) 검증이 선행되어야 함
-    if (Info == nullptr)
+    if (character == nullptr)
     {
         return;
     }
 
-    cout << "hp : " << Info->hp << '\n';
-
-    // [const 위치에 따른 포인터의 의미 변화]
-    // StatInfo* const Info;
-    // - 포인터 변수 자체가 상수화되어 가리키는 대상(주소)을 변경할 수 없음
-
-    // const StatInfo* Info;
-    // - 포인터가 가리키는 대상의 데이터를 상수화하여 역참조를 통한 원본 수정이 불가함
+    std::cout << "HP: " << character->hp << '\n';
 }
+```
 
-// 힙 메모리 탐색 등 특정 조건을 만족하는 객체의 주소 반환
-StatInfo* FindMonster()
+```cpp
+Character player{100, 20};
+Character* writable = &player;
+const Character* readable = writable;
+PrintCharacter(writable);
+```
+
+`Character*`에서 `const Character*`로 변환하면 기존 수정 권한을 읽기 전용 접근 경로에 넘긴다.
+
+반대 방향은 암시적으로 허용되지 않는다.
+
+```cpp
+const Character boss{500, 50};
+const Character* bossPointer = &boss;
+// Character* writableBoss = bossPointer;
+```
+
+허용한다면 `writableBoss`로 원래 `const` 객체를 수정할 수 있게 되므로 타입 시스템이 막는다.
+
+참조도 같은 방향으로 권한을 줄일 수 있다.
+
+```cpp
+Character& writableReference = player;
+const Character& readableReference = writableReference;
+```
+
+## 참조의 `const` 여부는 오버로드를 구분할 수 있다
+
+값 매개변수의 top-level `const`와 달리, 참조가 가리키는 대상의 `const` 여부는 다른 매개변수 타입을 만든다.
+
+```cpp
+void Inspect(Character& character)
 {
-    // 탐색 실패 시 논리적 부재를 의미하는 nullptr 반환
-    return nullptr;
+    std::cout << "Writable character\n";
 }
 
-// 명시적 출력용 참조 매크로 정의
+void Inspect(const Character& character)
+{
+    std::cout << "Read-only character\n";
+}
+```
+
+수정 가능한 객체를 전달하면 `Character&` 오버로드가 더 직접적으로 일치하고, `const Character` 객체를 전달하면 `const Character&` 버전만 사용할 수 있다.
+
+```cpp
+Character player{100, 20};
+const Character boss{500, 50};
+
+Inspect(player);
+Inspect(boss);
+```
+
+문법적으로 가능하더라도 두 오버로드가 실제로 다른 동작을 제공해야 하는지는 별도로 판단한다. 읽기와 쓰기 버전의 의미 차이가 없다면 하나의 `const Character&` 함수만으로 충분할 수 있다.
+
+## `const_cast`는 객체의 원래 const 여부를 바꾸지 않는다
+
+`const_cast`로 포인터나 참조 타입의 `const` 한정을 제거할 수 있다. 하지만 원래 객체가 수정 가능한 객체였는지에 따라 결과가 달라진다.
+
+원본이 수정 가능한 객체라면 다른 상수 접근 경로에서 `const`를 제거한 뒤 원본을 수정하는 것이 언어 규칙상 가능할 수 있다.
+
+```cpp
+int hp = 100;
+const int* readableHp = &hp;
+int* writableHp = const_cast<int*>(readableHp);
+*writableHp = 80;
+```
+
+실제 객체 `hp`는 `const`로 정의되지 않았으므로 수정할 수 있다. 하지만 함수가 받은 `const` 계약을 임의로 제거하면 호출자가 기대한 읽기 전용 규칙을 깨뜨릴 수 있어 일반적인 설계에서는 피한다.
+
+원래 객체가 `const`라면 캐스트 후 수정하는 것은 정의되지 않은 동작이다.
+
+```cpp
+const int MaxHp = 100;
+const int* maxHpPointer = &MaxHp;
+int* invalidPointer = const_cast<int*>(maxHpPointer);
+// *invalidPointer = 200;
+```
+
+캐스트는 `MaxHp` 객체 자체를 수정 가능한 객체로 바꾸지 않는다. 오래된 C API와의 상호 운용처럼 제한된 상황이 아니라면 처음부터 필요한 수정 권한을 정확한 함수 타입으로 표현한다.
+
+## `const`는 객체 그래프 전체에 자동으로 전파되지 않는다
+
+`const` 객체가 포인터 멤버를 가지고 있다고 가정하자.
+
+```cpp
+struct HealthView
+{
+    int* hp;
+};
+
+int playerHp = 100;
+const HealthView view{&playerHp};
+```
+
+`view`가 `const`이므로 멤버 포인터 `view.hp` 자체를 다른 주소로 바꿀 수는 없다.
+
+```cpp
+// view.hp = nullptr;
+```
+
+하지만 멤버 포인터가 가리키는 타입은 `int`이므로 그 대상을 수정할 수 있다.
+
+```cpp
+*view.hp = 80;
+```
+
+이를 얕은 const(Shallow const) 관점으로 설명할 수 있다. `const`가 현재 객체의 직접적인 수정 경로를 제한하지만 내부 포인터가 가리키는 별도 객체까지 자동으로 `const`로 만들지는 않는다.
+
+대상까지 읽기 전용이어야 한다면 멤버 타입에 권한을 기록한다.
+
+```cpp
+struct ReadOnlyHealthView
+{
+    const int* hp;
+};
+```
+
+```cpp
+ReadOnlyHealthView readOnlyView{&playerHp};
+// *readOnlyView.hp = 70;
+```
+
+타입이 가진 포인터, 참조와 스마트 포인터 멤버의 `const` 전파 규칙을 각각 확인해야 한다.
+
+## `const`는 수명과 null 여부를 보장하지 않는다
+
+`const` 포인터도 null일 수 있다.
+
+```cpp
+const Character* target = nullptr;
+```
+
+가리키던 객체의 수명이 끝나면 상수 대상 포인터도 댕글링된다.
+
+```cpp
+const Character* savedTarget = nullptr;
+
+{
+    Character monster{50, 15};
+    savedTarget = &monster;
+}
+
+// monster의 수명은 끝났다.
+```
+
+`const`가 보장하지 않는 내용을 정리하면 다음과 같다.
+
+- 포인터가 null이 아니라는 보장
+- 대상 객체가 아직 살아 있다는 보장
+- 다른 별칭이 객체를 수정하지 않는다는 보장
+- 내부 포인터가 가리키는 객체까지 읽기 전용이라는 보장
+- 여러 스레드가 동시에 안전하게 접근할 수 있다는 보장
+- 함수가 외부 상태를 전혀 변경하지 않는다는 보장
+
+`const`는 이런 조건을 대신하는 안전 장치가 아니라 하나의 접근 경로에서 허용할 연산을 줄이는 규칙이다.
+
+## 아무 동작도 하지 않는 `OUT` 매크로는 권한을 표현하지 못한다
+
+기존 예제는 출력 매개변수를 강조하기 위해 빈 매크로를 사용했다.
+
+```cpp
 #define OUT
 
-// 매개변수를 통해 결과값을 반환받는 경우 OUT 매크로로 가독성 향상
-void ChangeInfo(OUT StatInfo& OutInfo)
+void ChangeInfo(OUT Character& output)
 {
-    OutInfo.hp = 999;
+    output.hp = 100;
+}
+```
+
+전처리 후 `OUT`은 사라지므로 컴파일러는 어떤 추가 의미도 검사하지 않는다. 호출부에서도 매크로 정의를 모르면 단순한 장식처럼 보인다.
+
+결과 하나를 만들면 반환값을 사용한다.
+
+```cpp
+Character CreateCharacter(int hp, int attack)
+{
+    return {hp, attack};
+}
+```
+
+기존 객체 수정이 목적이라면 함수 이름과 비상수 참조 타입으로 표현한다.
+
+```cpp
+void ResetCharacter(Character& character)
+{
+    character.hp = 100;
+}
+```
+
+프로젝트 코딩 규칙에서 출력 매개변수 표기를 사용하더라도 실제 타입 계약을 대신할 수는 없다.
+
+## 전체 예제로 읽기와 수정 권한을 분리한다
+
+Text RPG에서 두 캐릭터 중 체력이 낮은 대상을 관찰하고, 선택된 대상이 존재할 때만 회복하는 예제다.
+
+```cpp
+#include <algorithm>
+#include <iostream>
+
+struct Character
+{
+    const char* name;
+    int hp;
+    int maxHp;
+};
+
+void PrintCharacter(const Character& character)
+{
+    std::cout << character.name << " HP: " << character.hp << " / " << character.maxHp << '\n';
 }
 
-void PrintInfoByPtr(StatInfo* Info) { /* 생략 */ }
-void PrintInfoByRef(StatInfo& Info) { /* 생략 */ }
+const Character* SelectLowerHp(const Character* first, const Character* second)
+{
+    if (first == nullptr)
+    {
+        return second;
+    }
+
+    if (second == nullptr)
+    {
+        return first;
+    }
+
+    return first->hp <= second->hp ? first : second;
+}
+
+bool TryHeal(Character* target, int amount)
+{
+    if (target == nullptr)
+    {
+        return false;
+    }
+
+    int healing = std::max(0, amount);
+    target->hp = std::min(target->maxHp, target->hp + healing);
+    return true;
+}
 
 int main()
 {
-    StatInfo Info;
-    CreateMonster(&Info);
+    Character player{"Player", 60, 100};
+    Character companion{"Companion", 40, 80};
 
-#pragma region 포인터(Pointer)와 참조(Reference)의 비교 분석
+    const Character* observedTarget = SelectLowerHp(&player, &companion);
 
-    // [성능]
-    // 로우레벨(어셈블리) 관점에서 포인터와 참조는 동일한 주소 연산 코드로 번역되므로 성능 차이가 없음
+    if (observedTarget != nullptr)
+    {
+        PrintCharacter(*observedTarget);
+        // observedTarget->hp = 100;
+    }
 
-    // [안전성 및 편의성]
-    // 포인터는 명시적으로 주소(&)를 넘기므로 원본 수정 가능성을 쉽게 인지할 수 있음
-    // 참조는 값 전달과 문법이 동일하여 의도치 않은 원본 훼손의 위험이 존재하므로 const 활용이 중요함
+    Character* const healingTarget = &companion;
 
-    PrintInfo(&Info); // 주소 전달
-    PrintInfo(Info);  // 참조 전달
+    if (TryHeal(healingTarget, 20))
+    {
+        PrintCharacter(*healingTarget);
+    }
 
-    // [초기화 제약]
-    // 참조(Reference)는 선언과 동시에 유효한 객체로 반드시 초기화되어야 함
-    StatInfo& refInfo = Info;
-
-    // 포인터(Pointer)는 선언 후 나중에 할당 가능하며, 대상이 없을 경우 nullptr로 초기화함
-    StatInfo* ptrInfo = &Info;
-    ptrInfo = nullptr;
-
-    // [상호 변환]
-    // 포인터 타입을 참조 매개변수에 전달하려면 역참조(*) 사용
-    if(ptrInfo != nullptr) PrintInfoByRef(*ptrInfo);
-
-    // 참조 타입을 포인터 매개변수에 전달하려면 주소 연산자(&) 사용
-    PrintInfoByPtr(&refInfo);
-
-#pragma endregion
-
-    return 0;
+    const Character* const fixedObservation = &player;
+    PrintCharacter(*fixedObservation);
 }
 ```
----
-## const가 제한하는 대상 찾기
 
-매개변수 전달 방식은 메모리 복사 비용(Overhead)과 원본 객체의 데이터 무결성을 결정하는 핵심 설계 요소임
+각 선언이 허용하는 권한은 다음과 같다.
 
-### 포인터(Pointer)와 참조(Reference)의 특성 비교
+| 선언 | 의미 |
+| :--- | :--- |
+| `const Character* observedTarget` | 선택 결과가 없을 수 있고, 존재하면 읽기만 한다. 다른 관찰 대상으로 재지정할 수 있다. |
+| `Character* const healingTarget` | 항상 같은 캐릭터를 가리키며, 해당 캐릭터를 수정할 수 있다. |
+| `const Character* const fixedObservation` | 항상 같은 캐릭터를 읽기만 한다. |
+| `const Character&` 매개변수 | 반드시 존재하는 캐릭터를 읽기만 한다. |
+| `Character*` 매개변수 | 대상이 없을 수 있고, 존재하면 수정할 수 있다. |
 
-| 구분 | 포인터 (Pointer, `*`) | 참조 (Reference, `&`) |
-| :--- | :--- | :--- |
-| **개념** | 메모리 주소를 저장하는 독립된 변수 | 기존 메모리 공간에 부여된 또 다른 식별자(별명) |
-| **초기화** | 선언 후 나중에 초기화 가능 (지연 할당) | 선언과 동시에 반드시 초기화되어야 함 |
-| **Null 허용** | `nullptr` 대입을 통해 '없음' 상태 표현 가능 | Null 상태를 가질 수 없으며 항상 유효한 대상을 참조해야 함 |
-| **대상 변경** | 실행 중 가리키는 대상(주소)을 자유롭게 변경 가능 | 한 번 참조된 대상은 생명주기 동안 변경 불가능 |
-| **문법 편의성** | 역참조 연산자(`*`, `->`) 필수 | 일반 변수와 동일한 멤버 접근 연산자(`.`) 사용 |
+`SelectLowerHp`는 입력을 `const Character*`로 받아 두 대상을 수정하지 않으며 반환 포인터도 읽기 전용으로 제한한다. `TryHeal`은 수정 가능한 포인터를 받아 실제 원본 체력을 변경한다.
 
-### 매개변수 전달 방식 비교
+이 코드는 권한 구분을 설명하는 예제이며 실행 결과를 확인했다고 가정하지 않는다. 회복 덧셈은 현재의 작은 양수 범위를 전제로 하므로 외부의 큰 정수를 받을 수 있다면 표현 범위 검사도 추가해야 한다.
 
-| 전달 방식 | 동작 원리 | 메모리 복사량 | 원본 수정 여부 | 특징 및 장단점 |
-| :--- | :--- | :--- | :--- | :--- |
-| **값 전달 (Value)** | 변수의 실제 값을 복사하여 전달 | 데이터 타입의 전체 크기 | 불가능 | 복사본을 사용하므로 원본 훼손의 위험이 없으나 구조체 등 대용량 데이터 전달 시 성능 저하가 심함 |
-| **주소 전달 (Address)** | 변수의 메모리 시작 주소를 전달 | 포인터 크기 (4B or 8B) | 가능 | 원본 제어가 가능하고 메모리 효율이 좋으나 널 포인터(`nullptr`) 참조 위험이 존재함 |
-| **참조 전달 (Reference)** | 변수에 또 다른 식별자(별명)를 부여 | 포인터 크기와 동일 | 가능 | 주소 전달의 성능적 이점과 값 전달의 문법적 편의성을 결합한 모던 C++의 표준 방식임 |
+## `const`를 적용할 때 확인할 기준
 
-### 메모리 할당 비용 비교 수식
+`const`를 붙이거나 읽을 때는 다음 질문을 순서대로 확인한다.
 
-대형 구조체(예: $1000$바이트)를 매개변수로 넘길 때 발생하는 메모리 복사 비용은 다음과 같이 수식화할 수 있음
+1. `const`가 객체 자체, 포인터 자체, 포인터가 가리키는 대상 중 어디에 적용되는가?
+2. 이 이름이나 접근 경로로 어떤 변경을 막으려는가?
+3. 수정 가능한 다른 별칭이 같은 객체를 가리키고 있지는 않은가?
+4. 내부 포인터가 가리키는 대상까지 읽기 전용이어야 하는가?
+5. 값 매개변수의 top-level `const`처럼 구현 내부에만 영향을 주는가?
+6. 함수 타입과 오버로드 선택에 영향을 주는 `const`인가?
+7. `const_cast`로 계약을 우회하고 있지는 않은가?
+8. null, 수명과 스레드 안전성을 `const`가 보장한다고 오해하지 않았는가?
 
-* **값 전달의 복사 비용:**
-  $$Cost_{value} = \text{sizeof}(Object)$$
-* **주소 및 참조 전달의 복사 비용:**
-  $$Cost_{ptr/ref} = \frac{\text{System Bit Architecture}}{8} \text{ (bytes)}$$
+`const`는 붙일 수 있는 모든 위치에 기계적으로 추가하는 장식이 아니다. 함수가 필요로 하는 최소 권한을 타입에 기록하고, 컴파일러가 그 경계를 검사하도록 만드는 도구다.
 
-따라서 데이터 크기가 커질수록 $Cost_{value}$는 선형적으로 증가하지만 $Cost_{ptr/ref}$는 항상 $O(1)$의 고정 비용을 가짐
+## 다음 학습: 배열이라는 객체가 가진 크기와 경계
 
-### const 위치에 따른 포인터 해석 법칙
+`const T&`와 `const T*`는 대상을 읽기만 하는 접근 경로를 만들지만 대상의 수명과 범위 정보를 자동으로 보존하지 않는다. 특히 포인터로 연속된 요소를 전달하면 어디까지가 유효한 범위인지 별도 정보가 필요하다.
 
-포인터와 `const`를 결합할 때, `const`가 `*`의 앞 또는 뒤에 위치하느냐에 따라 제어 권한이 극명하게 갈림
-
-$$\text{const } T \ast Ptr \iff \text{데이터(Data) 상수화}$$
-$$T \ast \text{const } Ptr \iff \text{주소(Address) 상수화}$$
-
-* `const Type* ptr`: 포인터가 가리키는 **값**을 변경할 수 없음 (읽기 전용 포인터)
-* `Type* const ptr`: 포인터가 가리키는 **주소**를 변경할 수 없음 (상수형 포인터)
-
-## const가 보장하지 않는 것
-
-### 핵심 요약 및 주의사항
-
-* **참조(Reference)의 함정**: 참조형 매개변수는 문법적으로 값 전달(Call by Value)과 구분이 어려워 호출자 입장에서 원본 데이터가 수정되는지 파악하기 힘듦
-* **nullptr 참조 에러**: 포인터를 매개변수로 받을 때는 함수 최상단에서 반드시 유효성 검사(`if (ptr == nullptr)`)를 수행해야 크래시(Crash) 및 메모리 접근 오류를 예방할 수 있음
-* **초기화 미보장**: 참조 변수를 선언만 하고 초기화하지 않으면 C++ 컴파일러 단에서 에러를 발생시키므로 반드시 유효한 변수(lvalue)가 필요함
-* **구현과 의미:** 포인터와 참조가 비슷한 기계 코드를 만들 수 있어도 동일한 표현이나 비용을 표준이 보장하지는 않는다.
-
-### Tip
-
-* **대용량 데이터의 기본 전달 법칙**: 크기가 큰 구조체나 클래스를 읽기 목적으로 전달할 때는 복사 비용을 없애면서 안전성을 보장할 수 있는 `const Type&` 방식을 사용하는 것이 모던 C++의 핵심 권장 사항임
-* **출력 값 표현:** 아무 동작도 하지 않는 `OUT` 매크로는 컴파일러가 의미를 검사할 수 없다. 가능하면 반환값이나 작은 결과 구조체를 사용한다.
-* **선택 기준**: 타겟이 '존재하지 않을 수 있는 상태(Null)'를 논리적으로 표현해야 한다면 포인터를 사용하고, '반드시 존재해야 하며 접근이 편해야' 한다면 참조를 사용하는 것이 객체지향 설계 원칙에 부합함
-
-참조도 대상 객체가 먼저 소멸하면 댕글링될 수 있고, `const`는 객체 수명을 자동으로 관리하지 않는다. `const T*`는 대상 변경 금지, `T* const`는 포인터 재지정 금지, `const T* const`는 둘 모두를 제한한다.
-
-## 마무리
-
-`const`는 불변 객체 전체를 보장하는 마법이 아니라 해당 접근 경로에서 허용할 연산을 좁히는 타입 규칙이다.
+다음 글에서는 내장 배열이 포인터가 아니라 요소 개수가 타입에 포함된 객체라는 점부터 살펴본다. 선언과 초기화, 인덱스 경계, 배열에서 포인터로의 변환과 함수 호출에서 잃어버리기 쉬운 크기 정보를 구분한다.

@@ -7,122 +7,587 @@ tags: [C++, const, Memory, Data, Stack]
 use_math: true
 ---
 
-# [C++] const는 저장 위치가 아니라 변경 가능성을 나타낸다
+앞에서는 비교와 논리 연산을 이용해 현재 값이 어떤 상태인지 판단했다. 프로그램에는 실행 중 계속 바뀌는 값도 있지만, 한 번 정한 뒤 바뀌면 안 되는 값도 있다.
 
-변하지 않는 값인 **상수(Constant)**의 개념과, 프로그램 실행 시 데이터가 저장되는 **메모리 구조(Memory Layout)**에 대한 정리
+C++에서는 `const`를 사용해 해당 객체를 변경하지 않겠다는 제약을 타입에 표현할 수 있다. 다만 `const`를 곧바로 “읽기 전용 메모리에 저장되는 값”이라고 이해하면 스코프, 수명, 저장 기간, 실제 메모리 배치를 하나의 개념으로 섞게 된다.
 
----
+이번에는 `const`가 언어 차원에서 무엇을 보장하는지 먼저 확인하고, 그 객체가 언제 생성되고 어디에 놓일 수 있는지는 별도로 살펴본다.
 
-## `const`가 보장하는 것
+## `const`는 객체의 변경을 제한한다
 
-### 1) 상수 (const)
-* **개념:** 이름을 통해 해당 객체를 변경하지 못하게 제한한다.
-* **특징:**
-  * 해당 `const` 객체의 수명 동안 직접 값을 바꿀 수 없다.
-  * 기본형 `const` 객체는 사용할 값을 가지고 있어야 하므로 보통 선언과 동시에 초기화한다.
-  * 매직 넘버(Magic Number)를 제거하고 코드의 의도를 명확히 하는 데 유용함
+일반 변수는 초기화한 뒤 새로운 값을 대입할 수 있다.
 
-### `const`와 저장 기간을 분리해서 보기
-프로그램 실행 시 메모리는 크게 4가지 영역으로 구분됨 `[코드][데이터][힙][스택]`
+```cpp
+int maxHp = 100;
+maxHp = 200;
+```
 
-* **정적 저장 기간:** 전역 변수와 정적 변수는 프로그램 실행 기간 동안 존재한다.
-  * **.data:** 초기값이 **있는** 변수가 저장됨
-  * **.bss:** 초기값이 **없는** 변수가 저장됨 (0으로 자동 초기화)
-  * **.rodata (Read-Only Data):** 문자열 상수나 `const` 전역 변수 등 읽기 전용 데이터가 저장됨
-* **자동 저장 기간:** 일반적인 지역 변수는 블록에 진입할 때 생기고 블록을 벗어날 때 소멸한다. 구현은 보통 스택을 사용하지만 C++ 언어가 물리적 저장 위치를 직접 보장하는 것은 아니다.
+`const` 객체는 초기화한 뒤 그 이름을 통해 새로운 값을 대입할 수 없다.
 
-`const` 여부와 저장 기간은 서로 다른 축이다. 전역 `const`, 지역 `const`, 정적 지역 `const`는 모두 가능하며 실제 섹션 배치는 컴파일러와 링커가 결정한다.
+```cpp
+const int MaxHp = 100;
 
----
+// MaxHp = 200; // 컴파일 오류
+```
 
-## 이름 있는 상수로 의도 드러내기
+`MaxHp`의 타입은 단순한 `int`가 아니라 `const int`다. 컴파일러는 이 타입 정보를 이용해 값을 변경하려는 코드를 막는다.
 
-`const`를 활용한 비트 플래그 설정과 전역/지역 변수의 메모리 저장 위치를 확인하는 예제
+```text
+int       → 값을 읽고 변경할 수 있음
+const int → 값을 읽을 수 있지만 변경할 수 없음
+```
+
+`const`는 실행 중 우연히 값이 바뀌지 않았다는 뜻이 아니다. 해당 객체에 허용할 연산을 타입으로 제한한다는 뜻이다.
+
+## 기본형 `const` 객체는 사용할 값으로 초기화한다
+
+기본 정수 타입의 `const` 객체는 나중에 대입할 수 없으므로 선언할 때 사용할 값을 지정해야 한다.
+
+```cpp
+const int MaxPlayerCount = 4;
+const double Gravity = 9.81;
+const bool EnableDebugOutput = true;
+```
+
+다음 코드는 값을 정하지 않은 채 `const int`를 만들려고 하므로 컴파일되지 않는다.
+
+```cpp
+// const int MaxPlayerCount;
+// MaxPlayerCount = 4;
+```
+
+첫 번째 문장이 허용되더라도 두 번째 문장은 초기화가 아니라 대입이다. `const` 객체에는 대입할 수 없으므로 두 단계로 나눌 수 없다.
+
+클래스 타입에서는 기본 생성자가 객체의 상태를 초기화할 수 있다. 따라서 “모든 `const` 선언은 반드시 오른쪽에 값을 적어야 한다”라고 일반화하기보다, **객체가 생성될 때 유효한 초기 상태를 가져야 한다**고 이해하는 편이 정확하다.
+
+## `const` 값은 실행 중에 결정될 수도 있다
+
+`const`는 값이 컴파일 시간에 알려져 있다는 뜻이 아니다. 실행 중 함수 반환값이나 사용자 입력으로 초기화할 수도 있다.
 
 ```cpp
 #include <iostream>
-using namespace std;
-
-// [전역 변수]
-// - 데이터 영역에 저장되며 프로그램 전체에서 접근 가능
-
-// 1. 상수 (const)
-// - 초기값을 반드시 지정해야 함
-// - 비트 플래그 등의 상태값 정의에 유용
-const int AIR = 0;
-const int STUN = 1;
-const int POLYMORPH = 2;
-const int FEAR = 3;
-const int INVINCIBLE = 4;
-
-// unsigned 사용 이유: 우측 시프트(>>) 시 부호 비트 채움 방지
-unsigned char flag;
-
-// 2. 데이터 영역 상세
-// .data 영역 (초기값 있음)
-int a = 2;
-
-// .bss 영역 (초기값 없음)
-int b;
-
-// .rodata 영역 (읽기 전용)
-const char* msg = "Hello World";
 
 int main()
 {
-#pragma region const 활용 (BitFlag)
-    // 0b0000 [무적][공포][변이][스턴][공중부양]
+    int input = 0;
+    std::cin >> input;
 
-    // 무적 상태 켜기 (Set)
-    flag = (1 << INVINCIBLE);
-    // flag = 1 << 4 (16, 0b10000)
+    const int SessionLimit = input;
 
-    // 변이 상태 추가 (Add)
-    flag |= (1 << POLYMORPH);
-    // flag = 16 | 4 (20, 0b10100)
-
-    // 무적 상태 확인 (Check)
-    bool bInvincible = (flag & (1 << INVINCIBLE)) != 0;
-
-    // 복합 상태 확인 (무적 or 스턴)
-unsigned char BitMask = (1 << INVINCIBLE) | (1 << STUN);
-    bool bStunOrInvincible = (flag & BitMask) != 0;
-#pragma endregion
-
-#pragma region 스택 영역
-    // [스택 영역]
-    // - 함수 내부의 지역 변수
-    // - 함수 종료 시 메모리 해제됨
-
-    int c = 3;
-
-    // 함수 내부의 const는 스택 영역에 저장됨
-    const int TEST = 0;
-#pragma endregion
-
-    return 0;
+    std::cout << SessionLimit << '\n';
+    // SessionLimit = 100; // 컴파일 오류
 }
 ```
----
 
-## 객체의 수명과 접근 범위
+`SessionLimit`의 값은 프로그램을 실행하고 입력을 받은 뒤에야 정해진다. 하지만 한 번 초기화된 뒤에는 변경할 수 없다.
 
-* **데이터의 수명 (Life Cycle)**
-  * **전역 변수:** 프로그램 시작부터 종료까지 유지됨 (데이터 영역)
-  * **지역 변수:** 함수가 실행되는 동안에만 유효함 (스택 영역)
-* **const의 활용**
-  * 코드 내 하드코딩된 숫자(매직 넘버)를 피하고 `INVINCIBLE`처럼 의미 있는 이름을 부여하여 가독성을 높일 수 있음
-  * 비트 연산 시 각 비트의 위치를 `const`로 정의해두면 실수를 줄일 수 있음
+```text
+컴파일 시간
+SessionLimit의 실제 값은 아직 모름
 
----
+실행 시간
+입력값으로 SessionLimit 초기화
+이후 변경 금지
+```
 
-## 잘못 외우기 쉬운 부분
+따라서 `const`와 컴파일 시간 상수는 같은 개념이 아니다.
 
-* **저장 위치:** 전역 `const`는 흔히 읽기 전용 영역에 놓이지만, 최적화로 저장 공간 자체가 없어질 수도 있다. 지역 `const` 역시 반드시 스택 메모리를 차지한다고 단정할 수 없다.
-* **초기화 필수:** `const int a;` 처럼 선언만 하고 값을 넣지 않으면 컴파일 에러가 발생함. 반드시 `const int a = 10;` 처럼 선언과 동시에 값을 줘야 함
----
+## 컴파일 시간 상수에는 `constexpr`가 더 분명하다
 
-## 마무리
+값이 반드시 상수 표현식이어야 한다는 의도를 나타낼 때는 `constexpr`를 사용할 수 있다.
 
-`const`는 “어디에 저장되는가”보다 “이 경로로 값을 바꿀 수 있는가”에 관한 언어 규칙이다. 저장 기간, 스코프, 링커가 만드는 메모리 배치는 따로 구분해서 이해해야 한다. 다음 글에서는 이름이 보이는 범위와 타입 변환을 다룬다.
+```cpp
+constexpr int MaxPlayerCount = 4;
+constexpr int BitsPerByte = 8;
+constexpr double SecondsPerMinute = 60.0;
+```
 
+`constexpr` 변수는 컴파일 시간에 평가할 수 있는 값으로 초기화되어야 하며, 변수 자체도 `const`다.
+
+```cpp
+int runtimeValue = 10;
+
+const int First = runtimeValue;      // 가능: 실행 중 값으로 초기화
+// constexpr int Second = runtimeValue; // 불가능: 상수 표현식이 아님
+```
+
+둘의 목적을 간단히 구분하면 다음과 같다.
+
+| 선언 | 핵심 의미 |
+| :--- | :--- |
+| `const T` | 초기화 후 이 객체를 변경하지 않음 |
+| `constexpr T` | 컴파일 시간에 사용할 수 있는 상수 값 |
+
+모든 `const`를 `constexpr`로 바꿀 수는 없다. 값이 실행 중에 정해져야 한다면 `const`가 맞다. 반대로 배열 크기, 비트 마스크, 템플릿 인자처럼 컴파일 시간 값이 필요하다면 `constexpr`가 의도를 더 정확히 표현한다.
+
+## 리터럴과 이름 있는 상수
+
+코드에 직접 작성한 `100`, `2`, `0.5` 같은 값을 리터럴(Literal)이라고 한다.
+
+```cpp
+int damage = attack * 2;
+```
+
+숫자 2만 보고서는 왜 곱하는지 알기 어렵다. 의미 있는 이름을 붙이면 계산 규칙이 드러난다.
+
+```cpp
+constexpr int CriticalDamageMultiplier = 2;
+int damage = attack * CriticalDamageMultiplier;
+```
+
+이름 있는 상수는 다음과 같은 장점이 있다.
+
+- 값의 의미를 이름으로 설명한다.
+- 같은 정책 값을 여러 곳에서 일관되게 사용한다.
+- 값이 바뀔 때 수정할 위치를 줄인다.
+- 실수로 값을 변경하려는 코드를 컴파일러가 막는다.
+
+하지만 코드에 등장하는 모든 숫자를 상수 변수로 바꿔야 하는 것은 아니다.
+
+```cpp
+int nextIndex = currentIndex + 1;
+bool isEmpty = count == 0;
+```
+
+여기서 1은 다음 위치로 이동한다는 연산 자체의 일부이고, 0은 비어 있다는 비교 기준이다. `One`, `Zero` 같은 이름을 붙여도 새로운 의미가 생기지 않는다.
+
+중요한 것은 숫자가 코드에 직접 적혔는지가 아니라, 그 값이 독립적인 정책이나 도메인 규칙을 나타내는지다.
+
+## 비트 플래그에는 `constexpr` 마스크가 어울린다
+
+앞에서 비트 플래그의 각 위치에 이름을 붙였다.
+
+```cpp
+#include <cstdint>
+
+using Flags = std::uint32_t;
+
+constexpr Flags Airborne = Flags{1} << 0;
+constexpr Flags Stunned = Flags{1} << 1;
+constexpr Flags Transformed = Flags{1} << 2;
+constexpr Flags Invincible = Flags{1} << 3;
+```
+
+이 마스크들은 실행 중 바뀌어야 할 상태값이 아니다. 각 비트가 어떤 상태를 뜻하는지 정의하는 컴파일 시간 규칙이다.
+
+실제 플레이어의 상태는 변경 가능한 변수에 저장한다.
+
+```cpp
+Flags playerStates = 0;
+
+playerStates |= Invincible;
+playerStates &= ~Stunned;
+```
+
+상태의 **정의**와 현재 **상태값**을 분리한 것이다.
+
+```text
+constexpr 마스크
+Invincible = 3번 비트라는 규칙
+프로그램 실행 중 변경되지 않음
+
+playerStates
+현재 어떤 상태가 켜졌는지 저장
+프로그램 실행 중 계속 변경됨
+```
+
+상수라고 해서 모든 데이터를 바꾸지 못하게 만드는 것이 아니라, 바뀌면 안 되는 규칙만 상수로 표현한다.
+
+## `const`와 스코프는 다른 개념이다
+
+스코프(Scope)는 이름을 코드의 어느 위치에서 사용할 수 있는지를 정한다.
+
+```cpp
+int main()
+{
+    const int OuterValue = 10;
+
+    {
+        const int InnerValue = 20;
+        std::cout << OuterValue << '\n';
+        std::cout << InnerValue << '\n';
+    }
+
+    std::cout << OuterValue << '\n';
+    // std::cout << InnerValue << '\n'; // 이름을 찾을 수 없음
+}
+```
+
+`OuterValue`와 `InnerValue`는 둘 다 `const int`지만 이름이 보이는 범위는 다르다. `const`는 변경 가능성을 제한하고, 스코프는 이름을 찾을 수 있는 범위를 제한한다.
+
+```text
+const   → 이 객체를 변경할 수 있는가?
+scope   → 이 이름을 어디에서 사용할 수 있는가?
+```
+
+전역 `const`, 지역 `const`, 정적 지역 `const`를 모두 만들 수 있다. 선언 위치가 달라진다고 `const`의 기본 의미가 바뀌지는 않는다.
+
+## 스코프와 객체의 수명도 다르다
+
+객체의 수명(Lifetime)은 객체가 실제로 존재하며 사용할 수 있는 기간이다. 이름의 스코프와 자주 함께 움직이지만 같은 개념은 아니다.
+
+일반적인 지역 변수는 블록에 진입할 때 생성되고 블록을 벗어날 때 소멸한다.
+
+```cpp
+void PrintValue()
+{
+    const int LocalValue = 10;
+    std::cout << LocalValue << '\n';
+}
+```
+
+`PrintValue`를 호출할 때마다 새로운 `LocalValue` 객체가 만들어지고 함수가 끝날 때 수명을 마친다.
+
+반면 `static` 지역 변수는 이름의 스코프는 함수 안이지만 저장 공간은 프로그램이 끝날 때까지 유지된다.
+
+```cpp
+#include <iostream>
+
+void PrintCallCount()
+{
+    static int CallCount = 0;
+    ++CallCount;
+    std::cout << CallCount << '\n';
+}
+
+int main()
+{
+    PrintCallCount(); // 1
+    PrintCallCount(); // 2
+    PrintCallCount(); // 3
+}
+```
+
+`CallCount`라는 이름은 `PrintCallCount` 밖에서 사용할 수 없다. 하지만 객체는 함수 호출이 끝난 뒤에도 사라지지 않으므로 다음 호출에서 이전 값을 이어서 사용한다.
+
+```text
+이름의 스코프   → PrintCallCount 함수 내부
+객체의 저장 기간 → 프로그램 실행 전체
+```
+
+이 예제만으로도 스코프와 수명이 서로 다른 질문이라는 것을 알 수 있다.
+
+## 저장 기간은 객체의 저장 공간이 유지되는 기간이다
+
+C++에서는 객체의 저장 공간이 얼마나 오래 유지되는지를 저장 기간(Storage duration)으로 구분한다.
+
+| 저장 기간 | 대표적인 객체 | 개념적인 유지 기간 |
+| :--- | :--- | :--- |
+| 자동 저장 기간 | 일반적인 지역 변수 | 선언된 블록을 실행하는 동안 |
+| 정적 저장 기간 | 전역 변수, namespace 변수, `static` 지역 변수 | 프로그램 실행 전체 |
+| 스레드 저장 기간 | `thread_local` 객체 | 각 스레드가 실행되는 동안 |
+| 동적 저장 기간 | 동적으로 생성한 객체 | 명시한 수명 관리가 끝날 때까지 |
+
+입문 단계에서는 자동 저장 기간과 정적 저장 기간을 먼저 구분하면 충분하다.
+
+```cpp
+int GlobalValue = 10;
+
+void Function()
+{
+    int LocalValue = 20;
+    static int StaticLocalValue = 30;
+}
+```
+
+- `GlobalValue`는 정적 저장 기간을 가진다.
+- `LocalValue`는 자동 저장 기간을 가진다.
+- `StaticLocalValue`는 함수 안에 선언됐지만 정적 저장 기간을 가진다.
+
+이 세 객체는 모두 `const`로 선언할 수도 있고 변경 가능한 객체로 선언할 수도 있다. `const` 여부와 저장 기간은 독립적이다.
+
+## “지역 변수는 스택”은 일반적인 구현 설명이다
+
+프로그램 메모리를 설명할 때 흔히 다음과 같은 그림을 사용한다.
+
+```text
+높은 주소
++------------------+
+|      Stack       |  함수 호출, 지역 상태
+|        ↓         |
++------------------+
+|                  |
+|        ↑         |
+|       Heap       |  동적 할당
++------------------+
+|   Data / BSS     |  전역·정적 데이터
++------------------+
+|      ROData      |  읽기 전용 데이터
++------------------+
+|       Code       |  실행 명령
++------------------+
+낮은 주소
+```
+
+이 그림은 많은 운영체제와 실행 파일 형식을 이해하는 데 유용한 **일반적인 구현 모델**이다. 하지만 C++ 언어 표준이 모든 프로그램에 이 구역 이름과 배치를 그대로 요구하는 것은 아니다.
+
+일반적인 지역 변수가 실제로 스택 메모리에 놓일 수도 있지만, 컴파일러가 레지스터만 사용하거나 값을 계산식에 직접 넣어 저장 공간을 만들지 않을 수도 있다.
+
+```cpp
+int AddOne(int value)
+{
+    const int Result = value + 1;
+    return Result;
+}
+```
+
+소스 코드에는 `Result`라는 객체가 있지만 최적화된 기계 코드에서 별도의 메모리 공간을 차지하지 않을 수 있다. C++은 소스 코드에서 관찰할 수 있는 동작이 같다면 구현 방법을 컴파일러에 맡긴다.
+
+따라서 다음 두 문장을 구분해야 한다.
+
+- 일반적인 구현에서 지역 자동 변수는 스택을 사용할 수 있다.
+- 모든 지역 변수는 반드시 스택 메모리를 차지한다.
+
+첫 번째는 유용한 구현 설명이지만 두 번째는 C++이 보장하는 규칙이 아니다.
+
+## 일반적인 실행 파일의 데이터 구역
+
+전역 변수와 정적 변수는 일반적인 실행 파일에서 초기화 상태와 쓰기 가능 여부에 따라 여러 구역에 배치될 수 있다.
+
+```cpp
+int InitializedGlobal = 42;
+int ZeroInitializedGlobal;
+const int GlobalLimit = 100;
+const char* GlobalMessage = "Hello";
+```
+
+전형적인 배치를 개념적으로 정리하면 다음과 같다.
+
+| 구역 | 일반적으로 포함될 수 있는 데이터 |
+| :--- | :--- |
+| `.data` | 0이 아닌 값으로 초기화된 쓰기 가능한 전역·정적 객체 |
+| `.bss` | 0으로 초기화된 쓰기 가능한 전역·정적 객체 |
+| `.rodata` | 문자열 리터럴, 읽기 전용으로 배치한 상수 데이터 |
+| `.text` | 실행할 기계어 명령 |
+
+하지만 이 표는 특정 실행 파일 형식과 컴파일러에서 자주 볼 수 있는 배치일 뿐이다. 최적화, 링커 설정, 대상 플랫폼에 따라 구역 이름과 실제 배치는 달라질 수 있다.
+
+## `const`라고 항상 `.rodata`에 들어가지는 않는다
+
+다음 지역 상수는 별도의 메모리 공간 없이 계산식에 값이 직접 들어갈 수 있다.
+
+```cpp
+int CalculateScore(int baseScore)
+{
+    const int Bonus = 10;
+    return baseScore + Bonus;
+}
+```
+
+컴파일러는 관찰 가능한 동작을 유지할 수 있다면 `Bonus` 객체를 실제 메모리에 만들지 않고 10을 명령의 일부로 사용할 수 있다.
+
+전역 `const` 역시 읽기 전용 구역에 배치될 수 있지만 반드시 `.rodata`라는 이름의 구역을 가져야 하는 것은 아니다. 값이 코드에 직접 포함되거나 사용되지 않아 제거될 수도 있다.
+
+반대로 `const`가 아닌 포인터가 문자열 리터럴을 가리키는 경우에는 하나의 선언 안에서도 서로 다른 성질의 데이터가 존재한다.
+
+```cpp
+const char* GlobalMessage = "Hello";
+```
+
+이 선언을 오른쪽에서 왼쪽으로 읽으면 `GlobalMessage`는 `const char`를 가리키는 포인터다.
+
+- 문자열 리터럴 `"Hello"`는 수정할 수 없는 문자 배열이다.
+- 포인터 변수 `GlobalMessage` 자체는 다른 문자열을 가리키도록 변경할 수 있다.
+
+```cpp
+GlobalMessage = "World"; // 포인터가 가리키는 대상 변경
+// GlobalMessage[0] = 'Y'; // 가리키는 문자 수정은 불가능
+```
+
+일반적인 구현에서는 문자열 리터럴은 읽기 전용 데이터에, 변경 가능한 전역 포인터 객체는 쓰기 가능한 데이터 구역에 놓일 수 있다. 선언에 `const`가 보인다는 이유만으로 선언 전체가 읽기 전용 구역에 들어간다고 판단하면 안 된다.
+
+## 주소를 사용한다고 특정 구역이 보장되지는 않는다
+
+객체의 주소를 출력하면 실행 중 객체를 구분하는 데 도움이 될 수 있다.
+
+```cpp
+#include <iostream>
+
+const int GlobalValue = 10;
+
+int main()
+{
+    const int LocalValue = 20;
+
+    std::cout << &GlobalValue << '\n';
+    std::cout << &LocalValue << '\n';
+}
+```
+
+그러나 주소의 대소 관계만 보고 표준이 보장하지 않는 메모리 구역이나 스택 성장 방향을 일반화해서는 안 된다. 주소는 실행할 때마다 달라질 수 있고 운영체제의 주소 공간 배치 난수화, 최적화, 빌드 설정의 영향을 받는다.
+
+디버거와 실행 파일 분석 도구로 실제 배치를 확인했다면 그것은 **해당 빌드와 플랫폼에서 확인한 결과**다. C++의 모든 구현에 적용되는 언어 규칙과 구분해서 기록해야 한다.
+
+## `static` 지역 변수는 처음 필요할 때 한 번 초기화된다
+
+정적 지역 변수는 프로그램 전체의 저장 기간을 가지지만 초기화는 선언 지점의 실행이 처음 도달했을 때 수행된다.
+
+```cpp
+#include <iostream>
+
+int CreateInitialValue()
+{
+    std::cout << "Initialize\n";
+    return 100;
+}
+
+int GetValue()
+{
+    static const int Value = CreateInitialValue();
+    return Value;
+}
+
+int main()
+{
+    std::cout << GetValue() << '\n';
+    std::cout << GetValue() << '\n';
+}
+```
+
+`GetValue`를 두 번 호출해도 `CreateInitialValue`는 처음 한 번만 실행된다. C++11부터 정적 지역 변수의 초기화는 여러 스레드가 동시에 처음 접근하는 경우에도 한 번만 수행되도록 보장된다.
+
+여기에서도 세 속성을 분리해서 볼 수 있다.
+
+```text
+Value의 스코프       GetValue 함수 내부
+Value의 저장 기간    프로그램 실행 전체
+Value의 변경 가능성  const이므로 변경 불가
+```
+
+## 전역 변수는 수명보다 의존성이 더 큰 문제다
+
+전역 변수는 프로그램 전체에서 오래 살아 있기 때문에 메모리를 계속 사용한다. 하지만 작은 전역 변수 몇 개에서 더 큰 문제는 메모리 사용량보다 코드의 의존 관계다.
+
+```cpp
+int PlayerHp = 100;
+
+void TakeDamage(int damage)
+{
+    PlayerHp -= damage;
+}
+```
+
+`TakeDamage`의 매개변수만 보면 어떤 객체를 변경하는지 알 수 없다. 프로그램 어디서든 `PlayerHp`를 변경할 수 있다면 값이 바뀐 원인을 추적하기도 어려워진다.
+
+변경 가능한 전역 상태는 다음 문제를 만들 수 있다.
+
+- 함수의 입력과 출력이 호출부에 드러나지 않는다.
+- 여러 코드가 같은 값을 변경할 수 있다.
+- 테스트마다 상태를 초기화해야 한다.
+- 초기화 순서와 종료 순서를 고려해야 할 수 있다.
+- 여러 스레드에서 접근하면 동기화가 필요하다.
+
+전역 `const`나 `constexpr` 값은 변경 가능한 상태보다 위험이 작지만, 이름 충돌과 번역 단위 사이의 공유 방식은 여전히 고려해야 한다.
+
+## 헤더의 상수는 연결 방식도 고려한다
+
+namespace 범위의 일반적인 `const`와 `constexpr` 변수는 기본적으로 내부 연결(Internal linkage)을 가진다. 헤더에 정의하면 그 헤더를 포함한 각 번역 단위가 별도의 객체를 가질 수 있다.
+
+값만 사용하는 작은 상수에서는 문제가 드러나지 않을 수 있다. 하지만 프로그램 전체에서 하나의 동일한 객체가 필요하다면 연결 방식을 명확히 정해야 한다.
+
+C++17부터 헤더에 `inline constexpr` 변수를 정의할 수 있다.
+
+```cpp
+inline constexpr int MaxPlayerCount = 4;
+```
+
+`inline` 변수는 여러 번역 단위에 같은 정의가 나타나는 것을 허용하면서 프로그램 전체에서 하나의 개체로 취급할 수 있게 한다.
+
+이 내용은 여러 소스 파일과 헤더를 나누기 시작하면 중요해진다. 현재 단계에서는 상수의 선언 위치도 일반 변수와 마찬가지로 스코프와 연결에 영향을 준다는 점을 기억하면 된다.
+
+## 상수 이름은 프로젝트 규칙에 맞춘다
+
+상수는 이름만 보고 변경되지 않는 값이라는 사실보다 **무엇을 의미하는 값인지**를 알 수 있어야 한다.
+
+```cpp
+constexpr int MaxPlayerCount = 4;
+constexpr double AttackCooldownSeconds = 0.5;
+constexpr std::uint32_t InvincibleMask = std::uint32_t{1} << 3;
+```
+
+모든 대문자, `k` 접두사, PascalCase 등 어떤 표기법을 사용할지는 프로젝트마다 다르다. 한 글 안에서 임의로 여러 스타일을 섞지 않고 프로젝트에서 정한 규칙을 일관되게 적용한다.
+
+```cpp
+// 서로 다른 규칙을 이유 없이 혼합한 예
+const int MAX_COUNT = 10;
+const int kMinCount = 1;
+const int DefaultCount = 5;
+```
+
+표기법 자체보다 일관성과 의미가 중요하다.
+
+## 전체 실습 코드
+
+`const`, `constexpr`, 자동 저장 기간, 정적 저장 기간을 한 코드에서 확인하는 예제다.
+
+```cpp
+#include <cstdint>
+#include <iostream>
+
+int InitializedGlobal = 42;
+int ZeroInitializedGlobal;
+const int GlobalLimit = 100;
+inline constexpr int MaxPlayerCount = 4;
+
+using Flags = std::uint32_t;
+
+constexpr Flags Stunned = Flags{1} << 1;
+constexpr Flags Invincible = Flags{1} << 3;
+
+int LoadSessionLimit()
+{
+    return 75;
+}
+
+int GetCallCount()
+{
+    static int CallCount = 0;
+    ++CallCount;
+    return CallCount;
+}
+
+int main()
+{
+    const int SessionLimit = LoadSessionLimit();
+    constexpr int CriticalDamageMultiplier = 2;
+
+    int baseDamage = 30;
+    int criticalDamage = baseDamage * CriticalDamageMultiplier;
+
+    Flags playerStates = 0;
+    playerStates |= Invincible;
+
+    bool isStunned = (playerStates & Stunned) != 0;
+    bool isInvincible = (playerStates & Invincible) != 0;
+
+    std::cout << "Global limit: " << GlobalLimit << '\n';
+    std::cout << "Session limit: " << SessionLimit << '\n';
+    std::cout << "Max player count: " << MaxPlayerCount << '\n';
+    std::cout << "Critical damage: " << criticalDamage << '\n';
+    std::cout << std::boolalpha << "Stunned: " << isStunned << '\n';
+    std::cout << "Invincible: " << isInvincible << '\n';
+    std::cout << "First call count: " << GetCallCount() << '\n';
+    std::cout << "Second call count: " << GetCallCount() << '\n';
+}
+```
+
+이 예제에서 각 객체의 속성을 구분하면 다음과 같다.
+
+| 객체 | 변경 가능성 | 값 결정 시점 | 대표적인 저장 기간 |
+| :--- | :--- | :--- | :--- |
+| `InitializedGlobal` | 변경 가능 | 프로그램 초기화 | 정적 |
+| `ZeroInitializedGlobal` | 변경 가능 | 프로그램 초기화 | 정적 |
+| `GlobalLimit` | 변경 불가 | 컴파일 시간에 가능 | 정적 |
+| `MaxPlayerCount` | 변경 불가 | 컴파일 시간 | 정적 |
+| `SessionLimit` | 변경 불가 | 실행 중 함수 호출 | 자동 |
+| `CriticalDamageMultiplier` | 변경 불가 | 컴파일 시간 | 자동이지만 저장 공간이 생략될 수 있음 |
+| `CallCount` | 변경 가능 | 첫 함수 호출 | 정적 |
+| `playerStates` | 변경 가능 | 실행 중 | 자동 |
+
+`const`인지, 컴파일 시간에 값이 정해지는지, 얼마나 오래 살아 있는지는 각각 별도의 속성이다.
+
+## 다음 학습: 이름이 보이는 범위와 타입 변환
+
+`const`는 객체의 변경 가능성을 제한한다. 스코프는 이름이 보이는 범위를 정하고, 저장 기간은 객체의 저장 공간이 유지되는 기간을 정한다. 일반적인 메모리 구역은 이러한 언어 규칙을 특정 플랫폼이 구현한 결과다.
+
+다음 글에서는 전역·지역·블록 스코프에서 같은 이름을 찾는 방법을 자세히 살펴보고, 서로 다른 자료형 사이에서 값이 변환될 때 발생할 수 있는 손실을 확인한다.

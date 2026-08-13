@@ -7,107 +7,698 @@ tags: [C++, Pointer, Memory, Operator, Arithmetic]
 use_math: true
 ---
 
-# [C++] 포인터에 1을 더한다는 것의 정확한 의미
+앞에서는 포인터가 살아 있는 객체를 타입 규칙 안에서 간접적으로 가리키는 값이라는 점을 살펴봤다. 포인터에는 정수를 더하거나 빼는 산술 연산도 허용된다. 하지만 이는 임의의 주소를 찾아가는 기능이 아니다.
 
-포인터를 다루기 위한 4가지 핵심 연산자(&, *, +, ->)의 동작 방식과 자료형 기반의 메모리 이동 원리를 분석함
+포인터 산술은 기본적으로 **같은 배열 안의 다른 요소를 가리키기 위한 연산**이다. 배열의 첫 요소부터 마지막 요소 바로 다음 위치까지라는 경계를 벗어나면, 역참조하지 않더라도 포인터 계산 자체가 유효하지 않을 수 있다.
 
-## 주소·역참조·멤버 접근
+## 단일 객체에서 포인터를 계속 증가시키면 안 된다
+
+기존 예제는 하나의 `int` 객체를 가리키는 포인터를 여러 번 증가시켰다.
 
 ```cpp
-#include <iostream>
-using namespace std;
+int number = 1;
+int* pointer = &number;
 
-// 간접 멤버 연산자 테스트용 구조체
+// pointer++;
+// pointer++;
+// *pointer = 3;
+```
+
+`number` 하나 뒤에 다른 `int` 객체가 연속해서 존재한다고 보장되지 않는다. 포인터를 증가시킨 결과가 우연히 접근 가능한 메모리 주소처럼 보여도 그 위치에 역참조 가능한 `int` 객체가 있다는 뜻은 아니다.
+
+단일 객체는 포인터 산술 규칙에서 요소가 하나인 배열처럼 취급할 수 있다. 따라서 `&number + 1`이라는 마지막 다음 위치는 만들 수 있지만 역참조할 수 없고, 그보다 더 멀리 이동할 수는 없다.
+
+포인터 산술을 학습할 때는 실제 배열을 사용해야 경계와 요소 관계가 분명하다.
+
+## 배열은 같은 타입의 요소가 연속된 객체다
+
+정수 네 개를 가진 배열을 만든다.
+
+```cpp
+int values[4] = {10, 20, 30, 40};
+```
+
+배열 요소는 인덱스로 접근할 수 있다.
+
+```cpp
+int first = values[0];
+int third = values[2];
+```
+
+같은 배열의 요소들은 배열 순서대로 연속해서 배치된다.
+
+```text
+values
+┌────────┬────────┬────────┬────────┐
+│   10   │   20   │   30   │   40   │
+└────────┴────────┴────────┴────────┘
+  [0]      [1]      [2]      [3]
+```
+
+이 연속성 때문에 첫 요소를 가리키는 포인터에서 다음 요소로 이동할 수 있다.
+
+## 배열 이름은 많은 표현식에서 첫 요소 포인터로 변환된다
+
+배열 이름 `values`를 포인터 초기화에 사용하면 첫 요소를 가리키는 `int*`로 변환된다.
+
+```cpp
+int values[4] = {10, 20, 30, 40};
+int* pointer = values;
+```
+
+이때 `pointer`와 `&values[0]`은 같은 첫 요소를 가리킨다.
+
+```cpp
+int* firstPointer = &values[0];
+```
+
+개념적인 관계는 다음과 같다.
+
+```text
+pointer
+   │
+   ▼
+┌────────┬────────┬────────┬────────┐
+│   10   │   20   │   30   │   40   │
+└────────┴────────┴────────┴────────┘
+  [0]      [1]      [2]      [3]
+```
+
+이를 배열에서 포인터로의 변환(Array-to-pointer conversion) 또는 배열의 decay라고 부르기도 한다. 하지만 배열 자체가 포인터로 바뀌는 것은 아니다. 특정 표현식에서 첫 요소 포인터로 변환되는 것이다.
+
+## 포인터에 1을 더하면 다음 배열 요소를 가리킨다
+
+첫 요소를 가리키는 포인터에 1을 더하면 두 번째 요소를 가리킨다.
+
+```cpp
+int* first = values;
+int* second = first + 1;
+int* fourth = first + 3;
+```
+
+각 포인터를 역참조하면 해당 요소에 접근한다.
+
+```cpp
+int firstValue = *first;
+int secondValue = *second;
+int fourthValue = *fourth;
+```
+
+```text
+first
+  │        second              fourth
+  ▼          ▼                   ▼
+┌────────┬────────┬────────┬────────┐
+│   10   │   20   │   30   │   40   │
+└────────┴────────┴────────┴────────┘
+```
+
+`first + 1`의 의미는 주소 정수에 무조건 1을 더한다는 뜻이 아니다. `first`가 가리키는 배열에서 다음 `int` 요소를 가리키는 포인터를 만든다는 뜻이다.
+
+## 이동 단위는 포인터의 대상 타입에 맞춰진다
+
+같은 `+1`이라도 포인터 타입에 따라 다음 요소가 다르다.
+
+```cpp
+int integerValues[3] = {1, 2, 3};
+double floatingValues[3] = {1.0, 2.0, 3.0};
+
+int* nextInteger = integerValues + 1;
+double* nextFloating = floatingValues + 1;
+```
+
+`nextInteger`는 다음 `int` 요소를, `nextFloating`은 다음 `double` 요소를 가리킨다.
+
+일반적인 메모리 주소 관점에서는 요소 `N`개만큼 이동한 바이트 거리를 다음처럼 설명할 수 있다.
+
+$$ByteOffset = N \times sizeof(T)$$
+
+하지만 C++ 코드에서 중요한 규칙은 바이트 숫자보다 **같은 `T` 배열의 N번째 요소를 가리키는가**이다. `sizeof(int)`가 4라고 가정하거나 실제 주소를 정수로 바꿔 직접 더할 필요가 없다. 컴파일러가 포인터 타입과 인덱스를 이용해 올바른 요소 위치를 계산한다.
+
+## 인덱스 접근은 포인터 산술과 역참조로 연결된다
+
+내장 배열과 포인터에서 다음 두 표현은 같은 요소를 나타낸다.
+
+```cpp
+int valueByIndex = values[2];
+int valueByPointer = *(values + 2);
+```
+
+개념적으로 다음 관계가 성립한다.
+
+$$pointer[index] \equiv *(pointer + index)$$
+
+배열 인덱스는 포인터 산술과 역참조를 간결하게 표현한다. 그렇다고 인덱스 연산이 자동으로 경계를 검사해 주는 것은 아니다.
+
+```cpp
+// int invalid = values[4];
+```
+
+`values[4]`는 존재하는 요소가 아니라 마지막 요소 바로 다음 위치를 역참조하려 하므로 정의되지 않은 동작이다.
+
+## 마지막 다음 포인터는 만들 수 있지만 역참조할 수 없다
+
+요소가 네 개인 배열에서 `values + 4`는 마지막 요소 바로 다음 위치를 나타낸다.
+
+```cpp
+int* begin = values;
+int* end = values + 4;
+```
+
+이를 one-past-the-end 포인터라고 부른다.
+
+```text
+begin                                      end
+  │                                         │
+  ▼                                         ▼
+┌────────┬────────┬────────┬────────┐   ─────────
+│   10   │   20   │   30   │   40   │   마지막 다음
+└────────┴────────┴────────┴────────┘
+  [0]      [1]      [2]      [3]
+```
+
+`end`는 반복을 멈출 경계를 표현하고 포인터 비교나 뺄셈에 사용할 수 있다. 하지만 실제 배열 요소를 가리키지 않으므로 역참조할 수 없다.
+
+```cpp
+// int invalid = *end;
+```
+
+시작은 포함하고 끝은 포함하지 않는 반열린 구간 `[begin, end)`을 사용하면 빈 범위와 부분 범위를 같은 규칙으로 표현하기 쉽다.
+
+## 배열 범위를 벗어난 포인터는 만드는 것부터 문제다
+
+마지막 다음 위치보다 더 멀리 이동하면 역참조하지 않아도 유효한 포인터 산술이 아니다.
+
+```cpp
+// int* tooFar = values + 5;
+```
+
+다음처럼 첫 요소보다 앞선 위치를 만드는 것도 허용되지 않는다.
+
+```cpp
+// int* beforeBegin = values - 1;
+```
+
+“접근하지 않고 주소만 계산했으니 안전하다”라고 생각하면 안 된다. 같은 배열의 요소 또는 마지막 다음 위치라는 허용 범위 안에서만 포인터 산술 결과를 만든다.
+
+허용되는 위치는 다음과 같다.
+
+```text
+values + 0  첫 요소
+values + 1  두 번째 요소
+values + 2  세 번째 요소
+values + 3  네 번째 요소
+values + 4  마지막 다음 위치, 역참조 불가
+```
+
+## null 포인터에는 산술 연산을 적용하지 않는다
+
+`nullptr`은 어떤 배열 요소도 가리키지 않는다.
+
+```cpp
+int* pointer = nullptr;
+// int* next = pointer + 1;
+```
+
+포인터 산술의 기준이 되는 배열 객체가 없으므로 null 포인터에 정수를 더하거나 빼지 않는다. 먼저 유효한 범위의 시작 포인터와 길이 또는 끝 포인터를 확보해야 한다.
+
+길이가 0인 범위는 null 포인터 산술로 끝을 만들기보다 사용 중인 인터페이스의 계약을 따른다. 예를 들어 `std::span`은 빈 범위를 직접 표현할 수 있다.
+
+## 증가·감소 연산자로 배열을 순회할 수 있다
+
+포인터에 `++`를 적용하면 같은 배열의 다음 요소를 가리킨다.
+
+```cpp
+int values[4] = {10, 20, 30, 40};
+int* current = values;
+int* end = values + 4;
+
+while (current != end)
+{
+    std::cout << *current << '\n';
+    ++current;
+}
+```
+
+반복문의 각 단계는 다음과 같다.
+
+```text
+current = values + 0  → 10 읽기
+current = values + 1  → 20 읽기
+current = values + 2  → 30 읽기
+current = values + 3  → 40 읽기
+current = values + 4  → end와 같으므로 종료
+```
+
+`current`가 `end`와 같아진 뒤에는 역참조하지 않는다. 비교를 먼저 수행하는 반복 조건이 경계를 지킨다.
+
+역방향으로 순회할 때도 감소하기 전에 빈 범위와 시작 경계를 확인해야 한다.
+
+```cpp
+int* current = values + 4;
+
+while (current != values)
+{
+    --current;
+    std::cout << *current << '\n';
+}
+```
+
+처음의 `current`는 마지막 다음 위치이므로 먼저 감소한 뒤 역참조한다.
+
+## 포인터끼리 빼면 같은 배열 안의 요소 거리를 구할 수 있다
+
+같은 배열의 두 요소 또는 마지막 다음 위치를 가리키는 포인터는 뺄 수 있다.
+
+```cpp
+#include <cstddef>
+
+int values[5] = {10, 20, 30, 40, 50};
+int* begin = values;
+int* end = values + 5;
+std::ptrdiff_t count = end - begin;
+```
+
+결과는 바이트 수가 아니라 요소 개수 5다. 포인터 차이를 담는 표준 부호 있는 정수 타입이 `std::ptrdiff_t`다.
+
+```cpp
+int* second = values + 1;
+int* fifth = values + 4;
+std::ptrdiff_t distance = fifth - second;
+```
+
+`distance`는 두 번째 요소에서 다섯 번째 요소까지의 인덱스 차이인 3이다.
+
+서로 다른 배열을 가리키는 포인터를 빼는 것은 허용되지 않는다.
+
+```cpp
+int firstArray[2] = {1, 2};
+int secondArray[2] = {3, 4};
+
+// std::ptrdiff_t invalid = secondArray - firstArray;
+```
+
+메모리에서 두 배열이 우연히 가까이 배치되어 보여도 하나의 배열 범위를 공유하지 않는다.
+
+## 순서 비교도 같은 배열 범위에서 사용한다
+
+같은 배열 안의 포인터는 `<`, `<=`, `>`, `>=`로 요소 순서를 비교할 수 있다.
+
+```cpp
+int* first = values;
+int* third = values + 2;
+
+if (first < third)
+{
+    std::cout << "first comes before third\n";
+}
+```
+
+서로 무관한 객체나 다른 배열의 포인터에 내장 순서 비교를 사용해 일반적인 메모리 순서를 판단하지 않는다. 주소 출력값이 작거나 커 보이는 것과 C++ 객체 관계에서 순서를 비교할 수 있다는 사실은 다르다.
+
+동등 비교 `==`, `!=`는 두 포인터가 같은 포인터값으로 비교되는지 또는 null 상태인지를 확인할 때 사용할 수 있다. 하지만 두 포인터가 같다고 비교된다는 사실만으로 역참조 조건과 대상 수명이 자동으로 보장되지는 않는다.
+
+## 배열이 포인터로 변환되지 않는 문맥도 있다
+
+배열 이름이 언제나 포인터인 것은 아니다. `sizeof`를 배열 자체에 적용하면 전체 배열의 크기를 얻는다.
+
+```cpp
+int values[4] = {10, 20, 30, 40};
+std::size_t arrayBytes = sizeof(values);
+std::size_t elementBytes = sizeof(values[0]);
+std::size_t count = arrayBytes / elementBytes;
+```
+
+`sizeof(values)`는 `int*`의 크기가 아니라 요소 네 개를 포함한 배열 객체 전체의 크기다.
+
+배열 자체의 주소를 얻는 `&values`도 첫 요소 포인터와 타입이 다르다.
+
+```cpp
+int* firstElement = values;
+int (*wholeArray)[4] = &values;
+```
+
+- `firstElement`의 타입은 `int*`다.
+- `wholeArray`의 타입은 `int (*)[4]`다.
+
+둘은 같은 배열 시작 위치와 관련되지만 포인터 산술의 한 단위가 다르다. `firstElement + 1`은 다음 `int` 요소를 가리키고, `wholeArray + 1`은 네 요소짜리 배열 하나의 마지막 다음 위치를 가리킨다.
+
+이번 글에서는 요소 포인터를 중심으로 사용하고, 배열 포인터가 필요한 다차원 배열 문법은 별도로 다룬다.
+
+## 함수 매개변수의 배열 표기는 포인터 타입으로 조정된다
+
+함수 매개변수에 배열처럼 적어도 해당 매개변수는 포인터 타입으로 조정된다.
+
+```cpp
+void PrintValues(const int values[], std::size_t count)
+{
+    for (std::size_t index = 0; index < count; ++index)
+    {
+        std::cout << values[index] << '\n';
+    }
+}
+```
+
+이 함수 선언의 `values` 매개변수는 본질적으로 `const int*`다.
+
+```cpp
+void PrintValues(const int* values, std::size_t count);
+```
+
+함수 안에서 `sizeof(values)`를 사용하면 호출자가 가진 배열 전체 크기가 아니라 포인터 매개변수의 크기를 얻는다.
+
+```cpp
+// std::size_t wrongCount = sizeof(values) / sizeof(values[0]);
+```
+
+포인터 하나에는 배열의 요소 개수 정보가 포함되지 않는다. 그래서 포인터와 개수를 함께 전달한다.
+
+```cpp
+int values[4] = {10, 20, 30, 40};
+PrintValues(values, 4);
+```
+
+## 포인터와 개수는 서로 일치해야 한다
+
+포인터와 개수를 따로 받으면 호출자가 잘못된 길이를 전달할 수 있다.
+
+```cpp
+int SumValues(const int* values, std::size_t count)
+{
+    int sum = 0;
+
+    for (std::size_t index = 0; index < count; ++index)
+    {
+        sum += values[index];
+    }
+
+    return sum;
+}
+```
+
+올바른 호출에서는 실제 요소 수를 전달한다.
+
+```cpp
+int values[4] = {10, 20, 30, 40};
+int sum = SumValues(values, 4);
+```
+
+개수를 실제 배열보다 크게 전달하면 함수가 경계를 벗어나 접근한다.
+
+```cpp
+// int invalidSum = SumValues(values, 10);
+```
+
+함수 내부는 포인터만 보고 실제 길이가 4인지 확인할 수 없다. `values == nullptr` 검사도 길이 불일치를 해결하지 못한다.
+
+포인터와 개수 인터페이스를 사용할 때는 다음 계약을 문서화하고 지켜야 한다.
+
+- `values`는 적어도 `count`개의 유효한 연속 요소를 가리킨다.
+- `count > 0`이라면 `values`는 null이 아니다.
+- 함수가 실행되는 동안 해당 요소들의 수명이 유지된다.
+- 수정 함수라면 대상 요소를 수정할 권한이 있다.
+
+## 배열 크기를 호출부에서 자동으로 구할 수 있다
+
+실제 배열이 보이는 호출 위치에서는 `std::size`를 사용할 수 있다. `std::size`는 C++17부터 표준 라이브러리에 제공된다.
+
+```cpp
+#include <iterator>
+
+int values[4] = {10, 20, 30, 40};
+int sum = SumValues(values, std::size(values));
+```
+
+직접 숫자 4를 반복하지 않으므로 배열 크기를 바꿀 때 호출 인자가 어긋날 가능성이 줄어든다.
+
+```cpp
+int values[6] = {10, 20, 30, 40, 50, 60};
+int sum = SumValues(values, std::size(values));
+```
+
+하지만 함수 안에서는 이미 포인터로 변환됐으므로 `std::size(values)`로 원래 배열 크기를 복구할 수 없다. 크기 정보가 사라지기 전에 함께 전달해야 한다.
+
+## `std::span`은 포인터와 길이를 하나의 범위로 묶는다
+
+C++20부터 `std::span`을 사용해 소유하지 않는 연속 범위를 표현할 수 있다.
+
+```cpp
+#include <span>
+
+int SumValues(std::span<const int> values)
+{
+    int sum = 0;
+
+    for (int value : values)
+    {
+        sum += value;
+    }
+
+    return sum;
+}
+```
+
+내장 배열을 전달하면 요소 범위가 함께 구성된다.
+
+```cpp
+int values[4] = {10, 20, 30, 40};
+int sum = SumValues(values);
+```
+
+`std::span<const int>`는 요소를 소유하지 않고 읽기 전용으로 관찰한다. 내부적으로 범위의 시작과 크기에 해당하는 정보를 제공하므로 함수가 `values.size()`와 범위 기반 반복문을 사용할 수 있다.
+
+```cpp
+std::size_t count = values.size();
+```
+
+`std::span`이 대상 요소의 수명을 연장하지는 않는다. 원본 배열이나 컨테이너가 소멸하거나 재할당되면 이를 가리키던 span도 더 이상 사용할 수 없다.
+
+또한 `operator[]`가 모든 접근을 런타임 검사해 주는 것은 아니다. 범위 객체를 사용하더라도 인덱스와 수명 규칙은 지켜야 한다.
+
+## 구조체 포인터의 `->`는 역참조와 멤버 접근을 결합한다
+
+구조체 객체와 그 포인터를 만든다.
+
+```cpp
 struct Player
 {
-    int hp;      // 시작 주소 오프셋 +0
-    int damage;  // 시작 주소 오프셋 +4 (int 4바이트 기준)
+    int hp;
+    int attack;
 };
+
+Player player{100, 20};
+Player* pointer = &player;
+```
+
+포인터를 역참조한 뒤 `.`으로 멤버에 접근할 수 있다.
+
+```cpp
+(*pointer).hp = 80;
+```
+
+괄호가 필요한 이유는 멤버 접근 연산자 `.`이 단항 역참조 `*`보다 우선순위가 높기 때문이다.
+
+간접 멤버 접근 연산자 `->`를 사용하면 같은 의미를 더 간결하게 표현할 수 있다.
+
+```cpp
+pointer->hp = 80;
+pointer->attack = 25;
+```
+
+내장 포인터에 대해 다음 두 형태는 같은 멤버를 나타낸다.
+
+```text
+pointer->member
+(*pointer).member
+```
+
+어느 표현을 사용하든 `pointer`가 살아 있는 `Player` 객체를 가리켜야 한다.
+
+## 연산자 우선순위에 따라 전혀 다른 동작이 된다
+
+포인터 증가와 역참조를 함께 쓰면 괄호 위치에 따라 의미가 달라진다.
+
+```cpp
+int values[3] = {10, 20, 30};
+int* pointer = values;
+```
+
+다음 표현식은 현재 요소를 사용한 뒤 포인터를 다음 요소로 이동한다.
+
+```cpp
+int first = *pointer++;
+```
+
+후위 증가 `++`가 역참조 `*`보다 우선하므로 다음과 같이 해석된다.
+
+```cpp
+int first = *(pointer++);
+```
+
+반면 괄호로 역참조를 먼저 묶으면 포인터가 아니라 현재 요소의 값을 증가시킨다.
+
+```cpp
+(*pointer)++;
+```
+
+이 시점의 `pointer`는 두 번째 요소를 가리키므로 `values[1]`이 20에서 21로 바뀐다.
+
+짧은 표현식이 익숙하지 않다면 연산을 나눠 작성한다.
+
+```cpp
+int first = *pointer;
+++pointer;
+```
+
+코드 줄 수보다 어느 객체가 증가하는지 명확한지가 중요하다.
+
+## 포인터 배열 순회에서 자주 발생하는 오류
+
+### 종료 포인터를 역참조한다
+
+```cpp
+int* current = values;
+int* end = values + 3;
+
+// while (current <= end)
+// {
+//     std::cout << *current << '\n';
+//     ++current;
+// }
+```
+
+`current == end`일 때도 반복문에 들어가 마지막 다음 위치를 역참조하게 된다. 반열린 범위는 `current != end`로 순회한다.
+
+### 요소 개수와 마지막 인덱스를 혼동한다
+
+요소가 세 개라면 마지막 인덱스는 2지만 끝 포인터는 `values + 3`이다.
+
+```text
+요소 개수: 3
+유효 인덱스: 0, 1, 2
+끝 포인터: values + 3
+```
+
+### 포인터가 이동한 뒤 시작 위치를 잃는다
+
+```cpp
+int* pointer = values;
+
+while (pointer != values + 3)
+{
+    ++pointer;
+}
+```
+
+반복 후 `pointer`는 끝 위치다. 다시 배열 처음부터 사용해야 한다면 시작 포인터를 별도로 유지하거나 인덱스·범위 기반 반복문을 사용한다.
+
+### 다른 배열의 끝 포인터와 비교한다
+
+```cpp
+int firstArray[3] = {1, 2, 3};
+int secondArray[3] = {4, 5, 6};
+
+int* current = firstArray;
+int* wrongEnd = secondArray + 3;
+```
+
+시작과 끝은 같은 배열 범위에서 만들어야 한다. 다른 배열의 끝과 같아질 때까지 증가시키면 첫 배열의 허용 범위를 벗어난다.
+
+## 전체 예제로 캐릭터 배열을 순회한다
+
+캐릭터 배열의 상태를 출력하고 살아 있는 캐릭터에게 피해를 적용하는 예제다.
+
+```cpp
+#include <algorithm>
+#include <cstddef>
+#include <iostream>
+#include <span>
+
+struct Character
+{
+    const char* name;
+    int hp;
+};
+
+void PrintCharacters(std::span<const Character> characters)
+{
+    for (const Character& character : characters)
+    {
+        std::cout << character.name << " HP: " << character.hp << '\n';
+    }
+}
+
+void ApplyDamage(std::span<Character> characters, int damage)
+{
+    int appliedDamage = std::max(0, damage);
+
+    for (Character& character : characters)
+    {
+        if (character.hp > 0)
+        {
+            character.hp = std::max(0, character.hp - appliedDamage);
+        }
+    }
+}
+
+Character* FindFirstAlive(std::span<Character> characters)
+{
+    for (Character& character : characters)
+    {
+        if (character.hp > 0)
+        {
+            return &character;
+        }
+    }
+
+    return nullptr;
+}
 
 int main()
 {
-    // 1) 주소 연산자 (&)
-    // 변수가 할당된 메모리의 시작 주소를 반환함
-    int number = 1;
+    Character party[] = {
+        {"Knight", 100},
+        {"Archer", 75},
+        {"Mage", 50}
+    };
 
-    // 포인터 변수 선언 시 대상 변수의 타입에 맞게 선언해야 메모리 오염을 방지할 수 있음
-    int* ptr = &number;
+    PrintCharacters(party);
+    ApplyDamage(party, 20);
 
-    // 2) 산술 연산자 (+, -, ++, --)
-    // 일반 변수의 산술 연산은 수치값을 지정된 만큼 직접 증감시킴
-    number = number + 1;
-    number++;
-    ++number;
-    number += 1;
+    Character* firstAlive = FindFirstAlive(party);
 
-    // 포인터의 산술 연산은 현재 가리키는 대상 '타입의 크기'만큼 주소를 이동함
-    // int형(4바이트) 포인터에 1을 더하면 실제 메모리 주소는 4바이트 증가함
-    ptr = ptr + 1;
-    ptr++;
-    ++ptr;
-    ptr += 1;
+    if (firstAlive != nullptr)
+    {
+        firstAlive->hp += 10;
+    }
 
-    // 3) 간접 연산자 (역참조, *)
-    // 해당 주소로 직접 찾아가서 메모리 공간에 값을 쓰거나 읽어옴
-    number = 3;
-    *ptr = 3;
-
-    // 4) 간접 멤버 연산자 (->)
-    Player player;
-    player.hp = 100;
-    player.damage = 10;
-
-    // 구조체의 시작 주소를 포인터에 할당함
-    Player* playerPtr = &player;
-
-    // 역참조 연산자(*)와 멤버 접근 연산자(.)를 조합하여 사용할 수 있으나 괄호가 강제됨
-    (*playerPtr).hp = 200;
-    (*playerPtr).damage = 20;
-
-    // 간접 멤버 연산자(->)를 사용하면 포인터를 통해 구조체 멤버에 더 직관적으로 접근 가능함
-    playerPtr->hp = 300;
-    playerPtr->damage = 30;
-
-    return 0;
+    PrintCharacters(party);
 }
 ```
----
-## 포인터 산술이 성립하는 범위
 
-### 포인터 제어 핵심 연산자 요약
+`std::span`은 `party`의 시작과 요소 수를 하나의 범위로 전달한다. 읽기 전용 출력은 `std::span<const Character>`, 수정 함수는 `std::span<Character>`를 사용해 권한을 구분한다.
 
-| 연산자 이름 | 기호 | 기능 설명 | 비고 |
-| :--- | :--- | :--- | :--- |
-| **주소 (Address-of)** | `&` | 변수의 메모리 시작 주소를 추출함 | 대상 변수의 앞에 부착하여 사용 |
-| **간접 / 역참조 (Dereference)** | `*` | 저장된 주소 번지로 직접 찾아가서 데이터를 읽거나 씀 | 포인터가 유효한 메모리를 가리킬 때만 사용 |
-| **산술 (Arithmetic)** | `+`, `-` | 데이터 타입의 크기 단위로 메모리 주소를 이동함 | 배열 순회 등 연속된 메모리 접근에 활용 |
-| **간접 멤버 (Arrow)** | `->` | 포인터 변수를 통해 구조체나 클래스의 내부 멤버에 직접 접근함 | `(*ptr).member`와 완벽히 동일한 기능 |
+범위 기반 반복문 내부의 `character`는 현재 배열 요소에 대한 참조다. `FindFirstAlive`가 반환한 포인터도 `party`의 요소를 가리키므로 `party`가 살아 있고 해당 요소가 유지되는 동안 사용할 수 있다.
 
-### 포인터 산술 연산(Arithmetic) 메모리 이동 수식
+이 예제의 `party`는 `main`이 끝날 때까지 살아 있고 크기가 바뀌지 않는 내장 배열이다. 동적 컨테이너의 요소를 가리키는 포인터는 컨테이너 재할당 등으로 무효화될 수 있으므로 해당 컨테이너의 무효화 규칙을 별도로 확인해야 한다.
 
-포인터에 정수값 $N$을 더하거나 뺄 때, 실제 메모리 주소가 이동하는 변위량은 다음과 같은 수식으로 계산됨
+## 포인터 산술을 사용할 때 확인할 기준
 
-$$\text{New Address} = \text{Current Address} + (N \times \text{sizeof}(\text{Type}))$$
+포인터에 정수를 더하거나 빼기 전에 다음 내용을 확인한다.
 
-* $\text{sizeof}(\text{Type})$: 포인터가 가리키는 자료형의 크기(Byte)를 의미함
-* 예시: `int*` (4바이트) 타입 포인터에 $+1$을 연산하면 실제 메모리 주소는 $+4$번지 이동함
+1. 포인터가 어떤 배열 객체의 요소를 가리키는가?
+2. 계산 결과가 같은 배열 요소 또는 마지막 다음 위치인가?
+3. 마지막 다음 포인터를 역참조하고 있지는 않은가?
+4. 시작과 끝 포인터가 같은 배열에서 만들어졌는가?
+5. 포인터 뺄셈과 순서 비교의 두 대상이 같은 배열 범위에 있는가?
+6. 포인터와 개수를 따로 전달한다면 실제 요소 수가 일치하는가?
+7. 배열이 포인터로 변환된 뒤 크기 정보를 잃었다는 점을 고려했는가?
+8. `std::span`이나 컨테이너 반복문으로 범위를 더 명확하게 표현할 수 있는가?
 
-## 배열 밖 주소는 역참조하지 않는다
+포인터 산술은 메모리 전체를 탐색하는 기능이 아니다. 하나의 배열이라는 객체 관계 안에서 요소 위치를 계산하는 제한된 연산이다. 숫자로 보이는 주소가 연속되어 있다는 이유만으로 서로 다른 객체 사이를 이동하지 않는다.
 
-### 핵심 요약 및 주의사항
+## 다음 학습: 값·포인터·참조 전달의 계약 비교
 
-* **타입 의존적 산술 연산:** 포인터의 산술 연산은 단순한 덧셈이 아니라 '다음 데이터가 있는 위치'로의 이동을 의미
-* **메모리 이탈 주의:** 포인터 산술 연산을 통해 이동할 때, 할당된 메모리 영역(배열 크기 등)을 벗어나면 정의되지 않은 동작(Undefined Behavior)이나 런타임 에러가 발생하므로 경계 검사가 필수
-* **연산자 우선순위:** `*ptr.member`로 작성하면 `.` 연산자가 `*`보다 우선순위가 높아 에러가 발생하므로, 반드시 `(*ptr).member`로 묶거나 직관적인 `ptr->member`를 사용
+포인터 하나만 함수에 전달하면 배열 길이와 소유권 정보가 함께 전달되지 않는다. 시작과 끝 또는 포인터와 개수를 함께 관리해야 하며, `std::span`은 비소유 연속 범위를 하나의 타입으로 표현한다.
 
-### Tip
-
-* **포인터 크기:** 흔한 환경에서는 데이터 포인터 크기가 같지만 C++이 모든 종류의 포인터 크기를 동일하게 보장하지는 않는다. 필요하면 `sizeof`로 대상 구현을 확인한다.
-* **배열과의 관계:** 배열 식은 대부분의 표현식에서 첫 요소를 가리키는 포인터로 변환된다. `sizeof`, 주소 연산자, 참조 바인딩 등 변환되지 않는 문맥도 있다.
-* **초기화 습관:** 가리킬 주소가 명확하지 않은 포인터를 연산하거나 역참조하면 치명적인 오류가 발생하므로, 선언 시점에는 가급적 `nullptr`로 초기화하는 습관이 필요
-
-포인터 산술은 같은 배열 객체의 요소와 마지막 요소 바로 다음 위치(one-past-the-end)까지만 의미가 있다. 마지막 다음 포인터는 반복 종료 비교에는 사용할 수 있지만 역참조할 수 없다. 서로 무관한 객체를 가리키는 포인터의 뺄셈이나 순서 비교도 일반적으로 유효하지 않다.
-
-## 마무리
-
-포인터 산술은 임의의 메모리 주소 계산 기능이 아니라 배열 순회를 위한 제한된 규칙이다. 시작과 끝을 함께 전달하거나 `std::span`을 사용하면 포인터 하나만 전달할 때 잃어버리는 범위 정보를 보존할 수 있다.
+다음 글에서는 함수 매개변수로 값, 포인터, 참조를 사용할 때 호출자의 원본을 수정할 수 있는지, 대상이 없을 수 있는지, 복사본이 필요한지를 비교한다. 단순한 “어느 방식이 더 빠른가?”보다 함수가 요구하고 보장하는 계약을 기준으로 선택한다.

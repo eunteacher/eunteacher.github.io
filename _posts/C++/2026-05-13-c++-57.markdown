@@ -1,0 +1,502 @@
+---
+layout: post
+title: '[C++ 57] vector의 size와 capacity: 동적 배열의 요소 수와 저장 공간 구분하기'
+date: 2026-05-13
+categories: [Dev, C++]
+tags: [C++, STL, Vector, Size, Capacity]
+---
+
+고정 배열은 타입에 요소 수가 포함되거나 선언 시 정한 크기의 저장 공간을 사용한다. 실행 중 아이템 수가 늘고 줄어드는 상황에서는 필요한 크기를 미리 확정하기 어렵다.
+
+`std::vector`는 요소를 연속된 저장 공간에 보관하면서 실행 중 요소 수를 변경할 수 있는 표준 컨테이너다. 겉으로는 크기가 늘어나는 배열처럼 보이지만 현재 존재하는 요소 수인 `size`와 다시 할당하지 않고 담을 수 있는 요소 수인 `capacity`를 구분해야 동작을 정확히 이해할 수 있다.
+
+## vector는 타입이 같은 요소를 연속해서 저장한다
+
+정수 벡터를 만든다.
+
+```cpp
+#include <vector>
+
+std::vector<int> values;
+```
+
+요소는 배열처럼 연속된 저장 공간에 배치된다. 인덱스로 임의 접근할 수 있고 `data()`로 첫 요소를 가리키는 포인터를 얻을 수 있다.
+
+```cpp
+values.push_back(10);
+values.push_back(20);
+values.push_back(30);
+
+assert(values[1] == 20);
+assert(values.data()[2] == 30);
+```
+
+연속 저장이라는 성질 덕분에 캐시 지역성과 C 스타일 배열을 받는 API 연동에 유용하다. 다만 벡터가 비어 있을 때 `data()`의 반환값을 역참조해서는 안 된다.
+
+`std::vector<bool>`은 비트를 압축해 저장할 수 있도록 특수화돼 일반 `vector<T>`와 참조 동작이 다르다. 연속된 `bool` 객체 배열이 필요하다고 가정하지 않는다.
+
+## size는 현재 살아 있는 요소의 개수다
+
+빈 벡터의 `size()`는 0이다.
+
+```cpp
+std::vector<int> values;
+assert(values.size() == 0);
+assert(values.empty());
+```
+
+`push_back`으로 요소를 추가하면 새 요소가 벡터의 끝에 생성되고 `size`가 증가한다.
+
+```cpp
+values.push_back(10);
+values.push_back(20);
+
+assert(values.size() == 2);
+assert(!values.empty());
+```
+
+유효한 인덱스 범위는 항상 다음과 같다.
+
+```text
+0 <= index < size()
+```
+
+`capacity`가 100이더라도 `size`가 2라면 인덱스 2부터 99까지 요소가 존재하는 것이 아니다.
+
+## capacity는 재할당 없이 담을 수 있는 요소 수다
+
+벡터는 매번 요소 하나만 들어갈 저장 공간을 다시 확보하지 않는다. 현재 저장 공간이 수용할 수 있는 요소 수를 `capacity()`로 알려 준다.
+
+```cpp
+std::vector<int> values;
+
+for (int value = 0; value < 10; ++value)
+{
+    values.push_back(value);
+    std::cout << values.size() << ' ' << values.capacity() << '\n';
+}
+```
+
+표준이 보장하는 기본 관계는 다음과 같다.
+
+```text
+size() <= capacity()
+```
+
+`size() < capacity()`라면 현재 저장 공간 안에 새 요소를 만들 여유가 있다. `size() == capacity()`인 상태에서 요소를 추가하면 더 큰 저장 공간을 확보하는 재할당이 필요할 수 있다.
+
+재할당 과정은 개념적으로 다음과 같다.
+
+```text
+1. 더 큰 연속 저장 공간 확보
+2. 기존 요소를 새 공간으로 이동하거나 복사
+3. 기존 요소와 저장 공간 정리
+4. 새 요소 추가
+```
+
+요소 타입의 이동·복사 가능 여부와 예외 조건에 따라 실제 처리 방식이 달라질 수 있다.
+
+## capacity 증가 배율은 표준이 정하지 않는다
+
+원본은 벡터가 기존 용량의 1.5배 또는 2배로 증가한다고 설명한다. 실제 구현에서 흔히 볼 수 있는 전략이지만 C++ 표준이 특정 증가 수열을 보장하지 않는다.
+
+```text
+구현 A: 1, 2, 4, 8, ...
+구현 B: 1, 2, 3, 4, 6, 9, ...
+구현 C: 다른 성장 정책
+```
+
+코드에서 다음 용량이 정확히 얼마가 될지 의존해서는 안 된다.
+
+```cpp
+values.push_back(10);
+// assert(values.capacity() == 1); // 이 정확한 값은 이식 가능한 보장이 아님
+```
+
+의존할 수 있는 것은 `capacity`가 현재 `size` 이상이고, 필요한 공간이 부족하면 벡터가 요구를 수용할 저장 공간을 마련한다는 컨테이너 계약이다.
+
+증가 배율은 매번 정확한 크기로 재할당하는 비용과 사용하지 않는 여유 공간 사이의 균형을 위한 구현 정책이다.
+
+## push_back은 요소를 추가하지만 operator[]는 기존 요소에 접근한다
+
+빈 벡터에 인덱스로 값을 대입할 수 없다.
+
+```cpp
+std::vector<int> values;
+// values[0] = 10; // 요소가 존재하지 않으므로 범위를 벗어남
+```
+
+용량만 예약해도 요소는 생기지 않는다.
+
+```cpp
+values.reserve(100);
+assert(values.size() == 0);
+// values[0] = 10; // 여전히 요소가 없음
+```
+
+새 요소를 만들려면 `push_back`, `emplace_back`, `resize`나 요소 수를 지정하는 생성자 등을 사용한다.
+
+```cpp
+values.push_back(10);
+values[0] = 20;
+```
+
+`operator[]`는 유효한 기존 요소에 빠르게 접근하는 함수이며 벡터 크기를 자동으로 늘리는 함수가 아니다.
+
+## reserve는 저장 공간을 예약하고 size를 바꾸지 않는다
+
+추가할 요소 수를 예상할 수 있다면 `reserve`로 필요한 용량을 미리 요청할 수 있다.
+
+```cpp
+std::vector<int> values;
+values.reserve(1000);
+
+assert(values.size() == 0);
+assert(values.capacity() >= 1000);
+```
+
+`reserve(1000)`은 최소 1000개 요소를 재할당 없이 담을 수 있는 용량을 확보하라는 요청이다. 정수 요소 1000개를 생성하지 않는다.
+
+```cpp
+for (int value = 0; value < 1000; ++value)
+{
+    values.push_back(value);
+}
+```
+
+예상 크기를 한 번 예약하면 반복 추가 중 발생할 수 있는 재할당 횟수를 줄일 수 있다. 무조건 큰 값을 예약하면 사용하지 않는 메모리를 오래 보유하므로 합리적으로 예상할 수 있는 경우에 사용한다.
+
+현재 용량보다 작거나 같은 값을 `reserve`에 전달해도 용량을 줄이지 않는다.
+
+```cpp
+values.reserve(10);
+// 기존 capacity가 1000이라면 reserve(10)으로 줄어들지 않음
+```
+
+## resize는 실제 요소 수를 변경한다
+
+`resize`는 `size`를 바꾼다.
+
+```cpp
+std::vector<int> values;
+values.resize(5);
+
+assert(values.size() == 5);
+```
+
+크기를 늘리면 새 요소가 생성된다. `int`의 경우 값 초기화된 요소는 0이 된다.
+
+```cpp
+for (int value : values)
+{
+    assert(value == 0);
+}
+```
+
+초깃값을 지정할 수도 있다.
+
+```cpp
+values.resize(10, 7);
+```
+
+기존 5개 요소는 유지되고 새로 추가된 5개 요소가 7로 생성된다. 크기를 줄이면 범위 밖으로 밀려난 요소들의 수명이 끝난다.
+
+```cpp
+values.resize(3);
+assert(values.size() == 3);
+```
+
+줄어든 `size`와 별개로 `capacity`는 그대로 유지될 수 있다.
+
+## reserve와 resize는 목적이 완전히 다르다
+
+두 함수를 다음처럼 구분한다.
+
+| 함수 | size 변화 | capacity에 미치는 영향 | 새 요소 생성 |
+|---|---:|---|---:|
+| `reserve(n)` | 없음 | 필요하면 최소 n까지 증가 | 아니오 |
+| `resize(n)` | n으로 변경 | 필요하면 증가 가능 | 늘릴 때 생성 |
+
+1000개를 나중에 `push_back`할 계획이면 `reserve(1000)`이 자연스럽다.
+
+```cpp
+values.reserve(1000);
+
+for (int value = 0; value < 1000; ++value)
+{
+    values.push_back(value);
+}
+```
+
+지금 즉시 1000개의 기본 요소가 필요하다면 `resize(1000)` 또는 생성자를 사용한다.
+
+```cpp
+std::vector<int> values(1000, 0);
+```
+
+`resize(1000)` 뒤에 다시 1000번 `push_back`하면 최종 요소 수는 2000이 된다. 예약과 요소 생성을 혼동하지 않는다.
+
+## clear는 요소를 제거하지만 용량 반환을 보장하지 않는다
+
+`clear`는 모든 요소를 제거해 `size`를 0으로 만든다.
+
+```cpp
+std::vector<int> values{1, 2, 3, 4};
+std::size_t oldCapacity = values.capacity();
+
+values.clear();
+
+assert(values.empty());
+assert(values.size() == 0);
+assert(values.capacity() == oldCapacity);
+```
+
+표준 `vector::clear`는 용량을 바꾸지 않는다. 확보한 저장 공간을 이후 요소 추가에 재사용할 수 있다.
+
+클래스 타입 요소라면 `clear`에서 각 요소의 소멸자가 호출된다. 저장 공간의 용량과 그 안에 살아 있는 객체의 수명은 별개의 개념이다.
+
+```cpp
+std::vector<Monster> monsters(3);
+monsters.clear(); // Monster 세 개의 수명 종료, capacity는 유지
+```
+
+## 메모리 반환 요청은 shrink_to_fit으로 표현할 수 있다
+
+더 이상 큰 용량이 필요하지 않다면 `shrink_to_fit`으로 `capacity`를 `size`에 맞게 줄여 달라고 요청할 수 있다.
+
+```cpp
+values.clear();
+values.shrink_to_fit();
+```
+
+하지만 `shrink_to_fit`은 비구속 요청이다. 구현이 실제로 용량을 줄이지 않을 수 있으므로 다음 코드를 표준 보장처럼 사용하면 안 된다.
+
+```cpp
+// assert(values.capacity() == 0); // 보장되지 않음
+```
+
+`std::vector<int>().swap(values)`처럼 빈 임시 벡터와 교환하는 관용구도 알려져 있지만 할당자 조건과 순간적인 메모리 사용, 참조 무효화를 고려해야 한다. 일반 코드에서는 메모리를 정말 즉시 돌려줘야 하는지 측정하고 컨테이너 수명 자체를 끝낼 수 없는지도 먼저 확인한다.
+
+용량을 줄이는 작업은 다시 요소를 늘릴 때 재할당을 만들 수 있다. `clear`할 때마다 습관적으로 축소하지 않는다.
+
+## 빈 vector에서 front, back과 pop_back을 호출하면 안 된다
+
+원본은 벡터를 비운 뒤 다음 함수를 호출한다.
+
+```cpp
+values.clear();
+values.front();
+values.back();
+values.pop_back();
+```
+
+`front`와 `back`은 첫 요소와 마지막 요소를 반환하며 `pop_back`은 마지막 요소를 제거한다. 세 함수 모두 벡터가 비어 있지 않아야 한다.
+
+```cpp
+if (!values.empty())
+{
+    int first = values.front();
+    int last = values.back();
+    values.pop_back();
+}
+```
+
+빈 벡터에서 호출하면 함수의 전제 조건을 위반한다. 디버그 라이브러리가 오류를 감지할 수 있지만 특정 예외가 항상 발생한다고 기대하지 않는다.
+
+`pop_back`은 값을 반환하지 않는다. 마지막 값을 보관하려면 제거 전에 `back`으로 읽는다.
+
+```cpp
+int last = values.back();
+values.pop_back();
+```
+
+## 생성자 괄호와 중괄호는 다른 의미를 가질 수 있다
+
+괄호 생성자는 요소 수와 초깃값을 지정한다.
+
+```cpp
+std::vector<int> first(3, 7);
+```
+
+```text
+first = {7, 7, 7}
+```
+
+중괄호는 initializer list의 실제 요소를 나열한다.
+
+```cpp
+std::vector<int> second{3, 7};
+```
+
+```text
+second = {3, 7}
+```
+
+표면적으로 비슷하지만 `size`가 각각 3과 2다.
+
+```cpp
+assert(first.size() == 3);
+assert(second.size() == 2);
+```
+
+벡터 생성 코드를 읽을 때 괄호와 중괄호의 생성자 선택 차이를 확인한다.
+
+## 복사는 요소와 크기를 독립적인 vector로 복제한다
+
+벡터는 자신이 소유한 저장 공간과 요소 수명을 관리한다.
+
+```cpp
+std::vector<int> original{1, 2, 3};
+std::vector<int> copied = original;
+```
+
+`copied`는 별도의 저장 공간에 요소를 복사한다. 한 벡터의 요소를 바꿔도 다른 벡터에는 영향을 주지 않는다.
+
+```cpp
+copied[0] = 100;
+
+assert(original[0] == 1);
+assert(copied[0] == 100);
+```
+
+요소 타입의 복사 의미가 벡터 요소 복사에 사용된다. 복사할 수 없는 요소 타입을 가진 벡터에서는 해당 복사 연산을 사용할 수 없다.
+
+## 전체 구현
+
+`reserve`, `push_back`, `clear`, `resize`와 생성자 차이를 검증한다.
+
+```cpp
+#include <cassert>
+#include <iostream>
+#include <vector>
+
+class Monster
+{
+public:
+    Monster()
+    {
+        ++aliveCount_;
+    }
+
+    Monster(const Monster&)
+    {
+        ++aliveCount_;
+    }
+
+    Monster& operator=(const Monster&) = default;
+
+    ~Monster()
+    {
+        --aliveCount_;
+    }
+
+    static int AliveCount()
+    {
+        return aliveCount_;
+    }
+
+private:
+    inline static int aliveCount_ = 0;
+};
+
+void VerifyCapacity()
+{
+    std::vector<int> values;
+    values.reserve(8);
+
+    assert(values.empty());
+    assert(values.capacity() >= 8);
+
+    const std::size_t reservedCapacity = values.capacity();
+
+    for (int value = 1; value <= 5; ++value)
+    {
+        values.push_back(value * 10);
+    }
+
+    assert(values.size() == 5);
+    assert(values.capacity() == reservedCapacity);
+    assert(values.front() == 10);
+    assert(values.back() == 50);
+
+    values.pop_back();
+    assert(values.size() == 4);
+    assert(values.back() == 40);
+
+    values.clear();
+    assert(values.empty());
+    assert(values.capacity() == reservedCapacity);
+
+    values.resize(3, 7);
+    assert(values.size() == 3);
+    assert(values[0] == 7 && values[2] == 7);
+
+    std::cout << std::boolalpha;
+    std::cout << "Reserved at least 8: " << (reservedCapacity >= 8) << '\n';
+    std::cout << "Size after resize: " << values.size() << '\n';
+}
+
+void VerifyElementLifetime()
+{
+    assert(Monster::AliveCount() == 0);
+
+    std::vector<Monster> monsters(3);
+    assert(Monster::AliveCount() == 3);
+
+    const std::size_t capacity = monsters.capacity();
+    monsters.clear();
+
+    assert(Monster::AliveCount() == 0);
+    assert(monsters.capacity() == capacity);
+}
+
+void VerifyConstructors()
+{
+    std::vector<int> repeated(3, 7);
+    std::vector<int> listed{3, 7};
+
+    assert(repeated.size() == 3);
+    assert(repeated[0] == 7 && repeated[2] == 7);
+    assert(listed.size() == 2);
+    assert(listed[0] == 3 && listed[1] == 7);
+}
+
+int main()
+{
+    VerifyCapacity();
+    VerifyElementLifetime();
+    VerifyConstructors();
+}
+```
+
+실행 결과는 다음과 같다.
+
+```text
+Reserved at least 8: true
+Size after resize: 3
+```
+
+`reserve(8)` 뒤 `size`는 여전히 0이고 용량은 최소 8이다. 5개 요소를 추가하는 동안 예약된 용량을 넘지 않으므로 `capacity`가 유지된다.
+
+`clear`는 정수 요소를 모두 제거하지만 예약 용량을 유지한다. `Monster` 벡터에서는 세 요소의 소멸로 생존 수가 0이 되지만 저장 공간 용량은 그대로라는 점을 별도로 확인한다.
+
+괄호로 만든 벡터는 값 7을 가진 요소 3개이고 중괄호로 만든 벡터는 값 3과 7을 가진 요소 2개다.
+
+## vector 크기를 검토할 때 확인할 기준
+
+1. 현재 존재하는 요소 수인 `size`와 저장 가능 수인 `capacity`를 구분하는가?
+2. 유효한 인덱스를 `0`부터 `size - 1`로 제한하는가?
+3. `reserve` 뒤 요소가 생겼다고 가정해 `operator[]`를 사용하지 않는가?
+4. 요소 추가에는 `push_back`·`emplace_back`, 요소 수 변경에는 `resize`를 사용하는가?
+5. 예상 요소 수가 명확할 때만 합리적인 크기로 `reserve`하는가?
+6. 특정 capacity 증가 배율을 표준 보장처럼 의존하지 않는가?
+7. `clear`가 요소를 제거하지만 용량은 유지한다는 점을 고려하는가?
+8. 빈 벡터에서 `front`, `back`, `pop_back`을 호출하지 않는가?
+9. 괄호 생성자와 initializer list 생성자의 차이를 확인하는가?
+10. 메모리 축소 요청이 다시 증가할 때의 재할당 비용보다 실제로 필요한가?
+
+`vector`를 이해하는 핵심은 “자동으로 커지는 배열”이라는 문장보다 객체 수와 저장 공간을 분리하는 데 있다. `size`는 살아 있는 요소의 범위이고 `capacity`는 다음 재할당 전까지 활용할 수 있는 저장 공간이다.
+
+## 다음 학습: vector 반복자와 재할당으로 인한 무효화
+
+다음 글에서는 벡터 요소를 가리키는 반복자, 포인터와 참조가 언제 무효가 되는지 살펴본다. 중간 삽입·삭제의 이동 비용과 `erase` 반환값을 이용한 안전한 순회도 함께 정리한다.

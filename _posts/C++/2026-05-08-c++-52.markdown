@@ -1,0 +1,609 @@
+---
+layout: post
+title: '[C++ 52] 소유권과 객체 수명 오류: 잘못된 delete와 댕글링 포인터 추적하기'
+date: 2026-05-08
+categories: [Dev, C++]
+tags: [C++, Ownership, Virtual Destructor, Double Delete, Dangling Pointer]
+---
+
+포인터 오류는 `delete`가 실행된 줄에서 처음 생긴다고 보기 어렵다. 객체를 만든 시점에 소유자가 정해지지 않았거나, 여러 객체가 자신이 소유자라고 생각하거나, 수명이 끝난 객체의 주소를 다른 포인터가 계속 보관하면서 이미 문제가 시작됐을 수 있다.
+
+이번 글에서는 플레이어와 펫, 화살 실습에서 발생한 비가상 소멸자, 잘못된 해제, 이중 해제와 해제 후 사용을 살펴본다. 각 주소가 누구의 객체를 가리키는지보다 누가 그 객체의 수명을 끝낼 권한과 책임을 갖는지 먼저 추적한다.
+
+## 포인터는 소유권을 자동으로 설명하지 않는다
+
+같은 `Pet*` 멤버라도 여러 의미를 가질 수 있다.
+
+```cpp
+Pet* pet_;
+```
+
+```text
+독점 소유  Archer가 Pet을 생성·제거하며 다른 소유자는 없음
+공유 소유  여러 객체가 Pet의 수명을 함께 유지
+비소유 관찰 Pet은 다른 곳이 소유하고 Archer는 잠시 참조
+```
+
+원시 포인터 타입만으로는 셋을 구분할 수 없다. 생성자에서 포인터를 받았다는 사실도 소유권이 이전됐다는 뜻은 아니다.
+
+```cpp
+Archer(Pet* pet) : pet_(pet)
+{
+}
+```
+
+이 생성자를 호출하기 전에 계약을 정해야 한다.
+
+- `Archer`가 소멸할 때 `delete pet_`를 실행하는가?
+- 호출자는 전달 후 포인터를 다시 해제하면 안 되는가?
+- null을 전달할 수 있는가?
+- 스택에 만든 `Pet`의 주소도 전달할 수 있는가?
+
+코드 전체에서 답이 하나로 일치하지 않으면 누수, 이중 해제와 잘못된 해제가 생긴다.
+
+## 사례 1: 기반 포인터로 제거했는데 파생 소멸자가 호출되지 않는다
+
+### 증상
+
+`Player*`로 `Knight`, `Archer`, `Mage`를 반복 생성하고 제거한다. 궁수가 소유한 펫이 계속 남아 메모리 사용량이 증가한다.
+
+```cpp
+Player* player = new Archer;
+delete player;
+```
+
+### 확인 과정
+
+`Player::~Player`, `Archer::~Archer`와 `Pet::~Pet`에 중단점을 두거나 생존 객체 수를 기록한다. 기반 포인터로 삭제할 때 `Archer`와 `Pet` 정리가 호출되는지 확인한다.
+
+호출 위치의 정적 타입은 `Player*`지만 실제 동적 객체는 `Archer`다.
+
+### 원인
+
+기반 클래스 소멸자가 가상이 아닌 상태에서 기반 포인터를 통해 파생 객체를 `delete`하면 동작이 정의되지 않는다.
+
+```cpp
+class Player
+{
+public:
+    ~Player(); // 비가상 소멸자
+};
+```
+
+단지 `Archer` 소멸자가 생략돼 펫만 누수된다고 결과를 한정할 수 없다. 정의되지 않은 동작이므로 크래시, 겉보기 정상 실행 등 어떤 결과도 신뢰할 수 없다.
+
+### 수정
+
+다형적으로 소유하고 기반 포인터로 제거할 클래스는 공개 가상 소멸자를 제공한다.
+
+```cpp
+class Player
+{
+public:
+    virtual ~Player() = default;
+};
+
+class Archer final : public Player
+{
+public:
+    ~Archer() override;
+};
+```
+
+이제 제거 순서는 다음과 같다.
+
+```text
+~Archer() → Archer의 멤버 정리 → ~Player()
+```
+
+### 검증
+
+파생 객체와 소유 자원의 생존 수를 확인한다.
+
+```cpp
+Player* player = new Archer;
+assert(Pet::AliveCount() == 1);
+
+delete player;
+assert(Pet::AliveCount() == 0);
+```
+
+프로세스 메모리가 바로 증가하지 않는다는 관찰보다 실제 파생 소멸 경로와 자원 수를 검증한다.
+
+## 사례 2: 전달받은 스택 객체를 delete했다
+
+### 증상
+
+외부에서 만든 펫의 주소를 궁수에게 전달한 뒤 궁수 소멸자에서 `delete pet_`를 실행하면 프로그램이 중단될 수 있다.
+
+```cpp
+Pet pet;
+Player* player = new Archer(&pet);
+delete player;
+```
+
+### 확인 과정
+
+`pet_`가 어디서 만들어졌는지 생성 경로를 거슬러 올라간다. `new Pet`의 반환값이 아니라 블록 안의 지역 객체 `pet` 주소임을 확인한다.
+
+```text
+Pet pet;      자동 저장 기간
+&pet          지역 객체 주소
+delete &pet;  new로 얻은 포인터가 아님
+```
+
+### 원인
+
+일반 `delete` 표현식에는 호환되는 `new` 표현식이 반환한 포인터가 필요하다. 자동 저장 기간 객체의 주소를 전달하면 `delete`할 수 있는 동적 객체로 바뀌지 않는다.
+
+지역 객체는 블록을 벗어날 때 자동으로 소멸한다. 궁수가 먼저 강제로 제거하려 하면 잘못된 해제가 되고, 이후 블록 종료 시 언어가 다시 소멸시키려는 문제도 생긴다.
+
+### 수정
+
+소유권 정책에 따라 구조를 선택한다.
+
+궁수가 펫을 항상 소유하고 수명이 같다면 값 멤버가 가장 단순하다.
+
+```cpp
+class Archer final : public Player
+{
+private:
+    Pet pet_;
+};
+```
+
+외부 펫을 관찰만 한다면 소멸자에서 해제하지 않는다.
+
+```cpp
+class Archer final : public Player
+{
+public:
+    explicit Archer(Pet& pet) : pet_(&pet)
+    {
+    }
+
+private:
+    Pet* pet_; // 비소유 포인터
+};
+```
+
+이 경우 호출자는 `Pet`이 `Archer`보다 오래 살아 있도록 보장해야 한다. 독점 동적 소유를 이전하려면 이후 배울 `std::unique_ptr<Pet>`이 계약을 더 분명하게 표현한다.
+
+### 검증
+
+값 멤버 방식에서는 궁수 하나를 만들 때 펫 하나가 함께 생기고 궁수 수명 종료와 함께 정확히 한 번 정리되는지 확인한다.
+
+```cpp
+{
+    Archer archer;
+    assert(Pet::AliveCount() == 1);
+}
+
+assert(Pet::AliveCount() == 0);
+```
+
+## 사례 3: 펫을 죽을 때 제거하고 소멸자에서 다시 제거했다
+
+### 증상
+
+궁수가 사망하면 펫도 즉시 제거하는 기능을 추가한 뒤 궁수 객체를 삭제할 때 프로그램이 중단된다.
+
+```cpp
+void Archer::AddHp(int value)
+{
+    Player::AddHp(value);
+
+    if (IsDead())
+    {
+        delete pet_;
+    }
+}
+
+Archer::~Archer()
+{
+    delete pet_;
+}
+```
+
+### 확인 과정
+
+`delete pet_` 두 곳에 중단점을 두고 같은 주소가 전달되는지 조사한다.
+
+```text
+사망 처리: delete pet_  주소 0x...
+소멸자:    delete pet_  같은 주소 0x...
+```
+
+첫 번째 해제 뒤 `pet_`가 어떤 객체도 가리키지 않는 댕글링 포인터가 됐지만 주소 값 자체는 남아 있다.
+
+### 원인
+
+같은 객체를 두 번 제거하면 정의되지 않은 동작이다. `if (pet_ != nullptr)` 검사만으로는 막을 수 없다. 첫 번째 `delete`가 포인터 변수의 값을 자동으로 null로 바꾸지 않기 때문이다.
+
+```cpp
+delete pet_;
+// pet_에는 이전 주소 값이 그대로 남을 수 있음
+```
+
+### 수정
+
+원시 포인터를 유지한다면 해제 작업을 한 함수에 모으고 해제 직후 null로 만든다.
+
+```cpp
+void Archer::DestroyPet()
+{
+    delete pet_;
+    pet_ = nullptr;
+}
+```
+
+사망 처리와 소멸자는 같은 함수를 사용한다.
+
+```cpp
+if (IsDead())
+{
+    DestroyPet();
+}
+
+Archer::~Archer()
+{
+    DestroyPet();
+}
+```
+
+하지만 펫이 궁수와 동일한 수명을 가져도 된다면 값 멤버가 더 간단하고, 별도의 동적 수명이 필요하면 `std::unique_ptr`의 `reset`과 자동 소멸을 사용하는 편이 안전하다.
+
+### 검증
+
+사망 처리 후 펫 수가 0이고 궁수 소멸 때 추가 해제가 발생하지 않는지 확인한다. 같은 함수가 두 번 호출돼도 상태가 유지되는지도 확인한다.
+
+```cpp
+archer.TakeDamage(100);
+assert(Pet::AliveCount() == 0);
+
+delete player;
+assert(Pet::AliveCount() == 0);
+```
+
+## 사례 4: 화살이 제거된 기사의 주소를 계속 보관한다
+
+### 증상
+
+화살 10개가 하나의 기사를 비소유 포인터로 가리킨다. 몇 번째 화살에서 기사가 사망해 제거된 뒤 남은 화살이 같은 대상을 공격하면 잘못된 메모리 접근이 발생한다.
+
+```cpp
+Arrow* arrows[10]{};
+
+for (int i = 0; i < 10; ++i)
+{
+    arrows[i] = new Arrow(knight, damage);
+}
+```
+
+### 확인 과정
+
+기사 제거 직후 세 주소를 비교한다.
+
+```text
+외부 변수 knight      nullptr로 변경
+arrows[5].target_      이전 기사 주소 유지
+arrows[6].target_      이전 기사 주소 유지
+```
+
+`knight = nullptr`는 그 포인터 변수 하나만 바꾼다. 같은 객체를 가리키던 모든 `Arrow::target_`이 자동으로 null이 되지 않는다.
+
+### 원인
+
+기사가 제거되면 화살의 `target_`은 수명이 끝난 객체를 가리키는 댕글링 포인터가 된다.
+
+```cpp
+delete knight;
+knight = nullptr;
+// arrow.target_에는 삭제 전 주소가 남아 있음
+```
+
+원본 수정본은 외부 `knight != nullptr` 조건으로 남은 화살의 `AttackTarget` 호출을 건너뛴다. 해당 실행 경로에서는 댕글링 포인터를 역참조하지 않아 증상을 피하지만 각 화살 내부의 잘못된 주소 자체가 정리된 것은 아니다.
+
+또한 원본 주석의 “화살 target이 nullptr이라서 크래시”는 제시된 `AttackTarget` 구현과 맞지 않는다. 함수는 null을 검사하므로 null 포인터라면 공격을 건너뛴다. 실제 위험은 null이 아니라 삭제된 객체의 이전 주소가 남는 경우다.
+
+### 수정
+
+한 함수 안에서 화살을 즉시 사용하고 대상보다 먼저 화살이 사라지는 구조라면 참조로 null 불가와 수명 전제를 표현할 수 있다.
+
+```cpp
+class Arrow
+{
+public:
+    Arrow(Player& target, int damage) : target_(target), damage_(damage)
+    {
+    }
+
+    void Hit()
+    {
+        target_.TakeDamage(damage_);
+    }
+
+private:
+    Player& target_;
+    int damage_;
+};
+```
+
+이 구조에서도 `Player`가 `Arrow`보다 오래 살아야 한다. 참조는 수명 연장 장치가 아니다.
+
+화살이 여러 프레임 동안 살아 있고 대상이 먼저 제거될 수 있다면 대상 파괴 알림, 안정적인 객체 ID 조회, 엔진의 약한 참조 또는 `std::weak_ptr` 같은 별도의 관찰 정책이 필요하다. 나중에 스마트 포인터 편에서 구체적으로 다룬다.
+
+### 검증
+
+대상이 살아 있는 범위 안에서만 화살을 생성하고 즉시 충돌 처리를 완료한다.
+
+```cpp
+Knight knight;
+
+{
+    Arrow arrow{knight, 20};
+    arrow.Hit();
+}
+
+assert(knight.Hp() == 130);
+```
+
+장기 보관 구조라면 대상 소멸 후 `Hit`가 안전하게 실패하는 테스트가 별도로 필요하다.
+
+## nullptr은 소유권과 다른 별칭을 정리하지 않는다
+
+해제 직후 소유 포인터를 null로 만드는 습관은 동일 변수의 재사용을 줄이는 데 도움이 된다.
+
+```cpp
+delete player;
+player = nullptr;
+```
+
+하지만 다음 문제는 해결하지 않는다.
+
+- 다른 별칭 포인터가 같은 객체 주소를 보관한다.
+- 누가 삭제할 책임이 있는지 여러 객체가 다르게 이해한다.
+- 스택 객체 주소를 소유 포인터처럼 전달한다.
+- 이미 댕글링 상태인 포인터가 null이 아닌 값을 가진다.
+
+따라서 `pointer != nullptr`은 객체가 살아 있다는 증명이 아니다. null 검사는 “주소 값이 비어 있는가?”만 확인한다.
+
+## 사례 5: 상호 반격이 호출 스택을 계속 쌓는다
+
+반격 실습은 직접적인 `delete` 오류는 아니지만 크래시 증상을 수명 오류와 구분할 필요가 있다.
+
+```cpp
+void Player::OnDamaged(Player* attacker)
+{
+    TakeDamage(attacker->AttackDamage());
+    attacker->OnDamaged(this);
+}
+```
+
+두 플레이어가 서로를 호출하면서 호출 스택이 계속 깊어진다.
+
+```text
+k1.OnDamaged(k2)
+└─ k2.OnDamaged(k1)
+   └─ k1.OnDamaged(k2)
+      └─ ...
+```
+
+공격력이 0이거나 체력이 줄지 않는 조건이면 종료되지 않는다. 체력이 줄어 결국 사망하더라도 전투 길이만큼 재귀 프레임을 쌓는 구조는 불필요하다.
+
+반격은 새로운 재귀 호출보다 전투를 조율하는 함수에서 순서대로 처리한다.
+
+```cpp
+void ExchangeAttacks(Player& first, Player& second)
+{
+    second.TakeDamage(first.AttackDamage());
+
+    if (!second.IsDead())
+    {
+        first.TakeDamage(second.AttackDamage());
+    }
+}
+```
+
+한 번의 호출이 한 번의 공격과 가능한 반격만 처리하므로 종료 조건과 호출 깊이가 명확하다. 반복 전투가 필요하면 상위 게임 루프가 턴 수와 무승부 조건을 관리한다.
+
+## 소유권 표를 먼저 그리면 삭제 위치가 보인다
+
+동적 객체가 많은 코드에서는 포인터별 역할을 표로 정리한다.
+
+| 객체 | 생성 위치 | 소유자 | 관찰자 | 제거 위치 |
+|---|---|---|---|---|
+| `Archer` | 캐릭터 팩토리 | `Game` | 전투 시스템 | `Game` 또는 소유 핸들 |
+| `Pet` | `Archer` 구성 | `Archer` | UI | `Archer` 멤버 수명 종료 |
+| `Arrow` | 공격 처리 | 투사체 시스템 | 렌더링 시스템 | 충돌 또는 수명 만료 |
+| `Knight` 대상 | 게임 월드 | 게임 월드 | `Arrow` | 게임 월드 |
+
+관찰자는 객체를 임의로 `delete`하지 않는다. 소유자는 모든 정상·오류 경로에서 정확히 한 번 수명을 끝낸다. 소유권을 이전한다면 이전 시점 이후 기존 소유자가 제거하지 못하도록 타입과 인터페이스로 표현한다.
+
+## 전체 수정 구현
+
+동적 할당이 필요 없는 관계는 값과 참조로 표현하고 기반 클래스 소멸 계약을 유지한 예제다.
+
+```cpp
+#include <algorithm>
+#include <cassert>
+#include <iostream>
+
+class Pet
+{
+public:
+    Pet()
+    {
+        ++aliveCount_;
+    }
+
+    ~Pet()
+    {
+        --aliveCount_;
+    }
+
+    static int AliveCount()
+    {
+        return aliveCount_;
+    }
+
+private:
+    inline static int aliveCount_ = 0;
+};
+
+class Player
+{
+public:
+    Player(int hp, int attack) : hp_(std::max(1, hp)), attack_(std::max(0, attack))
+    {
+    }
+
+    virtual ~Player() = default;
+
+    void TakeDamage(int damage)
+    {
+        if (damage <= 0)
+        {
+            return;
+        }
+
+        hp_ = damage >= hp_ ? 0 : hp_ - damage;
+    }
+
+    bool IsDead() const
+    {
+        return hp_ == 0;
+    }
+
+    int Hp() const
+    {
+        return hp_;
+    }
+
+    int AttackDamage() const
+    {
+        return IsDead() ? 0 : attack_;
+    }
+
+private:
+    int hp_;
+    int attack_;
+};
+
+class Knight final : public Player
+{
+public:
+    Knight() : Player(150, 10)
+    {
+    }
+};
+
+class Archer final : public Player
+{
+public:
+    Archer() : Player(100, 20)
+    {
+    }
+
+    bool HasPet() const
+    {
+        return true;
+    }
+
+private:
+    Pet pet_;
+};
+
+class Arrow
+{
+public:
+    Arrow(Player& target, int damage) : target_(target), damage_(std::max(0, damage))
+    {
+    }
+
+    void Hit()
+    {
+        target_.TakeDamage(damage_);
+    }
+
+private:
+    Player& target_;
+    int damage_;
+};
+
+void ExchangeAttacks(Player& first, Player& second)
+{
+    second.TakeDamage(first.AttackDamage());
+
+    if (!second.IsDead())
+    {
+        first.TakeDamage(second.AttackDamage());
+    }
+}
+
+void VerifyLifetime()
+{
+    assert(Pet::AliveCount() == 0);
+
+    {
+        Player* player = new Archer;
+        assert(Pet::AliveCount() == 1);
+
+        delete player;
+        player = nullptr;
+        assert(Pet::AliveCount() == 0);
+    }
+
+    Knight knight;
+    {
+        Arrow arrow{knight, 20};
+        arrow.Hit();
+    }
+    assert(knight.Hp() == 130);
+
+    Archer archer;
+    assert(Pet::AliveCount() == 1);
+    ExchangeAttacks(archer, knight);
+    assert(knight.Hp() == 110);
+    assert(archer.Hp() == 90);
+
+    std::cout << "Knight HP: " << knight.Hp() << '\n';
+    std::cout << "Archer HP: " << archer.Hp() << '\n';
+}
+
+int main()
+{
+    VerifyLifetime();
+    assert(Pet::AliveCount() == 0);
+}
+```
+
+실행 결과는 다음과 같다.
+
+```text
+Knight HP: 110
+Archer HP: 90
+```
+
+첫 번째 궁수는 `Player*`로 제거되지만 가상 소멸자를 통해 값 멤버 `Pet`까지 정리된다. 화살은 기사가 살아 있는 중첩 블록 안에서만 존재하고 공격 후 먼저 소멸하므로 참조가 댕글링 상태로 사용되지 않는다.
+
+두 플레이어의 공격 교환은 재귀 없이 한 단계로 처리된다. 마지막 궁수가 블록을 벗어나면 값 멤버 펫도 자동으로 정리되며 `main`에서 생존 펫 수가 0인지 확인한다.
+
+## 수명 오류를 추적할 때 확인할 기준
+
+1. 각 동적 객체의 생성자와 유일한 제거 책임자를 말할 수 있는가?
+2. 원시 포인터가 소유인지 비소유인지 인터페이스에 드러나는가?
+3. 기반 포인터로 제거할 수 있는 클래스의 소멸자가 가상인가?
+4. `delete` 대상이 호환되는 `new` 표현식에서 온 포인터인가?
+5. 동일한 주소가 두 삭제 경로에 도달하지 않는가?
+6. 해제 후 다른 별칭 포인터가 남아 있지 않은가?
+7. `nullptr` 검사를 객체 생존 증명으로 오해하지 않는가?
+8. 비소유 포인터나 참조가 가리키는 객체가 더 오래 살아 있는가?
+9. 값 멤버로 수명을 묶어 동적 할당을 제거할 수 있는가?
+10. 반복되는 상호 호출을 명시적인 상위 루프로 바꿀 수 있는가?
+
+소유권 버그는 포인터 문법의 문제가 아니라 객체 수명의 책임이 여러 곳에 흩어진 문제다. 크래시가 난 `delete` 한 줄만 고치지 말고 생성, 전달, 별칭, 제거까지 하나의 경로로 추적해야 한다.
+
+## 다음 학습: 함수 포인터로 실행할 함수를 값처럼 전달하기
+
+다음 글에서는 함수의 주소를 변수에 저장하고 매개변수로 전달하는 함수 포인터를 살펴본다. 함수 시그니처와 포인터 타입의 관계, 콜백 호출과 멤버 함수 포인터가 일반 함수 포인터와 다른 이유를 구분한다.

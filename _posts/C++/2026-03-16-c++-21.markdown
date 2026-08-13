@@ -1,28 +1,54 @@
 ---
 layout: post
 title: '[C++ 21] Text RPG 리팩터링: 규칙과 상태를 함수로 분리하기'
-date: 2026-03-02
+date: 2026-03-16
 categories: [Dev, C++]
 tags: [C++, GameDev, ProceduralProgramming, RPG, Logic]
 use_math: true
 ---
 
-# [C++] 한 파일짜리 게임에서 구조가 필요한 순간
+지금까지 배운 조건문, 반복문과 함수를 이용하면 직업을 선택하고 몬스터와 싸우는 작은 Text RPG를 만들 수 있다. 기능이 적을 때는 모든 상태를 전역 변수로 두고 각 함수가 직접 읽고 수정해도 프로그램이 동작한다.
 
-함수와 조건문, 반복문을 활용하여 플레이어의 직업 선택, 필드 조우, 전투 로직을 포함한 기초적인 Text RPG 프레임워크를 구축함
+문제는 기능이 늘어날 때 시작된다. `hp`가 플레이어 체력인지 몬스터 체력인지 이름만으로 구분하기 어려워지고, 어느 함수가 상태를 변경했는지 찾기 위해 파일 전체를 확인해야 한다. 입력, 난수, 전투 계산과 출력이 한 함수에 섞이면 한 부분만 따로 검사하기도 어렵다.
 
-## 먼저 완성된 흐름 읽기
+이번 글에서는 클래스를 새로 도입하지 않는다. 지금까지 배운 구조체와 함수만으로 **데이터의 주인을 만들고 함수가 필요한 상태만 전달받도록** 기존 절차적 코드를 단계적으로 리팩터링한다.
+
+## 먼저 게임이 유지해야 할 동작을 정한다
+
+리팩터링은 프로그램의 구조를 개선하는 작업이지 기능을 무작정 바꾸는 작업이 아니다. 기존 Text RPG에서 유지할 흐름을 먼저 적는다.
+
+```text
+직업 선택
+   │
+   ▼
+플레이어 생성
+   │
+   ▼
+몬스터 조우 ── 종료 선택 ── 프로그램 종료
+   │
+   ▼
+전투 진행
+   │
+   ├─ 승리 ── 다음 몬스터 조우
+   ├─ 패배 ── 직업 선택부터 다시 시작
+   └─ 교착 ── 현재 전투 종료 후 다음 조우
+```
+
+전투 규칙도 명시한다.
+
+- 플레이어가 먼저 공격한다.
+- 피해량은 공격력에서 방어력을 뺀 값이며 최소 0이다.
+- 체력은 피해를 받아도 0보다 작아지지 않는다.
+- 플레이어나 몬스터의 체력이 0이면 전투가 끝난다.
+- 양쪽 모두 피해를 줄 수 없다면 무한 전투를 막기 위해 교착 상태로 끝낸다.
+
+규칙을 먼저 정해야 리팩터링 전후의 동작을 비교할 기준이 생긴다.
+
+## 기존 코드에서 책임이 섞인 지점을 찾는다
+
+기존 코드는 플레이어와 몬스터의 능력치를 각각 세 개의 전역 변수로 관리했다.
 
 ```cpp
-#include <iostream>
-#include <time.h>
-using namespace std;
-
-/**
- * [전역 변수 선언]
- * - 플레이어와 몬스터의 상태를 저장하기 위해 전역 데이터 영역에 할당함
- * - 프로그램 전체에서 접근 가능하도록 설계함
- */
 int hp = 0;
 int att = 0;
 int def = 0;
@@ -30,187 +56,785 @@ int def = 0;
 int m_hp = 0;
 int m_att = 0;
 int m_def = 0;
+```
 
-/**
- * @brief 로비 입장 및 캐릭터 생성 함수
- * - 사용자 입력에 따라 전역 변수(HP, ATT, DEF)를 초기화함
- */
-void JoinLobby()
+이 구조에서는 다음 문제가 생긴다.
+
+| 문제 | 코드에 나타나는 결과 |
+| :--- | :--- |
+| 데이터의 관계가 표현되지 않음 | `hp`, `att`, `def`가 한 캐릭터의 상태라는 사실을 이름 규칙으로만 알 수 있다. |
+| 상태의 주인이 없음 | 모든 함수가 전역 변수를 직접 변경할 수 있다. |
+| 함수를 독립적으로 호출하기 어려움 | 전투 전에 여러 전역 값을 올바른 순서로 준비해야 한다. |
+| 플레이어를 한 명 더 추가하기 어려움 | `hp2`, `att2`, `def2` 같은 변수가 계속 늘어날 수 있다. |
+| 입력·규칙·출력이 결합됨 | 계산만 별도로 검사하거나 다른 UI에서 재사용하기 어렵다. |
+
+`JoinBattle()`도 피해 계산, 상태 변경, 승패 판정과 출력을 모두 담당했다. 함수 이름 하나로 책임을 설명하기 어렵고, 반환값 `0`과 `1`의 의미를 호출자가 기억해야 했다.
+
+리팩터링 목표는 단순히 함수 수를 늘리는 것이 아니다. 관련 데이터와 변경 이유를 같은 단위로 묶고, 서로 다른 책임 사이의 입력과 결과를 명시하는 것이다.
+
+## 캐릭터 상태를 하나의 구조체로 묶는다
+
+플레이어와 몬스터는 이름, 체력, 공격력, 방어력이라는 같은 종류의 데이터를 가진다.
+
+```cpp
+struct Character
 {
-	cout << "------로비에 입장------" << endl;
-	cout << "직업 선택 (1)기사 (2)궁수 (3)마법사" << endl;
-	cout << ">";
+    const char* name;
+    int hp;
+    int attack;
+    int defence;
+};
+```
 
-	int Input;
+이제 하나의 캐릭터 상태를 하나의 객체로 전달할 수 있다.
 
-	while (true)
-	{
-		cin >> Input;
+```cpp
+Character player{"Knight", 100, 20, 15};
+Character monster{"Slime", 30, 25, 5};
+```
 
-		switch (Input)
-		{
-		case 1:
-			cout << "기사 생성중.." << endl;
-			hp = 100; att = 20; def = 15;
-			break;
-		case 2:
-			cout << "궁수 생성중.." << endl;
-			hp = 75; att = 25; def = 10;
-			break;
-		case 3:
-			cout << "마법사 생성중.." << endl;
-			hp = 50; att = 30; def = 5;
-			break;
-		default:
-			cout << "잘못된 입력임 다시 선택해주세요" << endl;
-			cout << ">";
-			break;
-		}
+구조체를 도입했다고 객체지향 설계가 완성되는 것은 아니다. 지금 단계에서 얻는 핵심 이점은 데이터의 관계와 주인이 생긴다는 점이다.
 
-		if (Input >= 1 && Input < 4) break;
-	}
+```text
+기존
+hp, att, def, m_hp, m_att, m_def
+
+변경
+player  ── name, hp, attack, defence
+monster ── name, hp, attack, defence
+```
+
+함수는 전역 변수 여섯 개 대신 자신에게 필요한 `Character` 객체만 받으면 된다.
+
+## 선택지와 결과는 열거형으로 이름을 붙인다
+
+직업 선택을 `1`, `2`, `3`으로만 전달하면 각 숫자의 의미가 호출부에 남는다. 입력 숫자를 검증한 뒤 의미 있는 열거 값으로 변환한다.
+
+```cpp
+enum class Job
+{
+    Knight = 1,
+    Archer = 2,
+    Mage = 3
+};
+```
+
+몬스터 종류와 전투 결과도 열거형으로 표현한다.
+
+```cpp
+enum class MonsterType
+{
+    Skeleton,
+    Slime,
+    Orc
+};
+
+enum class BattleResult
+{
+    Victory,
+    Defeat,
+    Stalemate
+};
+```
+
+기존의 `return 0;`과 `return 1;`은 호출 위치에서 의미를 다시 해석해야 했다.
+
+```cpp
+int result = JoinBattle();
+
+if (result == 0)
+{
+    // 승리
+}
+```
+
+열거형 결과는 조건 자체가 문장처럼 읽힌다.
+
+```cpp
+BattleResult result = RunBattle(player, monster);
+
+if (result == BattleResult::Victory)
+{
+    // 다음 조우 진행
+}
+```
+
+열거형은 가능한 상태의 집합을 제한하고 숫자와 의미의 대응을 타입 안에 기록한다.
+
+## 생성 함수는 선택을 캐릭터 데이터로 변환한다
+
+직업 선택에 따른 능력치 결정을 함수로 분리한다.
+
+```cpp
+Character CreatePlayer(Job job)
+{
+    switch (job)
+    {
+    case Job::Knight:
+        return {"Knight", 100, 20, 15};
+    case Job::Archer:
+        return {"Archer", 75, 25, 10};
+    case Job::Mage:
+        return {"Mage", 50, 30, 5};
+    }
+
+    return {"Unknown", 1, 1, 0};
+}
+```
+
+몬스터 생성도 같은 방식으로 분리한다.
+
+```cpp
+Character CreateMonster(MonsterType type)
+{
+    switch (type)
+    {
+    case MonsterType::Skeleton:
+        return {"Skeleton", 50, 20, 10};
+    case MonsterType::Slime:
+        return {"Slime", 30, 25, 5};
+    case MonsterType::Orc:
+        return {"Orc", 60, 30, 5};
+    }
+
+    return {"Unknown", 1, 1, 0};
+}
+```
+
+이 두 함수는 입력 선택을 받아 새 상태를 반환한다. 전역 변수를 수정하지 않으므로 같은 입력에 어떤 캐릭터가 생성되는지 코드만 보고 확인하기 쉽다.
+
+마지막 `return`은 잘못된 열거 값이 들어온 경우에도 반환 경로를 완성하기 위한 방어 코드다. 현재 프로그램은 검증된 값만 전달하지만, `static_cast` 등으로 열거형 범위를 벗어난 값이 만들어질 가능성까지 함수 경계에서 고려했다.
+
+## 입력 처리는 게임 규칙과 분리한다
+
+단순히 정수 범위만 다시 확인하면 숫자가 아닌 입력에서 문제가 생긴다.
+
+```cpp
+int input = 0;
+std::cin >> input;
+```
+
+사용자가 `abc`를 입력하면 추출이 실패하고 `std::cin`은 실패 상태가 된다. 스트림 상태를 복구하고 잘못된 한 줄을 버리지 않으면 다음 입력도 계속 실패할 수 있다.
+
+메뉴 입력만 담당하는 함수를 만든다.
+
+```cpp
+#include <iostream>
+#include <limits>
+
+void DiscardInputLine()
+{
+    std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
 }
 
-/**
- * @brief 필드 입장 및 몬스터 스폰 함수
- * - rand() 함수를 활용하여 1~3 사이의 난수를 발생시켜 무작위 몬스터를 생성함
- */
-void JoinField()
+bool TryReadMenuChoice(int minimum, int maximum, int& choice)
 {
-	cout << "----------------------" << endl;
-	cout << "필드에 입장했습니다" << endl;
-	cout << "[Player] HP: " << hp << " ATT: " << att << " DEF: " << def << endl;
+    while (true)
+    {
+        int input = 0;
 
-	int random = (rand() % 3) + 1; // 1: 해골, 2: 슬라임, 3: 오크
-	switch (random)
-	{
-	case 1:
-		m_hp = 50; m_att = 20; m_def = 10;
-		cout << "해골 출현! (HP: 50)" << endl;
-		break;
-	case 2:
-		m_hp = 30; m_att = 25; m_def = 5;
-		cout << "슬라임 출현! (HP: 30)" << endl;
-		break;
-	case 3:
-		m_hp = 60; m_att = 30; m_def = 5;
-		cout << "오크 출현! (HP: 60)" << endl;
-		break;
-	}
+        if (std::cin >> input)
+        {
+            DiscardInputLine();
+
+            if (input >= minimum && input <= maximum)
+            {
+                choice = input;
+                return true;
+            }
+
+            std::cout << "Choose a number from " << minimum << " to " << maximum << ".\n> ";
+            continue;
+        }
+
+        if (std::cin.eof())
+        {
+            return false;
+        }
+
+        std::cin.clear();
+        DiscardInputLine();
+        std::cout << "Enter a number.\n> ";
+    }
+}
+```
+
+함수의 결과는 두 종류의 정보를 표현한다.
+
+- `true`: 범위 안의 정수를 읽었고 `choice`에 저장했다.
+- `false`: 입력 스트림이 끝나 더 이상 선택을 받을 수 없다.
+
+범위를 벗어난 숫자나 숫자가 아닌 한 줄은 함수 내부에서 다시 입력받는다. EOF는 같은 입력을 무한히 반복하지 않고 호출자가 프로그램을 끝낼 수 있도록 별도로 반환한다.
+
+`DiscardInputLine()`은 정상적으로 숫자를 읽은 뒤에도 남은 문자를 버린다. `1abc`를 입력했을 때 `1`만 선택으로 사용하고 `abc`가 다음 입력에 남는 상황을 막는다. 더 엄격하게 전체 줄이 정수 하나인지 검증하려면 `std::getline`과 문자열 파싱을 사용할 수 있지만, 이번 예제에서는 스트림 상태 복구와 메뉴 범위 검증에 집중한다.
+
+## 입력 숫자는 검증한 뒤 열거형으로 변환한다
+
+직업 선택 함수는 화면 표시와 입력을 담당하고, 유효한 숫자만 `Job`으로 변환한다.
+
+```cpp
+bool TrySelectJob(Job& job)
+{
+    std::cout << "Choose a job\n";
+    std::cout << "1) Knight  2) Archer  3) Mage\n> ";
+
+    int choice = 0;
+
+    if (!TryReadMenuChoice(1, 3, choice))
+    {
+        return false;
+    }
+
+    job = static_cast<Job>(choice);
+    return true;
+}
+```
+
+`static_cast<Job>` 자체는 정수 범위를 검사하지 않는다. 바로 앞에서 1부터 3까지 확인했기 때문에 현재 열거형의 유효한 값으로 변환할 수 있다.
+
+게임 동작을 정하는 함수 안에서 `std::cin`을 직접 사용하지 않으면, 전투 규칙을 입력 장치와 분리할 수 있다.
+
+## 난수 엔진을 외부에서 전달한다
+
+기존 코드는 `srand(time(NULL))`와 `rand() % 3`으로 몬스터를 골랐다. 작은 실습에서는 동작하지만 난수 상태가 전역으로 공유되고, 특정 전투 순서를 재현하기 어렵다.
+
+표준 난수 엔진을 객체로 만들고 필요한 함수에 전달할 수 있다.
+
+```cpp
+#include <random>
+
+MonsterType DrawMonsterType(std::mt19937& generator)
+{
+    std::uniform_int_distribution<int> distribution(0, 2);
+    int value = distribution(generator);
+    return static_cast<MonsterType>(value);
+}
+```
+
+`std::uniform_int_distribution<int>(0, 2)`는 세 정수 중 하나를 균등 분포로 생성하도록 표현한다. 반환 범위가 열거 값과 일치하므로 검증된 정수를 `MonsterType`으로 변환한다.
+
+일반 실행에서는 `std::random_device`로 엔진의 초기 상태를 만들 수 있다.
+
+```cpp
+std::random_device seedSource;
+std::mt19937 generator(seedSource());
+```
+
+`std::random_device`가 모든 구현에서 물리적인 비결정 난수를 제공한다고 보장되는 것은 아니다. 여기서는 실행마다 사용할 시드 재료를 얻는 용도다.
+
+테스트에서는 고정된 시드로 같은 표준 라이브러리 구현에서 난수 열을 재현할 수 있다.
+
+```cpp
+std::mt19937 generator(12345);
+```
+
+난수 엔진을 전역에서 숨겨 사용하지 않고 매개변수로 전달했기 때문에 호출자가 실행 목적에 맞는 시드를 선택할 수 있다.
+
+## 피해 계산은 상태 변경 없이 규칙만 반환한다
+
+피해량 공식은 다음과 같다.
+
+$$Damage = \max(0, Attack - Defence)$$
+
+이 규칙을 별도의 계산 함수로 만든다.
+
+```cpp
+#include <algorithm>
+
+int CalculateDamage(const Character& attacker, const Character& defender)
+{
+    return std::max(0, attacker.attack - defender.defence);
+}
+```
+
+`CalculateDamage`는 두 캐릭터를 읽지만 수정하지 않는다. 결과를 출력하거나 체력을 직접 변경하지도 않는다. 따라서 다음처럼 고정된 입력으로 규칙만 확인할 수 있다.
+
+```cpp
+Character attacker{"Attacker", 100, 20, 0};
+Character defender{"Defender", 100, 0, 5};
+int damage = CalculateDamage(attacker, defender);
+```
+
+이 입력에서 함수가 따라야 할 규칙상 피해량은 15다. 이는 프로그램을 실제 실행해 얻었다고 주장하는 로그가 아니라, 정의한 계산식으로부터 확인할 수 있는 기대값이다.
+
+## 상태 변경은 별도의 함수가 담당한다
+
+피해 적용 함수는 대상 체력만 변경한다.
+
+```cpp
+void ApplyDamage(Character& target, int damage)
+{
+    int appliedDamage = std::max(0, damage);
+    target.hp = std::max(0, target.hp - appliedDamage);
+}
+```
+
+비상수 참조를 사용했으므로 호출자의 `Character` 객체가 변경된다는 계약이 드러난다. 전달된 피해량과 남은 체력을 모두 0 이상으로 제한해 음수 피해가 체력을 회복시키거나 사망한 캐릭터의 체력이 음수로 내려가는 상황을 막는다.
+
+사망 판정도 이름을 가진 함수로 표현한다.
+
+```cpp
+bool IsDead(const Character& character)
+{
+    return character.hp <= 0;
+}
+```
+
+호출부가 수식을 반복하지 않고 정책을 질문처럼 읽을 수 있다.
+
+```cpp
+if (IsDead(monster))
+{
+    return BattleResult::Victory;
+}
+```
+
+`CalculateDamage`, `ApplyDamage`, `IsDead`를 분리하면 피해 공식, 상태 변경과 종료 판정이 각각 다른 이유로 바뀔 수 있다.
+
+## 출력 함수는 상태를 보여주기만 한다
+
+캐릭터 상태 출력도 계산과 분리한다.
+
+```cpp
+void PrintCharacter(const Character& character)
+{
+    std::cout << character.name << " | HP: " << character.hp << " ATK: " << character.attack << " DEF: " << character.defence << '\n';
+}
+```
+
+출력 형식이 바뀌어도 피해 계산 함수를 수정할 필요가 없다. 반대로 전투 공식이 바뀌어도 출력 함수는 영향을 받지 않는다.
+
+모든 작은 출력문을 반드시 함수로 만들 필요는 없다. 캐릭터 상태처럼 여러 위치에서 같은 의미와 형식을 공유하는 출력에 이름을 붙인 것이다.
+
+## 전투 함수는 규칙의 실행 순서를 조합한다
+
+전투 함수는 플레이어의 상태를 다음 조우까지 유지해야 하므로 비상수 참조로 받는다. 몬스터는 현재 전투가 소유하는 복사본으로 받는다.
+
+```cpp
+BattleResult RunBattle(Character& player, Character monster)
+{
+    int playerDamage = CalculateDamage(player, monster);
+    int monsterDamage = CalculateDamage(monster, player);
+
+    if (playerDamage == 0 && monsterDamage == 0)
+    {
+        return BattleResult::Stalemate;
+    }
+
+    while (true)
+    {
+        ApplyDamage(monster, playerDamage);
+        std::cout << player.name << " dealt " << playerDamage << " damage.\n";
+
+        if (IsDead(monster))
+        {
+            return BattleResult::Victory;
+        }
+
+        ApplyDamage(player, monsterDamage);
+        std::cout << monster.name << " dealt " << monsterDamage << " damage.\n";
+
+        if (IsDead(player))
+        {
+            return BattleResult::Defeat;
+        }
+
+        PrintCharacter(player);
+        PrintCharacter(monster);
+    }
+}
+```
+
+함수의 매개변수 선택에는 상태의 소유 관계가 반영되어 있다.
+
+| 매개변수 | 전달 방식 | 이유 |
+| :--- | :--- | :--- |
+| `player` | `Character&` | 전투 뒤 감소한 체력이 다음 조우에도 유지돼야 한다. |
+| `monster` | `Character` | 현재 전투 안에서만 변경하고 호출자에게 돌려줄 필요가 없다. |
+
+전투 중 공격력과 방어력이 변하지 않는 현재 규칙에서는 피해량을 반복문 전에 한 번 계산할 수 있다. 버프, 방어 자세, 장비 파괴처럼 능력치가 턴마다 달라진다면 각 공격 직전에 다시 계산해야 한다. 현재 규칙을 전제로 한 선택임을 코드 구조와 설명에서 분명히 한다.
+
+## 피해량 0은 무한 전투를 만들 수 있다
+
+피해량을 최소 0으로 제한하면 방어력이 높은 캐릭터는 피해를 받지 않는다. 양쪽 피해량이 모두 0이면 어느 체력도 변하지 않으므로 `while (true)`가 끝나지 않는다.
+
+```text
+playerDamage = 0
+monsterDamage = 0
+        │
+        ▼
+양쪽 HP 변화 없음
+        │
+        └──────── 다음 턴 반복
+```
+
+이 문제는 문법 오류가 아니라 게임 규칙이 만든 논리 오류다. 해결 정책은 여러 가지가 있다.
+
+- 최소 피해량을 1로 정한다.
+- 일정 턴이 지나면 무승부로 처리한다.
+- 양쪽 피해가 모두 0이면 즉시 교착 상태로 끝낸다.
+- 방어 관통이나 치명타처럼 교착을 깨는 규칙을 추가한다.
+
+이번 예제는 양쪽 피해가 모두 0이면 `BattleResult::Stalemate`를 반환한다. 어떤 정책이 정답이라기보다 끝나지 않는 상태를 게임 규칙으로 명시적으로 처리하는 것이 중요하다.
+
+## `main`은 세부 계산보다 게임 상태 전이를 보여준다
+
+리팩터링 전 `main`은 여러 전역 변수를 초기화하고 반환 숫자를 해석했다. 리팩터링 후에는 큰 게임 상태 전이를 조합하는 역할에 집중한다.
+
+```cpp
+int main()
+{
+    std::random_device seedSource;
+    std::mt19937 generator(seedSource());
+
+    while (true)
+    {
+        Job job = Job::Knight;
+
+        if (!TrySelectJob(job))
+        {
+            return 0;
+        }
+
+        Character player = CreatePlayer(job);
+        PrintCharacter(player);
+
+        while (!IsDead(player))
+        {
+            MonsterType monsterType = DrawMonsterType(generator);
+            Character monster = CreateMonster(monsterType);
+            std::cout << "\nA monster appeared.\n";
+            PrintCharacter(monster);
+            std::cout << "1) Battle  2) Exit\n> ";
+
+            int choice = 0;
+
+            if (!TryReadMenuChoice(1, 2, choice) || choice == 2)
+            {
+                return 0;
+            }
+
+            BattleResult result = RunBattle(player, monster);
+
+            if (result == BattleResult::Victory)
+            {
+                std::cout << "Victory!\n";
+                continue;
+            }
+
+            if (result == BattleResult::Defeat)
+            {
+                std::cout << "Defeat. Select a new character.\n";
+                break;
+            }
+
+            std::cout << "Neither character can deal damage.\n";
+        }
+    }
+}
+```
+
+중첩 반복문은 서로 다른 수명을 표현한다.
+
+- 바깥 반복문 한 번은 플레이어 한 명의 플레이 세션이다.
+- 안쪽 반복문 한 번은 해당 플레이어가 살아 있는 동안의 연속 조우다.
+- 승리하면 현재 플레이어 상태로 다음 조우를 시작한다.
+- 패배하면 안쪽 반복문을 끝내고 새 직업을 선택한다.
+- 종료나 EOF는 `main`에서 바로 프로그램을 끝낸다.
+
+`continue`, `break`, `return`이 각각 어느 반복문과 함수에 적용되는지 흐름을 따라가며 확인할 수 있다.
+
+## 전체 리팩토링 코드
+
+앞에서 분리한 데이터와 함수를 하나의 파일로 모은 예제다.
+
+```cpp
+#include <algorithm>
+#include <iostream>
+#include <limits>
+#include <random>
+
+enum class Job
+{
+    Knight = 1,
+    Archer = 2,
+    Mage = 3
+};
+
+enum class MonsterType
+{
+    Skeleton,
+    Slime,
+    Orc
+};
+
+enum class BattleResult
+{
+    Victory,
+    Defeat,
+    Stalemate
+};
+
+struct Character
+{
+    const char* name;
+    int hp;
+    int attack;
+    int defence;
+};
+
+void DiscardInputLine()
+{
+    std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
 }
 
-/**
- * @brief 전투 로직 처리 함수
- * @return 0: 승리, 1: 패배
- * - 플레이어 선공 기반의 턴제 전투를 시뮬레이션함
- */
-int JoinBattle()
+bool TryReadMenuChoice(int minimum, int maximum, int& choice)
 {
-	while (true)
-	{
-		// 플레이어 공격
-		int damage = att - m_def;
-		if (damage < 0) damage = 0;
-		m_hp -= damage;
+    while (true)
+    {
+        int input = 0;
 
-		if (m_hp <= 0)
-		{
-			cout << "전투 승리!" << endl;
-			return 0;
-		}
+        if (std::cin >> input)
+        {
+            DiscardInputLine();
 
-		// 적 공격
-		damage = m_att - def;
-		if (damage < 0) damage = 0;
-		hp -= damage;
+            if (input >= minimum && input <= maximum)
+            {
+                choice = input;
+                return true;
+            }
 
-		if (hp <= 0)
-		{
-			cout << "플레이어 사망.." << endl;
-			return 1;
-		}
+            std::cout << "Choose a number from " << minimum << " to " << maximum << ".\n> ";
+            continue;
+        }
 
-		cout << "적 HP: " << m_hp << " | 나의 HP: " << hp << endl;
-	}
+        if (std::cin.eof())
+        {
+            return false;
+        }
+
+        std::cin.clear();
+        DiscardInputLine();
+        std::cout << "Enter a number.\n> ";
+    }
+}
+
+bool TrySelectJob(Job& job)
+{
+    std::cout << "Choose a job\n";
+    std::cout << "1) Knight  2) Archer  3) Mage\n> ";
+
+    int choice = 0;
+
+    if (!TryReadMenuChoice(1, 3, choice))
+    {
+        return false;
+    }
+
+    job = static_cast<Job>(choice);
+    return true;
+}
+
+Character CreatePlayer(Job job)
+{
+    switch (job)
+    {
+    case Job::Knight:
+        return {"Knight", 100, 20, 15};
+    case Job::Archer:
+        return {"Archer", 75, 25, 10};
+    case Job::Mage:
+        return {"Mage", 50, 30, 5};
+    }
+
+    return {"Unknown", 1, 1, 0};
+}
+
+Character CreateMonster(MonsterType type)
+{
+    switch (type)
+    {
+    case MonsterType::Skeleton:
+        return {"Skeleton", 50, 20, 10};
+    case MonsterType::Slime:
+        return {"Slime", 30, 25, 5};
+    case MonsterType::Orc:
+        return {"Orc", 60, 30, 5};
+    }
+
+    return {"Unknown", 1, 1, 0};
+}
+
+MonsterType DrawMonsterType(std::mt19937& generator)
+{
+    std::uniform_int_distribution<int> distribution(0, 2);
+    int value = distribution(generator);
+    return static_cast<MonsterType>(value);
+}
+
+int CalculateDamage(const Character& attacker, const Character& defender)
+{
+    return std::max(0, attacker.attack - defender.defence);
+}
+
+void ApplyDamage(Character& target, int damage)
+{
+    int appliedDamage = std::max(0, damage);
+    target.hp = std::max(0, target.hp - appliedDamage);
+}
+
+bool IsDead(const Character& character)
+{
+    return character.hp <= 0;
+}
+
+void PrintCharacter(const Character& character)
+{
+    std::cout << character.name << " | HP: " << character.hp << " ATK: " << character.attack << " DEF: " << character.defence << '\n';
+}
+
+BattleResult RunBattle(Character& player, Character monster)
+{
+    int playerDamage = CalculateDamage(player, monster);
+    int monsterDamage = CalculateDamage(monster, player);
+
+    if (playerDamage == 0 && monsterDamage == 0)
+    {
+        return BattleResult::Stalemate;
+    }
+
+    while (true)
+    {
+        ApplyDamage(monster, playerDamage);
+        std::cout << player.name << " dealt " << playerDamage << " damage.\n";
+
+        if (IsDead(monster))
+        {
+            return BattleResult::Victory;
+        }
+
+        ApplyDamage(player, monsterDamage);
+        std::cout << monster.name << " dealt " << monsterDamage << " damage.\n";
+
+        if (IsDead(player))
+        {
+            return BattleResult::Defeat;
+        }
+
+        PrintCharacter(player);
+        PrintCharacter(monster);
+    }
 }
 
 int main()
 {
-	// 난수 시드 초기화
-	srand((unsigned int)time(NULL));
+    std::random_device seedSource;
+    std::mt19937 generator(seedSource());
 
-	bool IsRestart = true;
+    while (true)
+    {
+        Job job = Job::Knight;
 
-	while (true)
-	{
-		if (IsRestart)
-		{
-			JoinLobby();
-			IsRestart = false;
-		}
+        if (!TrySelectJob(job))
+        {
+            return 0;
+        }
 
-		JoinField();
+        Character player = CreatePlayer(job);
+        PrintCharacter(player);
 
-		cout << "1) 전투 2) 도주" << endl;
-		int select;
-		cin >> select;
+        while (!IsDead(player))
+        {
+            MonsterType monsterType = DrawMonsterType(generator);
+            Character monster = CreateMonster(monsterType);
+            std::cout << "\nA monster appeared.\n";
+            PrintCharacter(monster);
+            std::cout << "1) Battle  2) Exit\n> ";
 
-		if (select == 1)
-		{
-			int result = JoinBattle();
-			if (result == 0) continue; // 다음 몬스터 조우
-			if (result == 1)
-			{
-				IsRestart = true; // 게임 재시작
-				continue;
-			}
-		}
-		else
-		{
-			cout << "게임을 종료함" << endl;
-			break;
-		}
-	}
-	return 0;
+            int choice = 0;
+
+            if (!TryReadMenuChoice(1, 2, choice) || choice == 2)
+            {
+                return 0;
+            }
+
+            BattleResult result = RunBattle(player, monster);
+
+            if (result == BattleResult::Victory)
+            {
+                std::cout << "Victory!\n";
+                continue;
+            }
+
+            if (result == BattleResult::Defeat)
+            {
+                std::cout << "Defeat. Select a new character.\n";
+                break;
+            }
+
+            std::cout << "Neither character can deal damage.\n";
+        }
+    }
 }
 ```
----
 
-## 입력·상태·전투 규칙 분리하기
+이 코드는 구조를 설명하기 위한 독립 예제이며 실제 게임 엔진 프로젝트의 코드가 아니다. 실행 결과 이미지를 만들거나 특정 난수 순서를 확인했다고 가정하지 않는다.
 
-### 2.1 전투 데미지 계산 메커니즘
-본 실습에서는 공격력에서 방어력을 차감하는 단순 감산식을 사용
+## 함수별 입력과 변경 범위를 검토한다
 
-$$Damage = \text{max}(0, \text{Attacker.Att} - \text{Defender.Def})$$
+리팩터링 결과를 함수 개수보다 데이터 흐름으로 평가한다.
 
-| 요소 | 설명 |
+| 함수 | 입력 | 결과 또는 변경 | 입출력 의존성 |
+| :--- | :--- | :--- | :--- |
+| `TryReadMenuChoice` | 허용 범위 | 선택값을 기록하고 성공 여부 반환 | `std::cin`, `std::cout` 사용 |
+| `TrySelectJob` | 없음 | 직업을 기록하고 성공 여부 반환 | 메뉴 출력과 입력 사용 |
+| `CreatePlayer` | 직업 | 새 플레이어 반환 | 없음 |
+| `CreateMonster` | 몬스터 종류 | 새 몬스터 반환 | 없음 |
+| `DrawMonsterType` | 난수 엔진 | 몬스터 종류 반환 | 전달받은 엔진 상태 변경 |
+| `CalculateDamage` | 공격자, 방어자 | 피해량 반환 | 없음 |
+| `ApplyDamage` | 대상, 피해량 | 대상 체력 변경 | 없음 |
+| `IsDead` | 캐릭터 | 사망 여부 반환 | 없음 |
+| `PrintCharacter` | 캐릭터 | 없음 | 표준 출력 사용 |
+| `RunBattle` | 플레이어, 몬스터 | 플레이어 상태 변경과 전투 결과 반환 | 전투 로그 출력 |
+
+`RunBattle`에는 아직 출력 책임이 남아 있다. 이번 단계에서는 전투의 큰 순서를 한곳에서 읽을 수 있도록 유지했다. 자동 테스트나 그래픽 UI를 붙여야 한다면 전투 이벤트를 데이터로 반환하고 별도의 출력 계층이 표현하도록 한 단계 더 분리할 수 있다.
+
+리팩터링은 모든 함수를 최대한 작게 만드는 작업이 아니라 현재 변경 이유에 맞는 경계를 찾는 과정이다.
+
+## 직접 확인할 동작을 시나리오로 만든다
+
+난수를 포함한 프로그램은 한 번 실행해 “잘 됐다”고 판단하기보다 확인할 조건을 나눈다.
+
+| 시나리오 | 확인할 결과 |
 | :--- | :--- |
-| **공격력 (ATT)** | 타격 시 상대에게 가하는 기본 위력임 |
-| **방어력 (DEF)** | 상대의 공격력을 상쇄하여 피해를 줄이는 수치임 |
-| **체력 (HP)** | 0 이하가 될 경우 객체의 사망(프로그램 종료/재시작)을 판정함 |
+| 직업 입력에 `0` 또는 `4` 입력 | 범위 안내 후 다시 입력받는다. |
+| 직업 입력에 문자를 입력 | 스트림을 복구하고 다시 입력받는다. |
+| 입력 스트림이 EOF에 도달 | 메뉴 반복을 끝내고 프로그램이 종료된다. |
+| 공격력 20, 방어력 5 | 계산 규칙상 피해량은 15다. |
+| 공격력보다 방어력이 높음 | 피해량은 0이다. |
+| 양쪽 피해량이 모두 0 | `Stalemate`로 전투가 종료된다. |
+| 플레이어 승리 | 감소한 플레이어 HP로 다음 조우를 시작한다. |
+| 플레이어 패배 | 새 직업 선택 단계로 돌아간다. |
+| 고정된 난수 시드 사용 | 같은 구현과 환경에서 조우 순서를 재현해 비교할 수 있다. |
 
-### 2.2 사용된 주요 프로그래밍 개념
-* **전역 변수 (Global Variables):** `hp`, `att` 등 함수의 외부에서 선언되어 프로그램 종료 시까지 메모리(Data 영역)에 유지
-* **난수 생성 (Random Numbers):** `srand(time(NULL))`를 통해 매 실행마다 다른 시드값을 부여하고 `rand() % N`으로 범위 내 난수를 생성
-* **제어 흐름 (Control Flow):** `while(true)` 무한 루프 내에서 `continue`와 `break`를 사용하여 게임의 상태(로비, 필드, 전투)를 전이시킴
+이 표는 실제 실행을 완료했다는 결과표가 아니라 리팩터링 후 직접 검증해야 할 테스트 시나리오다. 특히 표준 난수 분포의 구체적인 출력 열은 표준 라이브러리 구현에 따라 달라질 수 있으므로 고정 시드만으로 서로 다른 구현의 결과까지 같다고 단정하지 않는다.
 
----
+## 현재 구조에 남아 있는 한계
 
-## 다음 단계의 리팩터링 기준
+이번 리팩터링으로 전역 능력치와 매직 넘버는 줄었지만 완성된 게임 구조는 아니다.
 
-### 핵심 요약 및 주의사항
-* **입력 예외 처리:** `cin` 입력 시 숫자 이외의 문자가 들어오거나 범위를 벗어난 값에 대한 무한 루프 방지 로직이 필요
-* **전역 변수 오염:** 전역 변수는 관리가 용이하나 규모가 커질 경우 의도치 않은 값 변경으로 인한 버그 발생 위험이 큼
-* **데미지 공식의 한계:** 방어력이 공격력보다 높을 경우 체력이 회복되는 현상을 방지하기 위해 0 이하 방어 처리가 필수
+- `const char*` 이름은 문자열 리터럴을 가리킨다는 현재 전제에 의존한다.
+- 플레이어와 몬스터가 같은 `Character` 구조체를 사용하지만 이후 필요한 데이터가 달라질 수 있다.
+- `RunBattle`이 전투 진행과 로그 출력을 함께 담당한다.
+- 능력치가 턴 중 바뀌는 규칙을 추가하면 피해량 계산 위치를 바꿔야 한다.
+- 전투 턴 제한, 회복, 보상과 성장 시스템은 아직 없다.
+- 메뉴 입력은 정수 뒤의 추가 문자를 허용하고 나머지 줄을 버린다.
+- 게임 저장이나 화면 전환 같은 상위 상태 관리는 포함하지 않았다.
 
-### Tip
-* **구조체(struct) 활용:** 현재 개별 전역 변수로 관리되는 `hp`, `att`, `def`를 `Stat` 구조체로 묶으면 데이터를 훨씬 체계적으로 관리할 수 있음
+중요한 것은 미래 기능을 예상해 모든 계층과 클래스를 미리 만드는 것이 아니다. 현재 확인된 책임과 데이터 흐름을 분명하게 만들고, 새로운 요구사항이 생길 때 경계를 다시 조정한다.
 
-현재 코드의 가장 큰 개선점은 클래스를 무조건 도입하는 것이 아니라 데이터의 주인을 만드는 것이다. 플레이어와 몬스터의 능력치를 `Character` 구조체로 묶고, 전투 함수가 필요한 두 객체만 매개변수로 받으면 전역 상태 의존성을 줄일 수 있다.
+## 다음 학습: 객체의 주소와 유효성
 
-데미지 `attack - defense`가 음수가 될 수 있다면 최소 피해량 정책을 명시해야 한다. 잘못된 입력이 `std::cin`을 실패 상태로 만들었을 때 스트림을 복구하는 처리도 게임 규칙과 별도로 둔다. 난수 엔진을 외부에서 전달하면 전투 결과를 고정해 테스트하기 쉬워진다.
+이번 예제에서는 `Character&`를 통해 전투 함수가 플레이어 원본을 변경했고, `std::mt19937&`를 통해 호출자가 소유한 난수 엔진 상태를 사용했다. 참조는 원본 객체를 다루는 한 가지 방법이며, 대상이 존재한다는 전제를 인터페이스에 표현한다.
 
-## 마무리
-
-Text RPG의 가치는 기능 수가 아니라 지금까지 배운 조건·반복·함수를 하나의 실행 흐름으로 묶는 데 있다. 동작을 확인한 다음 전역 상태, 입력 처리, 난수 생성, 전투 판정을 하나씩 분리하면 리팩터링의 이유도 자연스럽게 보인다.
-* **모듈화:** `JoinBattle()`의 반환값을 `enum`으로 정의하면 0, 1과 같은 매직 넘버 대신 `VICTORY`, `DEFEAT` 등 명확한 의미 전달이 가능
+다음 글에서는 객체의 주소를 직접 저장하는 포인터를 살펴본다. 주소를 얻고 역참조하는 문법보다 먼저, 포인터가 어떤 타입의 객체를 가리키는지, 대상이 존재할 수 없는 상태를 어떻게 표현하는지, 역참조하는 순간에도 객체의 수명이 유효한지를 구분한다.

@@ -1,0 +1,443 @@
+---
+layout: post
+title: '[C++ 68] 삭제된 함수: 복사와 잘못된 호출을 컴파일 단계에서 막기'
+date: 2026-05-24
+categories: [Dev, C++]
+tags: [C++, Modern C++, Deleted Function, Special Member Function, Overload]
+---
+
+클래스가 파일 핸들, 소켓이나 단독 소유 자원처럼 복사하면 안 되는 상태를 관리할 수 있다. 또는 함수가 정수만 받아야 하는데 `bool`이 암시적으로 정수로 변환되어 잘못 호출될 수도 있다.
+
+C++11의 삭제된 함수(deleted function)는 함수 선언 뒤에 `= delete`를 붙여 해당 호출이 허용되지 않는다는 사실을 컴파일러와 사용자에게 알린다.
+
+```cpp
+Knight& operator=(const Knight&) = delete;
+```
+
+삭제된 함수는 선언만 있고 구현이 빠진 함수가 아니다. 오버로드 해석에는 참여하지만 최종적으로 그 함수를 사용하려 하면 컴파일 오류가 발생하도록 정의된 함수다.
+
+## 기본 문법은 함수 선언 뒤에 = delete를 붙인다
+
+일반적인 형태는 다음과 같다.
+
+```cpp
+ReturnType Function(Parameters) = delete;
+```
+
+멤버 함수와 비멤버 함수, 생성자와 대입 연산자 등에 적용할 수 있다.
+
+```cpp
+class Knight
+{
+public:
+    Knight& operator=(const Knight&) = delete;
+};
+```
+
+```cpp
+Knight first;
+Knight second;
+
+// first = second; // 삭제된 복사 대입 연산자를 사용하므로 컴파일 오류
+```
+
+호출부에서 바로 “삭제된 함수를 참조했다”는 종류의 진단을 얻을 수 있다. 주석이나 구현 파일의 누락에 기대지 않고 타입의 인터페이스 자체에 금지 규칙을 남긴다.
+
+삭제 정의는 함수의 첫 선언에 표시해야 한다. 헤더의 공개 선언에는 평범한 함수처럼 쓰고 구현 파일에서 나중에 삭제하는 방식으로 계약을 숨기지 않는다.
+
+## 복사 생성과 복사 대입은 서로 다른 함수다
+
+원본 `Knight`는 복사 대입 연산자만 삭제한다.
+
+```cpp
+class Knight
+{
+public:
+    Knight& operator=(const Knight&) = delete;
+};
+```
+
+이 선언은 이미 존재하는 객체에 다른 `Knight`를 대입하는 연산만 막는다.
+
+```cpp
+Knight first;
+Knight second;
+
+// first = second; // 복사 대입: 금지
+```
+
+새 객체를 만드는 복사 생성은 별도 함수다. 다른 조건으로 암시적 복사 생성자가 생성될 수 있다면 다음 코드는 여전히 가능할 수 있다.
+
+```cpp
+Knight copied = first; // 복사 생성
+```
+
+복사 전체를 금지하려면 두 함수를 모두 삭제한다.
+
+```cpp
+class Knight
+{
+public:
+    Knight(const Knight&) = delete;
+    Knight& operator=(const Knight&) = delete;
+};
+```
+
+복사 생성과 대입을 하나의 “복사 기능”으로 뭉뚱그리지 않고 객체를 새로 만드는지 기존 객체의 상태를 교체하는지 구분한다.
+
+## 대입 연산자의 일반적인 반환 타입은 자기 참조다
+
+원본은 다음 형태로 대입 연산자를 삭제한다.
+
+```cpp
+void operator=(const Knight&) = delete;
+```
+
+삭제된 함수이므로 실제 반환값을 사용할 일은 없고 이 선언 자체도 복사 대입 연산자로 인정될 수 있다. 하지만 일반적인 대입 연산자의 시그니처와 같은 형태로 삭제하는 편이 의도를 명확하게 표현한다.
+
+```cpp
+Knight& operator=(const Knight&) = delete;
+```
+
+나중에 삭제를 해제하거나 타입 특성을 확인할 때도 관례적인 선언과 일치한다.
+
+## 복사 불가지만 이동 가능한 타입
+
+단독 소유 자원은 복사하지 않고 소유권을 이동할 수 있다.
+
+```cpp
+class Session
+{
+public:
+    explicit Session(int id) : id_(std::make_unique<int>(id)) {}
+
+    Session(const Session&) = delete;
+    Session& operator=(const Session&) = delete;
+    Session(Session&&) noexcept = default;
+    Session& operator=(Session&&) noexcept = default;
+
+private:
+    std::unique_ptr<int> id_;
+};
+```
+
+복사 연산을 사용자가 선언하면 삭제된 선언이라도 암시적 이동 연산 생성에 영향을 준다. “복사를 삭제했으니 이동은 자동으로 생기겠지”라고 기대하지 않고 이동을 허용할 정책이라면 이동 생성자와 이동 대입을 명시한다.
+
+```cpp
+Session first(10);
+Session second = std::move(first);
+```
+
+이동 뒤 원본은 유효하지만 값이 정해지지 않은 상태라는 일반 규칙을 따른다. 이 예제에서는 `unique_ptr`가 비어 있는 상태가 된다.
+
+## 복사도 이동도 금지할 수 있다
+
+객체 주소가 절대 바뀌면 안 되거나 외부 시스템 등록과 강하게 결합된 타입은 복사와 이동을 모두 금지할 수 있다.
+
+```cpp
+class RegistryEntry
+{
+public:
+    RegistryEntry(const RegistryEntry&) = delete;
+    RegistryEntry& operator=(const RegistryEntry&) = delete;
+    RegistryEntry(RegistryEntry&&) = delete;
+    RegistryEntry& operator=(RegistryEntry&&) = delete;
+};
+```
+
+이런 타입은 값을 직접 재배치해야 하는 일부 컨테이너나 알고리즘에서 사용할 수 없다. 금지는 안전성을 높이지만 사용 가능한 저장 구조와 API도 제한하므로 실제 불변식이 요구할 때 적용한다.
+
+## 기본 생성을 막아 유효한 인자를 강제한다
+
+ID 없이 존재하면 안 되는 객체는 기본 생성자를 삭제할 수 있다.
+
+```cpp
+class Player
+{
+public:
+    Player() = delete;
+    explicit Player(int id) : id_(id) {}
+
+private:
+    int id_;
+};
+```
+
+```cpp
+// Player invalid; // 기본 생성 금지
+Player valid(10);
+```
+
+모든 생성 경로가 유효한 ID를 받도록 타입 수준에서 강제한다. 다만 직렬화 프레임워크나 컨테이너 API가 기본 생성을 요구하는지 함께 검토해야 한다.
+
+인스턴스가 필요 없는 정적 유틸리티 클래스도 생성자를 삭제해 의도를 나타낼 수 있다.
+
+```cpp
+class Math
+{
+public:
+    Math() = delete;
+    static int Square(int value) { return value * value; }
+};
+```
+
+## 특정 암시적 변환만 차단한다
+
+`bool`은 정수로 암시적 변환될 수 있다.
+
+```cpp
+void SetCount(int count);
+
+SetCount(true); // 허용되며 count는 1이 됨
+```
+
+논리값 전달이 항상 버그라면 `bool` 오버로드를 삭제할 수 있다.
+
+```cpp
+void SetCount(int count);
+void SetCount(bool) = delete;
+```
+
+```cpp
+SetCount(10);
+// SetCount(true); // 삭제된 bool 오버로드가 최적 후보이므로 컴파일 오류
+```
+
+삭제된 함수는 오버로드 후보에서 사라지는 것이 아니다. `true`에 가장 잘 맞는 `SetCount(bool)`가 선택된 다음 그 함수가 삭제됐기 때문에 호출이 거부된다. 삭제된 오버로드가 후보에서 빠진다면 `SetCount(int)`로 변환되어 원래 막고 싶었던 호출이 다시 허용됐을 것이다.
+
+## 범용 템플릿의 기본 호출을 금지할 수 있다
+
+지원할 타입만 명시적으로 허용하려는 경우 삭제된 함수 템플릿을 기본 후보로 둘 수 있다.
+
+```cpp
+template<typename T>
+void Serialize(const T&) = delete;
+
+void Serialize(const Player& player)
+{
+    // Player 직렬화
+}
+```
+
+```cpp
+Player player(10);
+Serialize(player);
+
+// Monster monster;
+// Serialize(monster); // 지원 오버로드가 없어 삭제된 템플릿 사용 오류
+```
+
+실제 제네릭 라이브러리에서는 concepts와 `requires`로 지원 조건을 표현하는 방법도 있다. 삭제된 템플릿은 “기본적으로 금지하고 명시한 오버로드만 허용한다”는 정책에 사용할 수 있지만, 오버로드 해석과 템플릿 특수화 관계를 충분히 검토해야 한다.
+
+## private 선언만 두던 이전 방식과 비교
+
+C++11 이전에는 복사를 막기 위해 복사 함수를 `private`에 선언하고 정의하지 않는 방법이 사용됐다.
+
+```cpp
+class Knight
+{
+private:
+    Knight(const Knight&);
+    Knight& operator=(const Knight&);
+};
+```
+
+일반 호출부에서는 접근 제어 오류가 발생하지만 멤버 함수나 `friend`는 private 함수에 접근할 수 있다. 그 경로에서 호출하면 정의가 없으므로 링크 단계에서 문제가 드러날 수 있다.
+
+```cpp
+class Admin
+{
+public:
+    void Copy(const Knight& source)
+    {
+        Knight target;
+        // target = source; // friend라 접근은 가능하지만 정의가 없다면 링크 오류 가능
+    }
+};
+```
+
+`= delete`는 접근 권한과 관계없이 호출 자체를 금지하고 컴파일 단계에서 직접적인 진단을 제공한다.
+
+```cpp
+class Knight
+{
+public:
+    Knight(const Knight&) = delete;
+    Knight& operator=(const Knight&) = delete;
+};
+```
+
+공개 영역에 삭제된 함수를 두면 사용자도 금지된 인터페이스를 쉽게 확인할 수 있다.
+
+## = default와 = delete는 반대 정책을 명시한다
+
+`= default`는 컴파일러가 제공하는 기본 동작을 명시적으로 요청한다.
+
+```cpp
+class Value
+{
+public:
+    Value() = default;
+    Value(const Value&) = default;
+    Value& operator=(const Value&) = default;
+};
+```
+
+`= delete`는 해당 연산을 명시적으로 금지한다.
+
+```cpp
+class UniqueValue
+{
+public:
+    UniqueValue(const UniqueValue&) = delete;
+    UniqueValue& operator=(const UniqueValue&) = delete;
+};
+```
+
+둘 다 구현을 생략한다는 뜻이 아니다. 하나는 컴파일러 생성 구현을 선택하고 다른 하나는 어떤 호출도 허용하지 않는 인터페이스 계약이다.
+
+기본 지정한 함수도 멤버 타입의 제약 때문에 결과적으로 삭제될 수 있다. 예를 들어 복사할 수 없는 멤버를 가진 클래스의 기본 복사 생성자는 사용할 수 없다.
+
+## 멤버가 복사 불가면 바깥 클래스의 복사도 삭제된다
+
+`std::unique_ptr`는 복사 생성과 복사 대입이 삭제돼 있다.
+
+```cpp
+class Session
+{
+private:
+    std::unique_ptr<int> id_;
+};
+```
+
+따라서 `Session`의 암시적 복사 연산도 사용할 수 없도록 정의된다. 컴파일러가 멤버별 복사를 만들 수 없기 때문이다.
+
+명시적인 삭제 선언은 기술적으로 중복일 수 있지만 클래스의 공개 정책을 읽는 사람에게 복사 금지 의도를 바로 보여 줄 수 있다.
+
+```cpp
+Session(const Session&) = delete;
+Session& operator=(const Session&) = delete;
+```
+
+반면 모든 멤버가 자연스럽게 자원을 관리하고 복사·이동 정책도 원하는 형태라면 특수 멤버 함수를 아예 작성하지 않는 Rule of Zero가 더 단순할 수 있다.
+
+## 타입 특성으로 정책을 확인할 수 있다
+
+복사와 이동 가능 여부는 타입 특성으로 컴파일 시간에 검사할 수 있다.
+
+```cpp
+static_assert(!std::is_copy_constructible_v<Session>);
+static_assert(!std::is_copy_assignable_v<Session>);
+static_assert(std::is_move_constructible_v<Session>);
+static_assert(std::is_move_assignable_v<Session>);
+```
+
+컨테이너나 템플릿이 특정 연산을 요구하는 경우 이런 특성이 의도와 맞는지 확인하는 데 유용하다.
+
+## 전체 구현
+
+복사 불가·이동 가능 자원 타입, 기본 생성이 금지된 타입과 삭제된 변환 오버로드를 구성한다.
+
+```cpp
+#include <cassert>
+#include <iostream>
+#include <memory>
+#include <type_traits>
+#include <utility>
+
+class Session
+{
+public:
+    explicit Session(int id) : id_(std::make_unique<int>(id)) {}
+
+    Session(const Session&) = delete;
+    Session& operator=(const Session&) = delete;
+    Session(Session&&) noexcept = default;
+    Session& operator=(Session&&) noexcept = default;
+
+    bool valid() const noexcept { return id_ != nullptr; }
+    int id() const { assert(valid()); return *id_; }
+
+private:
+    std::unique_ptr<int> id_;
+};
+
+class Math
+{
+public:
+    Math() = delete;
+    static int Square(int value) { return value * value; }
+};
+
+class Counter
+{
+public:
+    void Set(int value) { value_ = value; }
+    void Set(bool) = delete;
+    int Get() const noexcept { return value_; }
+
+private:
+    int value_ = 0;
+};
+
+static_assert(!std::is_copy_constructible_v<Session>);
+static_assert(!std::is_copy_assignable_v<Session>);
+static_assert(std::is_move_constructible_v<Session>);
+static_assert(std::is_move_assignable_v<Session>);
+static_assert(!std::is_default_constructible_v<Math>);
+
+int main()
+{
+    Session original(42);
+    Session moved = std::move(original);
+
+    assert(!original.valid());
+    assert(moved.valid());
+    assert(moved.id() == 42);
+
+    Counter counter;
+    counter.Set(10);
+
+    // counter.Set(true); // 삭제된 bool 오버로드가 선택되므로 컴파일 오류
+
+    assert(counter.Get() == 10);
+
+    std::cout << std::boolalpha;
+    std::cout << "Moved session id: " << moved.id() << '\n';
+    std::cout << "Original valid after move: " << original.valid() << '\n';
+    std::cout << "Counter value: " << counter.Get() << '\n';
+    std::cout << "Square of 7: " << Math::Square(7) << '\n';
+}
+```
+
+실행 결과는 다음과 같다.
+
+```text
+Moved session id: 42
+Original valid after move: false
+Counter value: 10
+Square of 7: 49
+```
+
+`Session`은 복사 타입 특성이 모두 `false`, 이동 타입 특성은 `true`다. 이동 후 `unique_ptr`의 소유권은 `moved`로 넘어가고 원본은 비어 있다.
+
+`Counter::Set(10)`은 정상적인 정수 오버로드를 호출한다. 논리값을 전달하는 코드는 삭제된 `Set(bool)`가 최적 후보가 되므로 컴파일할 수 없다. `Math`는 객체를 만들 수 없지만 정적 함수는 클래스 이름으로 호출할 수 있다.
+
+## 삭제된 함수를 사용할 때 확인할 기준
+
+1. 금지하려는 연산이 복사 생성인지 복사 대입인지 구분했는가?
+2. 복사 전체를 막으려면 생성자와 대입 연산자를 모두 삭제했는가?
+3. 복사를 삭제한 뒤 이동을 허용하려면 이동 연산을 명시했는가?
+4. 복사와 이동을 모두 막았을 때 컨테이너와 알고리즘 사용 제약을 검토했는가?
+5. 유효한 생성 인자를 강제하기 위해 기본 생성 삭제가 필요한가?
+6. 잘못된 암시적 변환을 삭제된 오버로드로 정확히 잡고 있는가?
+7. 삭제된 함수도 오버로드 해석에 참여한다는 점을 이해하는가?
+8. private 미정의 방식보다 `= delete`가 의도와 진단을 분명히 하는가?
+9. `= default`와 `= delete`를 구현 생략으로 혼동하지 않는가?
+10. 멤버의 복사·이동 가능 여부가 바깥 클래스의 특수 멤버 함수에 미치는 영향을 확인했는가?
+
+삭제된 함수의 목적은 구현할 시간이 없다는 표시가 아니다. 타입이 허용하지 않는 연산을 인터페이스에 명시하고, 잘못된 사용이 실행이나 링크 단계까지 가지 않도록 컴파일 단계에서 차단하는 것이다.
+
+## 다음 학습: 오른값 참조와 이동 의미론
+
+다음 글에서는 `T&&`, `std::move`와 이동 생성자를 살펴본다. 값 범주가 오버로드 선택에 어떤 영향을 주는지, 자원 소유권을 복사하지 않고 이전한 뒤 원본 객체가 어떤 상태로 남아야 하는지 정리한다.

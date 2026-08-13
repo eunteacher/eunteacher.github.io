@@ -1,0 +1,521 @@
+---
+layout: post
+title: '[C++ 53] 함수 포인터: 실행할 함수를 값처럼 선택하고 전달하기'
+date: 2026-05-09
+categories: [Dev, C++]
+tags: [C++, Function Pointer, Callback, Member Function Pointer, Using]
+---
+
+함수를 호출하려면 보통 소스 코드에 함수 이름을 직접 작성한다. 하지만 실행 중 연산을 선택하거나 검색 조건을 호출자에게 맡기려면 “어떤 함수를 실행할지” 자체를 값으로 전달할 방법이 필요하다.
+
+함수 포인터(Function pointer)는 함수의 주소를 저장한다. 동일한 시그니처의 함수 중 하나를 선택해 호출하거나 다른 함수의 매개변수로 넘겨 콜백(Callback)을 구성할 수 있다. 일반 함수 포인터와 객체가 필요한 비정적 멤버 함수 포인터는 타입과 호출 방법이 다르다.
+
+## 함수 포인터 타입에는 전체 시그니처가 들어간다
+
+두 정수를 받아 정수 하나를 반환하는 함수가 있다.
+
+```cpp
+int Add(int left, int right)
+{
+    return left + right;
+}
+
+int Subtract(int left, int right)
+{
+    return left - right;
+}
+```
+
+이 함수를 가리키는 포인터를 직접 선언할 수 있다.
+
+```cpp
+int (*operation)(int, int) = Add;
+```
+
+괄호가 중요하다.
+
+```text
+int (*operation)(int, int)  int 두 개를 받고 int를 반환하는 함수 포인터
+int* operation(int, int)    int 두 개를 받고 int*를 반환하는 함수 선언
+```
+
+함수 포인터 타입에는 반환 타입과 매개변수 타입이 포함된다. 호환되지 않는 함수를 대입할 수 없다.
+
+```cpp
+double Divide(double left, double right);
+
+// operation = Divide; // 함수 포인터 타입이 일치하지 않음
+```
+
+매개변수 이름은 타입의 일부가 아니지만 매개변수 타입, 개수와 반환 타입은 맞아야 한다. 호출 규약이나 가변 인자 같은 요소도 실제 호환성에 영향을 줄 수 있다.
+
+## using 별칭으로 복잡한 선언을 읽기 쉽게 만든다
+
+함수 포인터 선언을 매번 직접 작성하면 변수 이름이 타입 한가운데 들어가 읽기 어렵다.
+
+```cpp
+using BinaryOperation = int (*)(int, int);
+
+BinaryOperation operation = Add;
+```
+
+`typedef`로도 만들 수 있다.
+
+```cpp
+typedef int (*BinaryOperation)(int, int);
+```
+
+현대 C++에서는 `using`이 별칭 이름과 실제 타입을 좌우로 분리해 읽기 쉬우며 템플릿 별칭에도 사용할 수 있다.
+
+별칭은 새로운 타입을 만드는 것이 아니다. `BinaryOperation`과 원래 함수 포인터 타입은 같은 타입의 다른 표기다.
+
+## 함수 이름은 함수 포인터로 변환될 수 있다
+
+함수 이름을 함수 포인터 변수에 대입할 수 있다.
+
+```cpp
+BinaryOperation operation = Add;
+```
+
+주소 연산자를 명시해도 된다.
+
+```cpp
+BinaryOperation operation = &Add;
+```
+
+호출할 때도 두 표현을 사용할 수 있다.
+
+```cpp
+int first = operation(10, 3);
+int second = (*operation)(10, 3);
+```
+
+일반적으로 `operation(10, 3)`이 더 자연스럽다. 함수 포인터라는 사실은 선언부에서 이미 드러난다.
+
+함수 포인터는 null일 수 있으므로 외부에서 전달받거나 선택 결과가 없을 수 있다면 호출 전에 확인한다.
+
+```cpp
+if (operation != nullptr)
+{
+    int result = operation(10, 3);
+}
+```
+
+null 함수 포인터를 호출하면 동작이 정의되지 않는다.
+
+## 함수 선택과 함수 실행을 분리할 수 있다
+
+문자 입력에 따라 연산 함수를 선택한다.
+
+```cpp
+BinaryOperation SelectOperation(char symbol)
+{
+    switch (symbol)
+    {
+    case '+':
+        return Add;
+    case '-':
+        return Subtract;
+    default:
+        return nullptr;
+    }
+}
+```
+
+호출자는 선택된 함수가 무엇인지 몰라도 같은 방법으로 실행한다.
+
+```cpp
+BinaryOperation operation = SelectOperation('+');
+
+if (operation != nullptr)
+{
+    std::cout << operation(10, 3) << '\n';
+}
+```
+
+```text
+선택 단계  기호를 함수 주소로 변환
+실행 단계  동일한 시그니처로 함수 호출
+```
+
+분기가 한 번뿐이라면 단순 `switch`가 더 명확할 수 있다. 선택한 함수를 여러 곳에서 반복 호출하거나 테이블에 저장하고 전달할 때 함수 포인터의 장점이 커진다.
+
+## 콜백은 호출자가 동작 일부를 전달하는 구조다
+
+아이템 배열에서 원하는 요소를 찾는 함수가 있다. 검색 반복은 같지만 “원하는 아이템”의 조건은 호출마다 달라진다.
+
+```cpp
+struct Item
+{
+    int id;
+    int rarity;
+    int ownerId;
+};
+```
+
+조건 함수의 타입을 정의한다.
+
+```cpp
+using ItemSelector = bool (*)(const Item&);
+```
+
+검색 함수는 조건 함수를 매개변수로 받는다.
+
+```cpp
+const Item* FindItem(const Item items[], int itemCount, ItemSelector selector)
+{
+    if (items == nullptr || itemCount <= 0 || selector == nullptr)
+    {
+        return nullptr;
+    }
+
+    for (int index = 0; index < itemCount; ++index)
+    {
+        if (selector(items[index]))
+        {
+            return &items[index];
+        }
+    }
+
+    return nullptr;
+}
+```
+
+`FindItem`은 희귀도의 기준이나 소유자 규칙을 모른다. 배열 순회와 첫 번째 일치 항목 반환만 책임진다.
+
+```cpp
+bool IsRare(const Item& item)
+{
+    return item.rarity >= 2;
+}
+
+bool IsUnowned(const Item& item)
+{
+    return item.ownerId == 0;
+}
+```
+
+```cpp
+const Item* rareItem = FindItem(items, itemCount, IsRare);
+const Item* unownedItem = FindItem(items, itemCount, IsUnowned);
+```
+
+이처럼 나중에 호출될 동작을 다른 코드에 전달하는 함수를 콜백이라고 한다.
+
+## 검색 조건에는 const 정확성을 적용한다
+
+조건 함수는 아이템을 검사하기만 하므로 `const Item&`를 받는다.
+
+```cpp
+bool IsRare(const Item& item);
+```
+
+검색 함수도 원본 배열을 수정하지 않으면 `const Item[]`로 받고 결과를 `const Item*`로 반환한다.
+
+```cpp
+const Item* FindItem(const Item items[], int itemCount, ItemSelector selector);
+```
+
+호출자가 검색 결과로 아이템을 수정해야 한다면 별도의 수정 가능한 오버로드나 명확한 변경 함수를 설계한다. 단순 조회 함수가 무심코 데이터 변경 권한까지 제공하지 않게 한다.
+
+배열 매개변수의 `Item items[]`는 함수 매개변수에서 사실상 `Item* items`로 조정된다. 요소 개수 정보가 함께 전달되지 않으므로 `itemCount`를 별도로 받고 두 값의 일관성을 호출자가 보장해야 한다. 이후 표준 컨테이너와 범위 타입을 사용하면 크기를 함께 전달할 수 있다.
+
+## 원본의 이름 가리기는 잘못된 주소 계산을 만든다
+
+원본 검색 반복문에는 다음 코드가 있다.
+
+```cpp
+Item* item = &item[i];
+```
+
+새 지역 변수 `item`이 배열 매개변수의 같은 이름을 가린다. 선언자의 이름은 초기화식 안에서도 새 변수로 해석될 수 있으므로 초기화되지 않은 포인터에 인덱싱하는 잘못된 코드가 된다.
+
+배열과 현재 요소의 이름을 분리한다.
+
+```cpp
+for (int index = 0; index < itemCount; ++index)
+{
+    const Item& item = items[index];
+
+    if (selector(item))
+    {
+        return &items[index];
+    }
+}
+```
+
+이름 가리기(Shadowing)는 항상 오류는 아니지만 같은 짧은 범위에서 서로 다른 대상을 같은 이름으로 부르면 이런 실수를 만들기 쉽다. 컴파일러 경고 수준을 높여 가리기 관련 진단을 활용하고 역할이 다른 변수에는 다른 이름을 사용한다.
+
+## 상태 없는 일반 함수만 받는다는 제한이 있다
+
+원시 함수 포인터는 호환되는 자유 함수와 정적 멤버 함수를 가리킬 수 있다.
+
+```cpp
+class ItemRules
+{
+public:
+    static bool IsLegendary(const Item& item)
+    {
+        return item.rarity >= 4;
+    }
+};
+```
+
+```cpp
+ItemSelector selector = &ItemRules::IsLegendary;
+```
+
+정적 멤버 함수에는 특정 객체를 나타내는 `this`가 없으므로 일반 함수 포인터와 호환될 수 있다.
+
+반면 검색할 최소 희귀도를 실행 중 값으로 저장하고 싶은 조건은 원시 함수 포인터만으로 직접 표현하기 어렵다.
+
+```cpp
+int minimumRarity = 3;
+```
+
+전역 변수에 값을 저장하면 숨은 공유 상태가 생긴다. 나중에 함수 객체와 람다를 배우면 상태를 함께 보관하는 호출 가능한 객체를 전달할 수 있다.
+
+## 비정적 멤버 함수 포인터는 클래스 정보가 포함된다
+
+비정적 멤버 함수는 호출할 객체가 필요하다.
+
+```cpp
+class Knight
+{
+public:
+    int Hp() const
+    {
+        return hp_;
+    }
+
+private:
+    int hp_ = 100;
+};
+```
+
+`Knight::Hp`를 가리키는 타입에는 소속 클래스와 `const` 한정이 포함된다.
+
+```cpp
+using KnightGetter = int (Knight::*)() const;
+KnightGetter getter = &Knight::Hp;
+```
+
+일반 함수 포인터와 문법이 다르다.
+
+```text
+int (*)()                 객체가 필요 없는 일반 함수 포인터
+int (Knight::*)() const   Knight 객체가 필요한 const 멤버 함수 포인터
+```
+
+`Knight::Hp` 함수 주소만으로는 어느 기사의 체력을 읽을지 정할 수 없다. 호출 시 객체와 멤버 함수 포인터를 결합한다.
+
+```cpp
+Knight knight;
+int hp = (knight.*getter)();
+```
+
+객체 포인터가 있다면 `->*`를 사용한다.
+
+```cpp
+Knight* knightPointer = &knight;
+int sameHp = (knightPointer->*getter)();
+```
+
+괄호가 필요하다. 멤버 포인터 연산자로 대상 함수를 결합한 뒤 호출 연산자를 적용한다.
+
+## 멤버 함수 포인터는 가상 호출도 유지한다
+
+기반 클래스의 가상 멤버 함수 포인터를 파생 객체에 적용할 수 있다.
+
+```cpp
+class Player
+{
+public:
+    virtual const char* Name() const
+    {
+        return "Player";
+    }
+};
+
+class Knight : public Player
+{
+public:
+    const char* Name() const override
+    {
+        return "Knight";
+    }
+};
+```
+
+```cpp
+using NameGetter = const char* (Player::*)() const;
+NameGetter getter = &Player::Name;
+
+Knight knight;
+const char* name = (knight.*getter)();
+```
+
+`Player::Name`은 가상 함수이므로 최종 재정의인 `Knight::Name`이 호출된다. 멤버 함수 포인터라고 해서 가상 함수의 동적 바인딩이 사라지지 않는다.
+
+## 함수 포인터를 void 포인터처럼 취급하지 않는다
+
+함수 포인터와 객체 포인터는 서로 다른 범주의 포인터다. 함수 포인터를 `void*`에 저장했다가 임의로 되돌리는 방식은 이식 가능한 일반 C++ 인터페이스가 아니다.
+
+```cpp
+BinaryOperation operation = Add;
+// void* raw = reinterpret_cast<void*>(operation);
+```
+
+함수 주소를 저장해야 한다면 정확한 함수 포인터 타입을 유지한다. 여러 시그니처를 하나의 컨테이너에 섞어야 한다면 공통 인터페이스, `std::variant`나 타입 소거 호출 래퍼처럼 의도를 표현하는 별도 설계를 검토한다.
+
+함수 포인터의 실제 크기도 데이터 포인터와 같다고 가정하지 않는다. 구현 환경이 함수 주소를 표현하는 방식에 따라 달라질 수 있다.
+
+## 전체 구현
+
+연산 선택, 아이템 검색 콜백과 멤버 함수 포인터를 함께 검증한다.
+
+```cpp
+#include <array>
+#include <cassert>
+#include <iostream>
+
+int Add(int left, int right)
+{
+    return left + right;
+}
+
+int Subtract(int left, int right)
+{
+    return left - right;
+}
+
+using BinaryOperation = int (*)(int, int);
+
+BinaryOperation SelectOperation(char symbol)
+{
+    switch (symbol)
+    {
+    case '+':
+        return Add;
+    case '-':
+        return Subtract;
+    default:
+        return nullptr;
+    }
+}
+
+struct Item
+{
+    int id;
+    int rarity;
+    int ownerId;
+};
+
+using ItemSelector = bool (*)(const Item&);
+
+template <std::size_t Size>
+const Item* FindItem(const std::array<Item, Size>& items, ItemSelector selector)
+{
+    if (selector == nullptr)
+    {
+        return nullptr;
+    }
+
+    for (const Item& item : items)
+    {
+        if (selector(item))
+        {
+            return &item;
+        }
+    }
+
+    return nullptr;
+}
+
+bool IsRare(const Item& item)
+{
+    return item.rarity >= 2;
+}
+
+bool IsUnowned(const Item& item)
+{
+    return item.ownerId == 0;
+}
+
+class Knight
+{
+public:
+    int Hp() const
+    {
+        return hp_;
+    }
+
+private:
+    int hp_ = 100;
+};
+
+void VerifyFunctionPointers()
+{
+    BinaryOperation operation = SelectOperation('+');
+    assert(operation != nullptr);
+    assert(operation(10, 3) == 13);
+
+    operation = SelectOperation('-');
+    assert(operation != nullptr);
+    assert(operation(10, 3) == 7);
+    assert(SelectOperation('*') == nullptr);
+
+    std::array<Item, 4> items{{{1, 0, 10}, {2, 3, 20}, {3, 1, 0}, {4, 4, 0}}};
+
+    const Item* rareItem = FindItem(items, IsRare);
+    const Item* unownedItem = FindItem(items, IsUnowned);
+    assert(rareItem != nullptr && rareItem->id == 2);
+    assert(unownedItem != nullptr && unownedItem->id == 3);
+
+    using KnightGetter = int (Knight::*)() const;
+    KnightGetter getter = &Knight::Hp;
+
+    Knight knight;
+    assert((knight.*getter)() == 100);
+
+    std::cout << "10 + 3 = " << Add(10, 3) << '\n';
+    std::cout << "Rare item ID: " << rareItem->id << '\n';
+    std::cout << "Knight HP: " << (knight.*getter)() << '\n';
+}
+
+int main()
+{
+    VerifyFunctionPointers();
+}
+```
+
+실행 결과는 다음과 같다.
+
+```text
+10 + 3 = 13
+Rare item ID: 2
+Knight HP: 100
+```
+
+연산 함수는 동일한 `BinaryOperation` 타입으로 선택되고 알 수 없는 기호에는 null이 반환된다. 아이템 검색은 같은 반복 코드를 유지하면서 `IsRare`와 `IsUnowned` 조건을 바꿔 사용한다.
+
+`FindItem`의 전체 예제는 배열 크기를 타입에 포함하는 `std::array`를 받아 원본의 포인터와 개수 불일치 가능성을 줄였다. 함수 템플릿 자체는 이후 글에서 자세히 다룬다.
+
+## 함수 포인터를 검토할 때 확인할 기준
+
+1. 반환 타입과 매개변수 타입이 대상 함수와 정확히 일치하는가?
+2. 복잡한 선언에 `using` 별칭을 사용해 의도를 드러낼 수 있는가?
+3. null 함수 포인터가 가능한 경로에서 호출 전 확인하는가?
+4. 단순 분기보다 함수 포인터로 선택을 저장·전달할 실제 이유가 있는가?
+5. 콜백이 검사 대상에 불필요한 수정 권한을 받지 않는가?
+6. 배열 포인터와 요소 개수의 일관성을 보장하는가?
+7. 이름 가리기로 배열과 현재 요소를 혼동하지 않는가?
+8. 일반 함수 포인터와 비정적 멤버 함수 포인터를 구분하는가?
+9. 멤버 함수의 소속 클래스와 `const` 한정까지 타입에 반영했는가?
+10. 실행 중 상태를 가진 조건에는 함수 객체나 람다가 더 자연스럽지 않은가?
+
+함수 포인터의 핵심은 함수 주소를 출력하거나 메모리 구조를 관찰하는 데 있지 않다. 실행할 동작을 선택하고 다른 코드에 전달해 반복 구조와 변경되는 정책을 분리하는 데 있다.
+
+## 다음 학습: 함수 객체로 상태를 가진 호출 규칙 만들기
+
+다음 글에서는 `operator()`를 정의한 함수 객체를 이용해 호출 가능한 동작과 상태를 하나로 묶는다. 함수 포인터로 표현하기 어려운 최소 희귀도, 정렬 기준과 게임 이벤트 콜백을 객체로 구성하는 방법을 살펴본다.

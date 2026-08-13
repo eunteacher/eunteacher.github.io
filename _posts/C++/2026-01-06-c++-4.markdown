@@ -172,9 +172,7 @@ bool NearlyEqual(double a, double b, double absoluteTolerance)
 #include <algorithm>
 #include <cmath>
 
-bool NearlyEqual(double a, double b,
-                 double absoluteTolerance,
-                 double relativeTolerance)
+bool NearlyEqual(double a, double b, double absoluteTolerance, double relativeTolerance)
 {
     double difference = std::abs(a - b);
 
@@ -242,9 +240,7 @@ if (std::isnan(value))
 #include <iostream>
 #include <limits>
 
-bool NearlyEqual(double a, double b,
-                 double absoluteTolerance,
-                 double relativeTolerance)
+bool NearlyEqual(double a, double b, double absoluteTolerance, double relativeTolerance)
 {
     double difference = std::abs(a - b);
 
@@ -264,16 +260,13 @@ int main()
 
     std::cout << "sizeof(float): " << sizeof(float) << '\n';
     std::cout << "sizeof(double): " << sizeof(double) << '\n';
-    std::cout << "IEEE 754 float: "
-              << std::numeric_limits<float>::is_iec559 << '\n';
+    std::cout << "IEEE 754 float: " << std::numeric_limits<float>::is_iec559 << '\n';
 
     std::cout << std::setprecision(17);
     std::cout << "exact: " << exact << '\n';
     std::cout << "0.1 + 0.2: " << approximate << '\n';
-    std::cout << "exact comparison: "
-              << (approximate == 0.3) << '\n';
-    std::cout << "near comparison: "
-              << NearlyEqual(approximate, 0.3, 1e-12, 1e-12) << '\n';
+    std::cout << "exact comparison: " << (approximate == 0.3) << '\n';
+    std::cout << "near comparison: " << NearlyEqual(approximate, 0.3, 1e-12, 1e-12) << '\n';
 
     return 0;
 }

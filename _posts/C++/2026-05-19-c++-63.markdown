@@ -1,0 +1,465 @@
+---
+layout: post
+title: '[C++ 63] map과 set: 정렬된 키, 중복 허용 여부와 탐색 범위 이해하기'
+date: 2026-05-19
+categories: [Dev, C++]
+tags: [C++, STL, Map, Set, Associative Container]
+---
+
+`vector`, `list`, `deque`는 요소의 위치와 순서를 중심으로 다루는 시퀀스 컨테이너다. 특정 플레이어 ID처럼 **키를 기준으로 값을 찾는 작업**이 중심이라면 매번 처음부터 순회하는 구조는 요소 수가 늘수록 부담이 된다.
+
+정렬 연관 컨테이너(ordered associative container)는 비교 함수에 따라 키를 정렬해 관리한다. 대표적으로 `map`, `set`, `multimap`, `multiset`이 있으며 키와 값의 저장 형태 및 중복 허용 여부가 다르다.
+
+이번 글에서는 네 컨테이너의 공통 원리보다 API 차이를 단순 나열하지 않고, 어떤 질문에 어떤 컨테이너가 답하는지와 삽입·탐색 결과를 안전하게 처리하는 방법을 정리한다.
+
+## 네 가지 컨테이너를 먼저 구분한다
+
+| 컨테이너 | 저장하는 요소 | 중복 키 | 대표 용도 |
+|---|---|---:|---|
+| `map<Key, Value>` | 키와 값 | 허용하지 않음 | ID로 객체 정보 찾기 |
+| `set<Key>` | 키 자체 | 허용하지 않음 | 값의 존재 여부, 중복 제거 |
+| `multimap<Key, Value>` | 키와 값 | 허용 | 한 키에 여러 값 연결 |
+| `multiset<Key>` | 키 자체 | 허용 | 정렬된 값과 출현 횟수 관리 |
+
+```cpp
+std::map<int, std::string> players;
+std::set<std::string> tags;
+std::multimap<int, std::string> rewardsByLevel;
+std::multiset<int> scores;
+```
+
+`map`과 `multimap`의 요소는 `std::pair<const Key, Value>` 형태다. 키는 컨테이너의 정렬 위치를 결정하므로 반복자를 통해 바꿀 수 없고 값은 수정할 수 있다.
+
+```cpp
+auto it = players.begin();
+// it->first = 100;       // key는 const이므로 수정 불가
+it->second = "Warrior"; // value는 수정 가능
+```
+
+`set`과 `multiset`에서는 요소 자체가 키이므로 반복자로 요소 값을 직접 수정할 수 없다. 값을 바꾸려면 기존 요소를 지우고 새 값을 삽입한다.
+
+## 정렬 순서는 비교 함수가 결정한다
+
+기본 비교 함수는 `std::less<Key>`이며 오름차순으로 순회된다.
+
+```cpp
+std::map<int, std::string> players;
+players.emplace(30, "Archer");
+players.emplace(10, "Knight");
+players.emplace(20, "Mage");
+
+for (const auto& [id, job] : players)
+{
+    std::cout << id << ' ' << job << '\n';
+}
+```
+
+```text
+10 Knight
+20 Mage
+30 Archer
+```
+
+삽입 순서가 아니라 키 정렬 순서로 순회된다. 내림차순이 필요하면 비교 타입을 지정할 수 있다.
+
+```cpp
+std::map<int, std::string, std::greater<int>> descending;
+```
+
+사용자 정의 키의 비교 함수는 strict weak ordering을 만족해야 한다. 두 키가 같은지는 반드시 `operator==`로 판단하는 것이 아니라 비교 함수에서 서로 어느 쪽도 앞서지 않는지로 판단한다.
+
+```text
+동등한 키: !compare(a, b) && !compare(b, a)
+```
+
+비교 규칙이 실행 중 바뀌거나 일관되지 않으면 정렬과 탐색 전제가 무너진다.
+
+## 균형 트리는 일반적인 구현이지 고정된 내부 구조가 아니다
+
+원본에서는 `map`을 AVL 트리라고 설명한다. 실제 표준 라이브러리는 레드-블랙 트리 같은 균형 탐색 트리를 사용하는 경우가 많지만, C++ 표준이 특정 트리 종류나 노드 색상 규칙을 요구하지는 않는다.
+
+프로그램이 의존할 수 있는 대표적인 계약은 다음과 같다.
+
+- 키가 비교 함수에 따라 정렬된다.
+- 탐색, 단일 삽입과 키 기반 삭제가 O(log n)이다.
+- 반복자는 양방향으로 이동할 수 있다.
+- 삽입은 기존 요소의 반복자와 참조를 무효로 만들지 않는다.
+- 삭제는 삭제된 요소의 반복자와 참조만 무효로 만든다.
+
+내부가 정확히 어떤 균형 트리인지 추측해 코드나 성능 계산에 넣지 않는다.
+
+## map의 insert 결과에는 삽입 성공 여부가 들어 있다
+
+`map`은 같은 키를 두 번 저장하지 않는다. `insert`와 `emplace`는 반복자와 성공 여부를 함께 반환한다.
+
+```cpp
+std::map<int, std::string> players;
+
+auto [first, firstInserted] = players.emplace(10, "Knight");
+auto [duplicate, duplicateInserted] = players.emplace(10, "Mage");
+
+assert(firstInserted);
+assert(!duplicateInserted);
+assert(duplicate->second == "Knight");
+```
+
+두 번째 삽입이 실패해도 기존 값이 자동으로 `Mage`로 바뀌지 않는다. 반환된 반복자는 이미 존재하던 키 10의 요소를 가리킨다.
+
+삽입 성공 여부가 중요하다면 반환값을 무시하지 않는다.
+
+## try_emplace와 insert_or_assign은 의도를 나눈다
+
+키가 없을 때만 값을 생성하고 싶다면 `try_emplace`를 사용할 수 있다.
+
+```cpp
+struct Player
+{
+    Player(std::string job, int level) : job(std::move(job)), level(level) {}
+
+    std::string job;
+    int level;
+};
+
+std::map<int, Player> players;
+auto [it, inserted] = players.try_emplace(10, "Knight", 5);
+```
+
+키가 이미 존재하면 전달한 생성자 인자로 `Player`를 새로 만들지 않는다. 비싼 객체를 조건부로 생성할 때 유용하다.
+
+없으면 삽입하고 이미 있으면 값을 교체하려는 의도에는 `insert_or_assign`이 맞는다.
+
+```cpp
+players.insert_or_assign(10, Player("Knight", 6));
+assert(players.at(10).level == 6);
+```
+
+`insert`의 실패를 확인하지 않은 채 다시 대입하는 것보다 API 이름에서 정책이 드러난다.
+
+## operator[]는 조회만 하는 함수가 아니다
+
+`map::operator[]`는 키가 있으면 해당 값의 참조를 반환한다.
+
+```cpp
+players[10].level = 7;
+```
+
+키가 없다면 새 요소를 삽입하고 `Value`를 값 초기화한다.
+
+```cpp
+std::map<int, int> scores;
+int score = scores[100];
+
+assert(score == 0);
+assert(scores.contains(100));
+```
+
+단순히 읽으려고 `scores[100]`을 호출했지만 키 100과 값 0이 추가됐다. 이 동작 때문에 `operator[]`는 비상수 `map`에서만 제공되며, mapped type이 기본 생성 가능한 형태여야 사용할 수 있다.
+
+조회만 하려면 `find`, `contains` 또는 `at`을 목적에 맞게 사용한다.
+
+```cpp
+if (auto it = scores.find(100); it != scores.end())
+{
+    std::cout << it->second << '\n';
+}
+
+if (scores.contains(100))
+{
+    std::cout << "Key exists\n";
+}
+```
+
+`at(key)`은 요소가 있으면 참조를 반환하고 없으면 `std::out_of_range`를 던진다. 새 요소를 삽입하지 않는다.
+
+## find 결과는 end와 비교한 뒤 사용한다
+
+`find(key)`는 키를 찾으면 해당 요소의 반복자, 찾지 못하면 `end()`를 반환한다.
+
+```cpp
+auto it = players.find(20);
+
+if (it != players.end())
+{
+    it->second.level += 1;
+}
+```
+
+검사 없이 `it->second`를 사용하면 없는 키에서 `end()`를 역참조할 수 있다.
+
+존재 여부만 필요하면 C++20의 `contains`가 더 직접적이다.
+
+```cpp
+bool exists = players.contains(20);
+```
+
+`count(key)`도 사용할 수 있다. `map`과 `set`에서는 결과가 0 또는 1이고, 중복 컨테이너에서는 일치하는 요소 개수다.
+
+## erase(key)의 반환값은 삭제한 요소 수다
+
+키로 삭제하면 실제로 지운 요소 수를 반환한다.
+
+```cpp
+std::size_t removed = players.erase(20);
+```
+
+`map`과 `set`은 중복 키를 허용하지 않으므로 결과가 0 또는 1이다. 같은 키를 다시 삭제해도 오류가 아니라 0이 반환된다.
+
+```cpp
+assert(players.erase(999) == 0);
+```
+
+반복자로 삭제하면 해당 요소 하나만 제거한다. 삭제된 요소의 반복자는 무효가 되지만 다른 요소의 반복자와 참조는 유지된다.
+
+## set은 값의 존재 여부가 중심이다
+
+키와 별도의 값이 필요하지 않다면 `set`을 사용한다.
+
+```cpp
+std::set<std::string> tags;
+
+auto [first, firstInserted] = tags.insert("cpp");
+auto [duplicate, duplicateInserted] = tags.insert("cpp");
+
+assert(firstInserted);
+assert(!duplicateInserted);
+```
+
+같은 값을 여러 번 삽입해도 한 번만 저장된다. 정렬된 고유 값 집합, 권한 이름, 활성 ID 목록처럼 “이 값이 있는가?”가 중심인 데이터에 적합하다.
+
+중복 제거만을 위해 항상 `set`이 최선인 것은 아니다. 원래 순서를 유지해야 하거나 정렬이 필요하지 않다면 다른 구조와 알고리즘의 비용도 비교한다.
+
+## multimap은 한 키에 여러 값을 저장한다
+
+한 레벨에 여러 보상이 연결되는 것처럼 같은 키에 여러 값이 필요하면 `multimap`을 사용할 수 있다.
+
+```cpp
+std::multimap<int, std::string> rewards;
+rewards.emplace(1, "Potion");
+rewards.emplace(1, "Gold");
+rewards.emplace(2, "Sword");
+```
+
+키 하나가 여러 값에 대응하므로 `operator[]`는 제공되지 않는다. 어떤 값을 반환해야 하는지 하나로 정할 수 없기 때문이다.
+
+`find(1)`은 일치하는 요소 중 하나의 반복자를 반환할 뿐 모든 결과를 표현하지 않는다. 같은 키의 전체 범위에는 `equal_range`를 사용한다.
+
+```cpp
+auto [first, last] = rewards.equal_range(1);
+
+for (auto it = first; it != last; ++it)
+{
+    std::cout << it->second << '\n';
+}
+```
+
+반환 범위는 반열린 구간 `[first, last)`다. `first`는 키 1보다 작지 않은 첫 요소인 `lower_bound(1)`, `last`는 키 1보다 큰 첫 요소인 `upper_bound(1)`과 같다.
+
+```text
+        lower_bound(1)          upper_bound(1)
+              ↓                      ↓
+[(1, Potion), (1, Gold), (2, Sword), ...]
+ └──────── equal_range(1) ────────┘
+```
+
+## multimap에서 특정 키와 값 하나만 삭제한다
+
+`rewards.erase(1)`은 키 1에 해당하는 요소를 모두 삭제한다.
+
+```cpp
+std::size_t removed = rewards.erase(1);
+```
+
+`(1, "Gold")`만 지우려면 키 1의 범위 안에서 값을 확인한 뒤 해당 반복자를 삭제한다.
+
+```cpp
+auto [first, last] = rewards.equal_range(1);
+
+for (auto it = first; it != last; ++it)
+{
+    if (it->second == "Gold")
+    {
+        rewards.erase(it);
+        break;
+    }
+}
+```
+
+`find(1)`이 어떤 값과 연결된 요소를 반환할지에 기대어 무조건 한 번 증가시키는 방식은 목적을 정확히 표현하지 못한다. 같은 키 범위에서 실제 값을 검사한다.
+
+## multiset은 같은 값을 여러 번 저장한다
+
+정렬된 값과 각 값의 출현 횟수가 필요하면 `multiset`을 사용할 수 있다.
+
+```cpp
+std::multiset<int> scores{100, 80, 100, 120};
+
+assert(scores.count(100) == 2);
+```
+
+`find(100)`은 일치하는 요소 하나를 반환한다. 모든 100을 순회하려면 `equal_range(100)`을 사용한다.
+
+```cpp
+auto [first, last] = scores.equal_range(100);
+```
+
+`scores.erase(100)`은 값 100을 모두 삭제하고 삭제된 개수를 반환한다. 하나만 삭제하려면 `find`로 얻은 반복자를 `erase`에 전달한다.
+
+## 정렬 컨테이너의 선택 기준
+
+```text
+키와 별도 값이 필요한가?
+├─ 아니오: set 계열
+│  ├─ 키가 고유함      → set
+│  └─ 키 중복이 필요함 → multiset
+└─ 예: map 계열
+   ├─ 키 하나당 값 하나 → map
+   └─ 키 하나당 값 여러 개 → multimap
+```
+
+네 컨테이너 모두 정렬 순회와 O(log n) 탐색이 필요하다는 전제가 있다. 정렬이 필요 없고 평균 O(1) 탐색이 더 중요하다면 `unordered_map`, `unordered_set` 계열도 비교 대상이 된다. 해시 컨테이너는 순서, 최악 복잡도, 키 해시와 동등성 규칙이 달라 별도로 판단한다.
+
+## 전체 구현
+
+고유 키 삽입 결과, 값 갱신, set의 중복 제거와 multimap의 범위 탐색을 확인한다.
+
+```cpp
+#include <cassert>
+#include <iostream>
+#include <map>
+#include <set>
+#include <string>
+#include <utility>
+
+struct Player
+{
+    Player(std::string job, int level) : job(std::move(job)), level(level) {}
+
+    std::string job;
+    int level;
+};
+
+void VerifyMap()
+{
+    std::map<int, Player> players;
+
+    auto [knight, knightInserted] = players.try_emplace(10, "Knight", 5);
+    auto [mage, mageInserted] = players.try_emplace(20, "Mage", 7);
+    auto [duplicate, duplicateInserted] = players.try_emplace(20, "Duplicate", 99);
+    players.try_emplace(30, "Archer", 4);
+
+    assert(knightInserted);
+    assert(mageInserted);
+    assert(!duplicateInserted);
+    assert(duplicate->second.job == "Mage");
+
+    players.insert_or_assign(20, Player("Mage", 8));
+    assert(players.at(20).level == 8);
+    assert(!players.contains(99));
+
+    std::cout << "Players:\n";
+
+    for (const auto& [id, player] : players)
+    {
+        std::cout << id << ' ' << player.job << ' ' << player.level << '\n';
+    }
+}
+
+void VerifySet()
+{
+    std::set<std::string> tags{"stl", "cpp", "stl"};
+
+    assert(tags.size() == 2);
+    assert(tags.contains("cpp"));
+
+    std::cout << "Tags:";
+
+    for (const std::string& tag : tags)
+    {
+        std::cout << ' ' << tag;
+    }
+
+    std::cout << '\n';
+}
+
+void VerifyMultiContainers()
+{
+    std::multimap<int, std::string> rewards;
+    rewards.emplace(1, "Potion");
+    rewards.emplace(1, "Gold");
+    rewards.emplace(2, "Sword");
+
+    auto [first, last] = rewards.equal_range(1);
+
+    std::cout << "Level 1 rewards:";
+
+    for (auto it = first; it != last; ++it)
+    {
+        std::cout << ' ' << it->second;
+    }
+
+    std::cout << '\n';
+
+    for (auto it = first; it != last; ++it)
+    {
+        if (it->second == "Gold")
+        {
+            rewards.erase(it);
+            break;
+        }
+    }
+
+    assert(rewards.count(1) == 1);
+
+    std::multiset<int> scores{100, 80, 100, 120};
+    std::size_t removed = scores.erase(100);
+
+    assert(removed == 2);
+    assert(!scores.contains(100));
+
+    std::cout << "Removed scores: " << removed << '\n';
+}
+
+int main()
+{
+    VerifyMap();
+    VerifySet();
+    VerifyMultiContainers();
+}
+```
+
+실행 결과는 다음과 같다.
+
+```text
+Players:
+10 Knight 5
+20 Mage 8
+30 Archer 4
+Tags: cpp stl
+Level 1 rewards: Potion Gold
+Removed scores: 2
+```
+
+키 20을 두 번째로 `try_emplace`해도 기존 `Mage`가 유지되고 삽입 성공 값은 `false`다. 이후 `insert_or_assign`으로 레벨만 8인 새 값으로 교체한다. 플레이어는 삽입 순서가 아니라 ID 오름차순으로 출력된다.
+
+`set`에는 `stl`을 두 번 전달했지만 고유 값 두 개만 남는다. `multimap`은 레벨 1 범위의 두 보상을 모두 순회하며, 그 범위 안에서 값이 `Gold`인 요소 하나만 삭제한다. `multiset::erase(100)`은 같은 값 두 개를 모두 지우고 2를 반환한다.
+
+## 연관 컨테이너를 사용할 때 확인할 기준
+
+1. 키와 별도의 값이 필요한지 먼저 구분했는가?
+2. 같은 키를 여러 번 저장해야 하는지 결정했는가?
+3. 삽입 순서가 아니라 비교 함수의 정렬 순서로 순회된다는 점을 아는가?
+4. 특정 AVL·레드-블랙 트리 구현을 표준 보장처럼 의존하지 않는가?
+5. `map::insert`와 `try_emplace`의 성공 여부를 확인하는가?
+6. 조회만 하면서 `operator[]`로 새 요소를 만들지 않는가?
+7. `find` 결과를 `end()`와 비교한 뒤 역참조하는가?
+8. `erase(key)`가 삭제한 요소 수를 반환한다는 점을 활용하는가?
+9. 중복 키 전체를 다룰 때 `equal_range`를 사용하는가?
+10. multimap에서 특정 값 하나만 삭제할 때 키 범위 안에서 값을 검사하는가?
+11. 사용자 정의 비교가 일관된 strict weak ordering을 만족하는가?
+12. 정렬이 필요 없다면 해시 기반 컨테이너도 비교했는가?
+
+정렬 연관 컨테이너를 사용하는 핵심은 “트리라서 빠르다”는 문장이 아니다. 키의 고유성과 값의 대응 관계를 먼저 정하고, 정렬·탐색 계약에 맞는 컨테이너와 API를 선택하는 것이다.
+
+## 다음 학습: 표준 알고리즘과 반복자 범위
+
+다음 글에서는 컨테이너가 제공하는 반복자 범위에 `find`, `sort`, `remove_if` 같은 표준 알고리즘을 적용한다. 알고리즘과 컨테이너를 분리하는 이유, 반복자 종류에 따른 사용 가능 연산과 erase-remove 패턴을 정리한다.

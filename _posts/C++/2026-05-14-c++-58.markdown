@@ -1,0 +1,417 @@
+---
+layout: post
+title: '[C++ 58] vector 반복자와 무효화: 삽입·삭제 후 위치를 안전하게 다루기'
+date: 2026-05-14
+categories: [Dev, C++]
+tags: [C++, STL, Vector, Iterator, Invalidation]
+---
+
+`std::vector`의 요소는 인덱스뿐 아니라 반복자(iterator)로도 순회할 수 있다. 반복자를 사용하면 컨테이너의 구체적인 저장 방식보다 `begin()`부터 `end()`까지라는 공통 범위에 집중할 수 있다.
+
+하지만 벡터는 요소를 연속된 저장 공간에 보관한다. 용량이 부족해 저장 공간이 바뀌거나 중간 요소가 삽입·삭제되면 기존 요소의 위치도 달라질 수 있다. 이때 전에 얻어 둔 반복자, 포인터와 참조를 계속 사용하면 안 된다.
+
+이번 글의 핵심은 반복자의 문법보다 **벡터를 수정한 뒤 어떤 위치 정보가 무효가 되는지** 이해하는 것이다.
+
+## begin은 첫 요소를, end는 마지막 다음 위치를 가리킨다
+
+`begin()`은 첫 요소를 가리키는 반복자를 반환한다. `end()`는 마지막 요소가 아니라 마지막 요소의 다음 위치를 나타낸다.
+
+```cpp
+std::vector<int> values{10, 20, 30};
+
+auto begin = values.begin();
+auto end = values.end();
+
+assert(*begin == 10);
+assert(end - begin == 3);
+```
+
+`end()`는 범위의 끝을 비교하기 위한 위치이므로 역참조할 수 없다.
+
+```cpp
+// int value = *values.end(); // 잘못된 접근
+```
+
+빈 벡터에서는 `begin()`과 `end()`가 같다.
+
+```cpp
+std::vector<int> empty;
+assert(empty.begin() == empty.end());
+```
+
+따라서 반복자 순회는 현재 위치가 `end()`에 도달하기 전까지만 요소를 읽는다.
+
+```cpp
+for (auto it = values.begin(); it != values.end(); ++it)
+{
+    std::cout << *it << ' ';
+}
+```
+
+## vector 반복자는 임의 접근이 가능하다
+
+벡터 반복자는 임의 접근 반복자(random-access iterator)다. 배열의 포인터처럼 증가와 감소뿐 아니라 정수만큼 이동하거나 두 반복자 사이의 거리를 계산할 수 있다.
+
+```cpp
+auto it = values.begin();
+
+++it;
+assert(*it == 20);
+
+it += 1;
+assert(*it == 30);
+
+it -= 2;
+assert(*it == 10);
+
+assert(values.end() - values.begin() == 3);
+```
+
+C++20의 반복자 개념으로는 벡터 반복자가 연속 반복자(contiguous iterator)의 조건도 만족한다. 요소가 연속해서 저장되므로 `data()`로 얻은 포인터를 통해 같은 요소에 접근할 수 있다.
+
+```cpp
+int* data = values.data();
+assert(data[0] == 10);
+assert(data[2] == 30);
+```
+
+벡터가 비어 있을 수도 있다면 `&values[0]`보다 `data()`를 사용하는 편이 의도가 명확하다. 다만 빈 벡터의 `data()` 반환값도 역참조해서는 안 된다.
+
+## 반복자는 반드시 포인터인 것이 아니다
+
+반복자는 `*`, `++`, 비교 같은 연산으로 컨테이너를 순회하게 해 주는 추상화다. 특정 표준 라이브러리 구현에서는 벡터 반복자가 내부적으로 포인터와 비슷할 수 있지만, 프로그램이 그 구현 방식에 의존해서는 안 된다.
+
+디버그 모드의 라이브러리는 잘못된 반복자 사용을 검사하기 위해 소유 컨테이너 정보를 추가로 보관할 수 있다. 그렇다고 모든 벡터 반복자가 항상 자신을 만든 벡터를 내부에 기억한다고 일반화할 수는 없다.
+
+서로 다른 벡터에서 얻은 반복자로 거리 계산이나 순서 비교를 하면 안 된다.
+
+```cpp
+std::vector<int> first{1, 2};
+std::vector<int> second{3, 4};
+
+// auto distance = second.end() - first.begin(); // 같은 범위의 반복자가 아님
+```
+
+디버그 라이브러리가 오류를 발견할 수는 있지만, 검사에 기대기보다 같은 컨테이너의 유효한 범위만 다루는 것이 기본이다.
+
+## const_iterator와 역방향 반복자
+
+요소를 수정하지 않고 읽기만 할 때는 `cbegin()`과 `cend()`로 `const_iterator`를 얻을 수 있다.
+
+```cpp
+for (auto it = values.cbegin(); it != values.cend(); ++it)
+{
+    std::cout << *it << ' ';
+    // *it = 100; // const_iterator로는 요소를 수정할 수 없음
+}
+```
+
+`rbegin()`과 `rend()`는 뒤에서 앞으로 순회하는 역방향 반복자를 반환한다.
+
+```cpp
+for (auto it = values.rbegin(); it != values.rend(); ++it)
+{
+    std::cout << *it << ' ';
+}
+```
+
+`rbegin()`은 마지막 요소를 가리키지만 `rend()`는 첫 요소의 앞을 표현하는 경계다. `end()`와 마찬가지로 `rend()`도 역참조하지 않는다.
+
+## 전위 증가를 기본으로 쓰되 성능을 과장하지 않는다
+
+다음 두 식은 사용하는 값이 없을 때 모두 반복자를 다음 위치로 이동시킨다.
+
+```cpp
+++it;
+it++;
+```
+
+후위 증가 `it++`는 연산 전 값을 결과로 제공해야 하므로 일반적인 사용자 정의 반복자에서는 이전 상태를 복사해야 할 수 있다. 반환값이 필요하지 않은 순회에서는 `++it`를 기본 습관으로 사용하면 불필요한 복사 가능성을 피할 수 있다.
+
+다만 벡터의 단순한 반복자는 최적화 과정에서 두 표현의 차이가 사라지는 경우가 많다. 전위 증가가 언제나 눈에 띄게 빠르다고 단정할 근거는 없다. 이전 위치가 실제로 필요할 때는 후위 증가의 의미에 맞게 사용한다.
+
+## 재할당이 발생하면 모든 위치 정보가 무효가 된다
+
+벡터의 용량이 부족한 상태에서 요소를 추가하면 더 큰 연속 저장 공간을 확보하고 기존 요소를 새 공간으로 옮긴다.
+
+```text
+기존 저장 공간: [10][20][30]
+                         ↓ 재할당
+새 저장 공간:   [10][20][30][40][ ][ ]
+```
+
+재할당이 발생하면 기존 저장 공간을 가리키던 다음 정보가 모두 무효가 된다.
+
+- 모든 반복자
+- 모든 요소 포인터
+- 모든 요소 참조
+- 기존 `end()`
+
+```cpp
+std::vector<int> values{10, 20, 30};
+auto it = values.begin();
+int* pointer = &values[0];
+int& reference = values[0];
+
+values.reserve(values.capacity() + 1); // 현재 capacity보다 크게 요청하므로 재할당 발생
+
+// it, pointer, reference를 이후에 사용하면 안 됨
+it = values.begin();
+pointer = values.data();
+```
+
+무효가 된 포인터나 반복자는 값이 자동으로 `nullptr`이 되지 않는다. 겉으로 주소가 남아 있어도 더 이상 유효한 요소를 가리킨다는 보장이 없으므로 접근하지 않고 새로 얻어야 한다.
+
+## push_back은 재할당 여부에 따라 규칙이 달라진다
+
+`push_back`이나 `emplace_back`에서 재할당이 발생하면 모든 반복자, 포인터와 참조가 무효가 된다.
+
+미리 확보한 용량 안에서 요소를 추가해 재할당이 발생하지 않으면 기존 요소를 가리키는 반복자, 포인터와 참조는 유효하다. 하지만 요소 수가 증가했으므로 이전에 저장한 `end()`는 무효가 된다.
+
+```cpp
+std::vector<int> values;
+values.reserve(4);
+values.push_back(10);
+values.push_back(20);
+
+int* first = &values[0];
+auto oldEnd = values.end();
+
+values.push_back(30); // 예약한 용량 안이므로 재할당 없음
+
+assert(first == &values[0]);
+assert(*first == 10);
+// oldEnd는 사용하지 않고 values.end()를 다시 얻음
+```
+
+재할당 여부만 확인하면 끝이 아니라 `end()`가 요소 수 변화로 바뀐다는 점도 구분해야 한다.
+
+## 중간 삽입은 삽입 위치부터 뒤쪽을 무효로 만든다
+
+벡터 중간에 요소를 삽입하면 삽입 위치 이후의 요소들을 뒤로 옮겨 공간을 만든다.
+
+```cpp
+std::vector<int> values;
+values.reserve(8);
+values.push_back(10);
+values.push_back(30);
+values.push_back(40);
+
+auto inserted = values.insert(values.begin() + 1, 20);
+
+assert(*inserted == 20);
+assert(values[2] == 30);
+```
+
+재할당이 없다면 삽입 위치보다 앞의 반복자와 참조는 유지되지만, **삽입 위치와 그 뒤를 가리키던 반복자·포인터·참조는 무효**가 된다. 기존 `end()`도 무효다.
+
+재할당이 발생했다면 위치와 관계없이 모두 무효가 된다. 따라서 `insert`가 반환한 새 반복자를 사용하거나 필요한 위치를 다시 구한다.
+
+중간 삽입은 뒤쪽 요소를 이동해야 하므로 일반적으로 삽입 위치부터 끝까지의 요소 수에 비례하는 비용이 든다.
+
+## erase는 삭제 위치와 그 뒤를 무효로 만든다
+
+`erase`로 중간 요소를 제거하면 뒤에 있던 요소들이 앞으로 이동한다.
+
+```text
+삭제 전: [10][20][30][40]
+             ↑ 20 삭제
+삭제 후: [10][30][40]
+```
+
+삭제한 요소만 무효가 되는 것이 아니다. 삭제 위치와 그 뒤를 가리키던 반복자, 포인터와 참조가 모두 무효가 된다. 재할당이 없어도 요소 이동 때문에 기존 위치 정보를 사용할 수 없다.
+
+`erase`는 삭제된 요소 다음에 위치하게 된 요소를 가리키는 반복자를 반환한다. 마지막 요소를 삭제했다면 새로운 `end()`를 반환한다.
+
+```cpp
+std::vector<int> values{10, 20, 30, 40};
+auto next = values.erase(values.begin() + 1);
+
+assert(*next == 30);
+assert(values.size() == 3);
+```
+
+따라서 순회 중 조건에 맞는 요소를 삭제할 때는 기존 반복자를 증가시키지 않고 반환값을 받는다.
+
+```cpp
+for (auto it = values.begin(); it != values.end();)
+{
+    if (*it == 30)
+    {
+        it = values.erase(it);
+    }
+    else
+    {
+        ++it;
+    }
+}
+```
+
+다음 형태는 삭제로 무효가 된 반복자를 다시 증가시키므로 잘못됐다.
+
+```cpp
+// for (auto it = values.begin(); it != values.end(); ++it)
+// {
+//     if (*it == 30)
+//     {
+//         values.erase(it);
+//     }
+// }
+```
+
+같은 값을 모두 지우는 목적이라면 C++20의 `std::erase(values, target)`처럼 의도가 직접 드러나는 함수도 사용할 수 있다. 반복자 제어가 필요한 상황과 단순 값 삭제를 구분한다.
+
+## 주요 변경 연산의 무효화 규칙
+
+| 연산 | 재할당 또는 요소 이동 | 무효가 되는 위치 정보 |
+|---|---|---|
+| `reserve(n)` | `n > capacity()`이면 재할당 | 재할당 시 전부, 아니면 없음 |
+| `push_back`, `emplace_back` | 용량 부족 시 재할당 | 재할당 시 전부, 아니면 기존 `end()` |
+| `insert`, `emplace` | 중간 요소 이동, 필요하면 재할당 | 재할당 시 전부, 아니면 삽입 위치부터 뒤쪽과 기존 `end()` |
+| `erase` | 뒤쪽 요소를 앞으로 이동 | 삭제 위치부터 뒤쪽과 기존 `end()` |
+| `pop_back` | 마지막 요소 제거 | 제거된 요소와 기존 `end()` |
+| `clear` | 모든 요소 제거 | 모든 요소의 반복자·포인터·참조와 기존 `end()` |
+
+이 표에서 “무효”는 값을 읽거나 비교하거나 증가시키는 등 이후 연산에 사용하지 말아야 한다는 뜻이다. 컨테이너를 수정한 뒤에는 살아 있다고 보장되는 위치 정보만 유지하고 나머지는 다시 얻는다.
+
+## 순회 중 같은 vector를 수정할 때는 특히 주의한다
+
+범위 기반 `for`문도 내부적으로 반복자를 사용한다.
+
+```cpp
+for (int value : values)
+{
+    std::cout << value << ' ';
+}
+```
+
+순회 중 같은 벡터에 `push_back`, `insert`나 `erase`를 호출하면 숨겨진 반복자가 무효가 될 수 있다.
+
+```cpp
+// for (int value : values)
+// {
+//     if (value == 20)
+//     {
+//         values.push_back(50); // 재할당되면 순회 반복자 전체가 무효
+//     }
+// }
+```
+
+추가할 값을 별도로 모아 순회가 끝난 뒤 반영하거나, 삭제라면 `erase`의 반환값을 직접 관리하는 반복문을 사용한다. `reserve`로 재할당만 막아도 중간 삽입·삭제에 따른 무효화까지 사라지는 것은 아니다.
+
+## 전체 구현
+
+반복자 순회, 용량 안에서의 끝 삽입, 강제 재할당과 안전한 삭제 순회를 차례로 확인한다.
+
+```cpp
+#include <cassert>
+#include <iostream>
+#include <vector>
+
+void VerifyTraversal()
+{
+    std::vector<int> values{0, 1, 2, 3, 4, 5};
+    int forwardSum = 0;
+    int reverseSum = 0;
+
+    for (auto it = values.cbegin(); it != values.cend(); ++it)
+    {
+        forwardSum += *it;
+    }
+
+    for (auto it = values.crbegin(); it != values.crend(); ++it)
+    {
+        reverseSum += *it;
+    }
+
+    assert(forwardSum == 15);
+    assert(reverseSum == forwardSum);
+
+    std::cout << "Forward sum before edits: " << forwardSum << '\n';
+}
+
+void VerifyInvalidationRules()
+{
+    std::vector<int> values;
+    values.reserve(8);
+
+    for (int value = 0; value <= 5; ++value)
+    {
+        values.push_back(value);
+    }
+
+    int* second = &values[1];
+    const std::size_t reservedCapacity = values.capacity();
+
+    values.push_back(6);
+
+    assert(values.capacity() == reservedCapacity);
+    assert(second == &values[1]);
+    assert(*second == 1);
+
+    values.reserve(reservedCapacity + 1);
+
+    // 재할당 전에 얻은 second는 더 이상 사용하지 않고 새 주소를 얻는다.
+    second = &values[1];
+    assert(*second == 1);
+
+    for (auto it = values.begin(); it != values.end();)
+    {
+        if (*it == 3)
+        {
+            it = values.erase(it);
+        }
+        else
+        {
+            ++it;
+        }
+    }
+
+    auto inserted = values.insert(values.begin(), -1);
+    assert(inserted == values.begin());
+    assert(values.size() == 7);
+
+    std::cout << "Values after edits:";
+
+    for (int value : values)
+    {
+        std::cout << ' ' << value;
+    }
+
+    std::cout << '\n';
+}
+
+int main()
+{
+    VerifyTraversal();
+    VerifyInvalidationRules();
+}
+```
+
+실행 결과는 다음과 같다.
+
+```text
+Forward sum before edits: 15
+Values after edits: -1 0 1 2 4 5 6
+```
+
+`reserve(8)` 안에서 `push_back(6)`을 수행했으므로 기존 요소를 가리키는 `second`는 유지된다. 이후 현재 용량보다 큰 값을 `reserve`에 전달해 재할당을 일으킨 뒤에는 기존 포인터를 사용하지 않고 새로 얻는다.
+
+값 3을 지울 때는 `erase`의 반환값으로 다음 순회 위치를 갱신한다. 마지막으로 맨 앞에 `-1`을 삽입한 뒤에는 삽입 전에 얻은 반복자를 재사용하지 않고 `insert`가 반환한 반복자를 검증한다.
+
+## vector의 위치를 보관할 때 확인할 기준
+
+1. `end()`를 마지막 요소로 착각해 역참조하지 않는가?
+2. 반복자가 반드시 포인터이거나 소유 컨테이너를 기억한다고 가정하지 않는가?
+3. 벡터가 재할당된 뒤 기존 반복자, 포인터와 참조를 사용하지 않는가?
+4. 재할당이 없는 `push_back`에서도 기존 `end()`가 무효라는 점을 고려하는가?
+5. 중간 `insert`와 `erase`가 해당 위치부터 뒤쪽을 이동시킨다는 점을 고려하는가?
+6. 순회 중 삭제할 때 `it = values.erase(it)` 형태로 다음 위치를 받는가?
+7. 범위 기반 `for`문 안에서 같은 벡터를 변경해 숨겨진 반복자를 무효로 만들지 않는가?
+8. 주소를 오래 보관해야 한다면 `vector`가 요구사항에 맞는 컨테이너인지 다시 검토했는가?
+
+벡터 반복자를 안전하게 사용하는 기준은 단순하다. 위치를 얻은 뒤 컨테이너를 변경했다면 재할당과 요소 이동이 있었는지 판단하고, 유효성이 보장되지 않는 위치는 즉시 다시 얻는다.
+
+## 다음 학습: 직접 만드는 동적 배열과 반복자
+
+다음 글에서는 표준 `vector`가 제공하던 저장 공간 관리와 반복자 기능을 간단한 동적 배열에 직접 구현한다. 이를 통해 `size`, `capacity`, 재할당과 반복자 인터페이스가 어떻게 연결되는지 확인한다.

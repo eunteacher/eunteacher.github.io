@@ -1,129 +1,514 @@
 ---
 layout: post
-title: '[Algorithm 10] 그래프(Graph) 탐색: DFS(Depth First Search)의 개념과 구현'
+title: '[Algorithm 10] 깊이 우선 탐색: 재귀 호출과 명시적 스택'
 date: 2026-02-17
 categories: [Dev, Algorithm]
-tags: [C++, Algorithm, Graph, DFS, Recursion]
+tags: [C++, Graph, DFS, Recursion, Stack]
 use_math: true
 ---
 
-# [Algorithm] 그래프 깊이 우선 탐색 (DFS)
+깊이 우선 탐색(Depth First Search, DFS)은 현재 정점에서 갈 수 있는 한 방향을 끝까지 따라간 뒤, 더 이상 진행할 수 없으면 마지막 갈림길로 돌아와 다른 방향을 탐색한다.
 
-그래프의 모든 정점을 방문하는 알고리즘 중 하나로, 한 방향으로 갈 수 있는 경로가 있는 한 최대한 깊게 탐색을 진행하다가 더 이상 갈 곳이 없으면 가장 마지막 갈림길로 돌아와 다른 경로를 탐색하는 방식
+```text
+        0
+       / \
+      1   3
+     /     \
+    2       4
 
+이웃을 작은 번호부터 선택한 DFS
+0 → 1 → 2 → 되돌아감 → 3 → 4
+```
 
+“가장 최근 갈림길로 돌아간다”는 순서가 LIFO와 같아서 재귀 호출이나 명시적인 스택으로 구현할 수 있다.
 
-## 1. 소스 코드 (Source Code)
+## DFS는 방문과 되돌아가기를 반복한다
+
+현재 정점 `here`에서 수행하는 일은 세 단계로 정리할 수 있다.
+
+```text
+1. here를 방문했다고 표시한다.
+2. here에서 갈 수 있는 이웃을 차례로 확인한다.
+3. 아직 방문하지 않은 이웃에서 DFS를 다시 시작한다.
+```
 
 ```cpp
-#include <iostream>
-#include <vector>
-
-using namespace std;
-
-// 그래프 구성을 위한 전역 변수 설정
-struct Vertex { };
-vector<Vertex> Vertices;
-vector<vector<int>> Adjacent; // 인접 행렬 또는 인접 리스트 정보를 담는 컨테이너
-vector<bool> Visited; // 정점 방문 여부를 체크하는 배열
-
-/**
- * 그래프 데이터 생성 함수
- * 인접 행렬(Adjacency Matrix) 방식을 사용하여 간선 정보를 기록
- */
-void CreateGraph()
-{
-	Vertices.resize(6);
-
-	// 인접 행렬 방식: i에서 j로 가는 간선이 있으면 1, 없으면 0
-	Adjacent = vector<vector<int>>
-	{
-		{ 0, 1, 0, 1, 0, 0 }, // 0번 정점: 1, 3 연결
-		{ 1, 0, 1, 1, 0, 0 }, // 1번 정점: 0, 2, 3 연결
-		{ 0, 0, 0, 0, 0, 0 }, // 2번 정점: 고립
-		{ 0, 0, 0, 0, 1, 0 }, // 3번 정점: 4 연결
-		{ 0, 0, 0, 0, 0, 0 }, // 4번 정점: 고립
-		{ 0, 0, 0, 0, 1, 0 }, // 5번 정점: 4 연결
-	};
-}
-
-/**
- * DFS (Depth First Search) 핵심 로직
- * 재귀 호출(Recursion)을 이용하여 깊이 있게 탐색을 수행
- * @param here 현재 방문 중인 정점 번호
- */
 void Dfs(int here)
 {
-	// 1) 현재 정점 방문 표시 및 로직 수행
-	Visited[here] = true;
-	cout << "Visited : " << here << endl;
+    visited[here] = true;
+    Visit(here);
 
-	// 2) 인접한 모든 정점을 순회하며 탐색
-	// 인접 행렬 버전: 모든 정점(6개)을 전수 조사
-	for (int there = 0; there < 6; there++)
-	{
-		// 연결되어 있지 않은 정점은 무시
-		if (Adjacent[here][there] == 0)
-		{
-			continue;
-		}
+    for (int next : graph[here])
+    {
+        if (!visited[next])
+        {
+            Dfs(next);
+        }
+    }
+}
+```
 
-		// 아직 방문하지 않은 정점이 있다면 해당 방향으로 깊게 진입
-		if (Visited[there] == false)
-		{
-			Dfs(there);
-		}
-	}
+재귀 호출한 이웃의 탐색이 모두 끝나야 현재 함수의 다음 이웃으로 넘어간다. 이 동작 때문에 한 방향으로 깊게 들어가는 순서가 만들어진다.
+
+## 재귀 호출 흐름을 스택으로 읽는다
+
+다음 그래프에서 이웃을 작은 번호부터 확인한다고 하자.
+
+```text
+0: 1, 3
+1: 0, 2, 3
+2: 없음
+3: 4
+4: 없음
+```
+
+호출 스택의 변화를 따라가면 DFS의 되돌아가기가 보인다.
+
+```text
+Dfs(0) 시작       [0]
+Dfs(1) 호출       [0, 1]
+Dfs(2) 호출       [0, 1, 2]
+Dfs(2) 종료       [0, 1]
+Dfs(3) 호출       [0, 1, 3]
+Dfs(4) 호출       [0, 1, 3, 4]
+Dfs(4) 종료       [0, 1, 3]
+Dfs(3) 종료       [0, 1]
+Dfs(1) 종료       [0]
+Dfs(0) 종료       [ ]
+```
+
+정점 2에서 더 갈 곳이 없으면 호출이 끝나고 정점 1의 반복문으로 돌아온다. 정점 1에서 다음 이웃인 3을 찾으면 다시 깊게 들어간다.
+
+```text
+방문 순서: 0 → 1 → 2 → 3 → 4
+종료 순서: 2 → 4 → 3 → 1 → 0
+```
+
+방문 시점과 종료 시점은 다르다. 위상 정렬이나 간선 분류처럼 DFS의 종료 순서가 필요한 알고리즘도 있다.
+
+## 방문 배열은 정점을 한 번만 처리하게 한다
+
+그래프에는 같은 정점으로 가는 여러 경로와 사이클이 있을 수 있다.
+
+```text
+0 ⇄ 1
+```
+
+방문 확인이 없다면 `Dfs(0)`이 `Dfs(1)`을 호출하고, 다시 `Dfs(1)`이 `Dfs(0)`을 호출하는 과정이 반복된다.
+
+```text
+Dfs(0) → Dfs(1) → Dfs(0) → Dfs(1) → ...
+```
+
+재귀 호출 전에 현재 정점을 방문 처리하면 다시 만난 정점에서 더 깊게 들어가지 않는다.
+
+```cpp
+visited[here] = true;
+
+for (int next : graph[here])
+{
+    if (!visited[next])
+    {
+        Dfs(next);
+    }
+}
+```
+
+방문 표시는 이웃 재귀 호출보다 먼저 해야 한다. 호출이 모두 끝난 뒤 표시하면 사이클에서 같은 정점이 계속 재귀 스택에 들어갈 수 있다.
+
+## 인접 행렬로 DFS를 구현한다
+
+정점이 6개인 방향 그래프를 인접 행렬로 표현해 보자.
+
+```text
+      0  1  2  3  4  5
+   ┌──────────────────
+0  │ 0  1  0  1  0  0
+1  │ 1  0  1  1  0  0
+2  │ 0  0  0  0  0  0
+3  │ 0  0  0  0  1  0
+4  │ 0  0  0  0  0  0
+5  │ 0  0  0  0  1  0
+```
+
+`matrix[here][next]`가 1이면 `here → next` 간선이 존재한다.
+
+```cpp
+void DfsMatrix(int here, const std::vector<std::vector<int>>& matrix, std::vector<bool>& visited)
+{
+    visited[here] = true;
+    std::cout << here << ' ';
+
+    for (int next = 0; next < static_cast<int>(matrix.size()); ++next)
+    {
+        if (matrix[here][next] == 0 || visited[next])
+        {
+            continue;
+        }
+
+        DfsMatrix(next, matrix, visited);
+    }
+}
+```
+
+정점 하나를 방문할 때 실제 이웃 수와 관계없이 행의 모든 $V$칸을 확인한다. 모든 정점을 방문하면 시간 복잡도는 $O(V^2)$이다.
+
+## 인접 리스트에서는 실제 이웃만 확인한다
+
+같은 그래프를 인접 리스트로 표현하면 다음과 같다.
+
+```cpp
+std::vector<std::vector<int>> graph
+{
+    {1, 3},
+    {0, 2, 3},
+    {},
+    {4},
+    {},
+    {4}
+};
+```
+
+DFS는 `graph[here]`에 실제로 들어 있는 이웃만 순회한다.
+
+```cpp
+void DfsList(int here, const std::vector<std::vector<int>>& graph, std::vector<bool>& visited)
+{
+    visited[here] = true;
+    Visit(here);
+
+    for (int next : graph[here])
+    {
+        if (!visited[next])
+        {
+            DfsList(next, graph, visited);
+        }
+    }
+}
+```
+
+각 정점은 한 번 방문하고 각 방향 간선은 인접 목록에서 한 번 확인한다.
+
+$$
+O(V+E)
+$$
+
+무방향 그래프에서는 각 간선을 양쪽 목록에 저장해 두 번 확인하지만 $2E$의 상수를 제거하면 여전히 $O(V+E)$다.
+
+## 시작점 하나로 모든 정점을 방문할 수 없는 경우
+
+예제 그래프에서 정점 0부터 시작하면 `0, 1, 2, 3, 4`에는 도달하지만 정점 5로 향하는 간선은 없다.
+
+```text
+0에서 도달 가능: 0, 1, 2, 3, 4
+0에서 도달 불가: 5
+```
+
+모든 정점을 빠짐없이 처리하려면 아직 방문하지 않은 정점을 새로운 시작점으로 삼는다.
+
+```cpp
+void DfsAll(const std::vector<std::vector<int>>& graph)
+{
+    std::vector<bool> visited(graph.size(), false);
+
+    for (int start = 0; start < static_cast<int>(graph.size()); ++start)
+    {
+        if (!visited[start])
+        {
+            DfsList(start, graph, visited);
+        }
+    }
+}
+```
+
+여러 번 시작한 DFS의 결과를 DFS forest라고 볼 수 있다.
+
+```text
+첫 번째 DFS root: 0 → 0, 1, 2, 3, 4 방문
+두 번째 DFS root: 5 → 5 방문
+```
+
+### 방향 그래프에서는 root 수가 연결 요소 수와 같지 않다
+
+무방향 그래프라면 `DfsAll()`이 새로 시작된 횟수가 연결 요소(Connected Component)의 개수와 같다.
+
+방향 그래프에서는 정점 순서와 간선 방향에 따라 시작 횟수가 달라질 수 있다.
+
+```text
+5 → 4가 존재해도 4 → 5는 존재하지 않음
+```
+
+정점 0부터 먼저 탐색하면 4가 방문된 뒤 5에서 DFS가 한 번 더 시작된다. 반대로 정점 순서를 바꿔 5부터 탐색한다고 해서 이 그래프의 강한 연결 요소 구조가 바뀌는 것은 아니다.
+
+방향 그래프의 강한 연결 요소(Strongly Connected Component)를 구하려면 Tarjan이나 Kosaraju 같은 별도의 알고리즘을 사용한다. `DfsAll()`의 root 개수를 SCC 개수로 해석하면 안 된다.
+
+## 반복문과 std::stack으로 DFS를 구현한다
+
+재귀 호출 대신 앞으로 방문할 정점을 명시적인 스택에 저장할 수 있다.
+
+```cpp
+void DfsIterative(int start, const std::vector<std::vector<int>>& graph, std::vector<bool>& discovered)
+{
+    std::stack<int> pending;
+    pending.push(start);
+    discovered[start] = true;
+
+    while (!pending.empty())
+    {
+        int here = pending.top();
+        pending.pop();
+        Visit(here);
+
+        for (auto it = graph[here].rbegin(); it != graph[here].rend(); ++it)
+        {
+            int next = *it;
+
+            if (!discovered[next])
+            {
+                discovered[next] = true;
+                pending.push(next);
+            }
+        }
+    }
+}
+```
+
+스택은 나중에 넣은 정점을 먼저 꺼낸다. 재귀 DFS가 이웃을 앞에서부터 방문하는 순서와 맞추려면 이웃을 역순으로 스택에 넣는다.
+
+```text
+이웃 목록: 1, 3
+스택 push: 3, 1
+다음 pop: 1
+```
+
+방문 여부는 스택에 넣을 때 표시했다. 그러면 여러 정점에서 같은 이웃을 발견해도 스택에 중복으로 들어가지 않는다.
+
+표시를 꺼낼 때 해도 올바른 방문 결과를 만들 수 있지만, 이미 들어간 중복 항목을 pop할 때 건너뛰는 처리가 필요하고 스택 사용량이 늘어날 수 있다.
+
+## 재귀 DFS와 반복 DFS의 차이
+
+| 구분 | 재귀 DFS | 반복 DFS |
+|---|---|---|
+| 되돌아갈 위치 | 호출 스택이 관리 | `std::stack`이 관리 |
+| 코드 형태 | 간결하고 구조가 직접적 | 상태를 명시적으로 관리 |
+| 최대 깊이 | 호출 스택 제한의 영향 | 컨테이너가 저장 공간 관리 |
+| 이웃 순서 | 반복문 순서대로 호출 | 같은 순서를 원하면 역순 push |
+| 종료 시점 처리 | 함수 반환 전후로 표현하기 쉬움 | 별도 상태가 필요할 수 있음 |
+
+반복 DFS로 바꾸면 알고리즘의 최대 저장 공간이 사라지는 것은 아니다. 최악에는 아직 처리하지 않은 정점이 $O(V)$개 쌓일 수 있다. 차이는 저장 위치와 제어 방식이다.
+
+단순 방문만 필요하면 반복 구현이 편할 수 있지만, 재귀 DFS의 진입·종료 시점을 모두 흉내 내야 하는 위상 정렬이나 트리 후위 처리에서는 `(정점, 처리 단계)` 같은 상태를 스택에 함께 저장해야 한다.
+
+## DFS 방문 순서는 그래프 자체의 유일한 답이 아니다
+
+정점 0의 이웃이 `{1, 3}`이면 1을 먼저 방문한다.
+
+```text
+0 → 1 → 2 → 3 → 4
+```
+
+이웃 목록이 `{3, 1}`이면 같은 그래프에서도 방문 순서가 달라질 수 있다.
+
+```text
+0 → 3 → 4 → 1 → 2
+```
+
+두 순서 모두 올바른 DFS다. 문제에서 작은 번호 우선처럼 특정 순서를 요구한다면 인접 목록을 정렬하거나 간선을 입력하는 순서를 관리해야 한다.
+
+인접 행렬 구현은 열 인덱스를 0부터 증가시키므로 자연스럽게 작은 번호부터 확인한다.
+
+## DFS는 최단 경로를 보장하지 않는다
+
+DFS는 한 경로를 깊게 따라가기 때문에 목적지를 처음 발견한 경로가 가장 짧다는 보장이 없다.
+
+```text
+0 → 1 → 2 → 3 → 목적지
+└────────────→ 목적지
+```
+
+이웃 순서에 따라 긴 위쪽 경로를 먼저 탐색할 수 있다. 가중치가 없는 그래프에서 최소 간선 수 경로가 필요하면 다음 글의 BFS가 적합하다.
+
+DFS는 다음과 같은 작업에 자주 사용된다.
+
+- 모든 정점 방문
+- 연결 요소 확인
+- 사이클 검사
+- 위상 정렬
+- 경로 존재 여부 확인
+- backtracking과 완전 탐색
+- 트리의 진입·종료 순서 계산
+
+각 문제에서는 방문 배열 외에도 부모, 현재 재귀 경로 또는 종료 순서 같은 상태가 추가될 수 있다.
+
+## 전체 검증 예제
+
+다음 코드는 같은 방향 그래프를 인접 행렬과 인접 리스트로 표현한다. 행렬의 재귀 DFS와 리스트의 반복 DFS가 같은 정점 순서를 만드는지 확인하고, 전체 순회를 위해 DFS가 시작된 횟수도 센다.
+
+```cpp
+#include <cassert>
+#include <iostream>
+#include <stack>
+#include <utility>
+#include <vector>
+
+using Graph = std::vector<std::vector<int>>;
+
+void DfsMatrix(int here, const Graph& matrix, std::vector<bool>& visited, std::vector<int>& order)
+{
+    visited[here] = true;
+    order.push_back(here);
+
+    for (int next = 0; next < static_cast<int>(matrix.size()); ++next)
+    {
+        if (matrix[here][next] != 0 && !visited[next])
+        {
+            DfsMatrix(next, matrix, visited, order);
+        }
+    }
 }
 
-/**
- * 그래프의 모든 정점을 탐색하기 위한 함수
- * 끊어진 그래프(Disconnected Graph)의 경우에도 모든 노드 방문을 보장
- */
-void DfsAll()
+std::pair<std::vector<int>, int> DfsAllMatrix(const Graph& matrix)
 {
-	Visited = vector<bool>(6, false);
+    std::vector<bool> visited(matrix.size(), false);
+    std::vector<int> order;
+    int rootCount = 0;
 
-	// 모든 정점을 루프 돌며 방문하지 않은 곳을 시작점으로 DFS 수행
-	for (int i = 0; i < 6; i++)
-	{
-		if (Visited[i] == false)
-		{
-			Dfs(i);
-		}
-	}
+    for (int start = 0; start < static_cast<int>(matrix.size()); ++start)
+    {
+        if (!visited[start])
+        {
+            ++rootCount;
+            DfsMatrix(start, matrix, visited, order);
+        }
+    }
+
+    return {order, rootCount};
+}
+
+void DfsIterative(int start, const Graph& graph, std::vector<bool>& discovered, std::vector<int>& order)
+{
+    std::stack<int> pending;
+    pending.push(start);
+    discovered[start] = true;
+
+    while (!pending.empty())
+    {
+        int here = pending.top();
+        pending.pop();
+        order.push_back(here);
+
+        for (auto it = graph[here].rbegin(); it != graph[here].rend(); ++it)
+        {
+            int next = *it;
+
+            if (!discovered[next])
+            {
+                discovered[next] = true;
+                pending.push(next);
+            }
+        }
+    }
+}
+
+std::pair<std::vector<int>, int> DfsAllList(const Graph& graph)
+{
+    std::vector<bool> discovered(graph.size(), false);
+    std::vector<int> order;
+    int rootCount = 0;
+
+    for (int start = 0; start < static_cast<int>(graph.size()); ++start)
+    {
+        if (!discovered[start])
+        {
+            ++rootCount;
+            DfsIterative(start, graph, discovered, order);
+        }
+    }
+
+    return {order, rootCount};
+}
+
+void Print(const char* name, const std::vector<int>& order)
+{
+    std::cout << name << ':';
+
+    for (int vertex : order)
+    {
+        std::cout << ' ' << vertex;
+    }
+
+    std::cout << '\n';
 }
 
 int main()
 {
-	CreateGraph();
-	DfsAll();
+    const Graph matrix
+    {
+        {0, 1, 0, 1, 0, 0},
+        {1, 0, 1, 1, 0, 0},
+        {0, 0, 0, 0, 0, 0},
+        {0, 0, 0, 0, 1, 0},
+        {0, 0, 0, 0, 0, 0},
+        {0, 0, 0, 0, 1, 0}
+    };
 
-	return 0;
+    const Graph list{{1, 3}, {0, 2, 3}, {}, {4}, {}, {4}};
+
+    auto [recursiveOrder, recursiveRoots] = DfsAllMatrix(matrix);
+    auto [iterativeOrder, iterativeRoots] = DfsAllList(list);
+
+    assert(recursiveOrder == iterativeOrder);
+    assert(recursiveRoots == 2);
+    assert(iterativeRoots == 2);
+
+    Print("recursive DFS", recursiveOrder);
+    Print("iterative DFS", iterativeOrder);
+    std::cout << "DFS forest roots: " << recursiveRoots << '\n';
 }
 ```
-## 2. 이론 정리 (Study Notes)
 
-### DFS의 특징 및 동작 원리
-* **스택(Stack) 구조 활용**: 재귀 함수 호출을 통해 암시적인 스택(System Stack)을 사용하여 Backtracking을 구현
-* **탐색 순서**: 한 노드에서 연결된 경로를 끝까지 타고 내려갔다가, 더 이상 갈 곳이 없으면 직전 갈림길로 복귀
+실행 결과는 다음과 같다.
 
+```text
+recursive DFS: 0 1 2 3 4 5
+iterative DFS: 0 1 2 3 4 5
+DFS forest roots: 2
+```
 
+재귀 구현은 행렬의 열을 작은 번호부터 확인한다. 반복 구현은 같은 순서를 만들기 위해 인접 리스트를 역순으로 스택에 넣는다. 정점 0에서 정점 5로 도달할 수 없어 두 번째 DFS가 시작된다.
 
-### 구현 방식에 따른 시간 복잡도
-| 방식 | 시간 복잡도 | 비고 |
-| :--- | :--- | :--- |
-| **인접 행렬 (Adjacency Matrix)** | $O(V^2)$ | 모든 정점에 대해 전체 정점을 검사해야 함 |
-| **인접 리스트 (Adjacency List)** | $O(V + E)$ | 실제 연결된 간선만 검사하므로 일반적으로 더 효율적임 |
+## 복잡도와 공간 사용
 
-> $V$: 정점(Vertex)의 수, $E$: 간선(Edge)의 수
+| 그래프 표현 | 시간 복잡도 | 이유 |
+|---|---:|---|
+| 인접 리스트 | $O(V+E)$ | 모든 정점과 저장된 간선 확인 |
+| 인접 행렬 | $O(V^2)$ | 방문한 각 정점에서 행 전체 확인 |
 
-## 3. 종합 의견 (Review)
+방문 배열은 $O(V)$ 공간을 사용한다. 재귀 호출 스택이나 명시적인 스택도 최악에 $O(V)$까지 커질 수 있다.
 
-### 핵심 요약 및 주의사항
-* **방문 체크(Visited) 필수**: 그래프에 사이클(Cycle)이 존재할 경우, 방문 체크를 하지 않으면 무한 루프에 빠져 스택 오버플로우가 발생할 수 있음
-* **고립된 정점 처리**: 그래프가 하나로 연결되어 있지 않고 여러 부분으로 쪼개져 있는 경우, 단순히 `Dfs(0)`만으로는 모든 정점을 방문할 수 없으므로 `DfsAll()` 처럼 모든 정점을 검사하는 과정이 필요
+```text
+보조 공간: O(V)
+```
 
-### Tip
-* **재귀 vs 스택**: 코테나 실무에서 깊이가 너무 깊어지는 그래프(수만 개 이상의 노드)를 다룰 때는 재귀 대신 `std::stack`을 이용한 반복문 형태의 DFS를 사용하는 것이 안전
-* **적용 분야**: 미로 찾기, 사이클 검사, 위상 정렬(Topological Sort) 등에 주로 활용
+그래프 저장 공간은 별도다. 인접 리스트는 $O(V+E)$, 인접 행렬은 $O(V^2)$를 사용한다.
+
+## DFS를 구현할 때 확인할 기준
+
+1. 그래프가 방향 그래프인지 무방향 그래프인지 구분했는가?
+2. 현재 정점을 이웃 탐색 전에 방문 처리하는가?
+3. 이미 방문한 정점으로 재귀 호출하지 않는가?
+4. 시작점에서 도달 가능한 정점만 필요한가, 전체 정점이 필요한가?
+5. 전체 탐색이라면 방문하지 않은 정점마다 DFS를 시작하는가?
+6. 방향 그래프의 DFS forest root 수를 연결 요소 수로 오해하지 않는가?
+7. 인접 행렬과 리스트의 탐색 복잡도를 구분하는가?
+8. 특정 방문 순서가 필요하다면 이웃 순서를 관리하는가?
+9. 반복 DFS에서 같은 순서를 원할 때 이웃을 역순으로 push하는가?
+10. 재귀 깊이가 입력에서 얼마나 커질 수 있는가?
+11. DFS가 일반적인 최단 경로를 보장하지 않는다는 점을 아는가?
+12. 진입 시점과 종료 시점 중 어떤 정보가 필요한지 구분하는가?
+
+DFS의 핵심은 재귀 함수를 사용하는 문법이 아니다. 가장 최근에 발견한 경로를 먼저 끝까지 따라가고, 방문 여부를 통해 같은 정점을 반복하지 않는 탐색 순서에 있다.
+
+## 다음 학습: 너비 우선 탐색
+
+다음 글에서는 큐를 사용해 시작점과 가까운 정점부터 방문하는 BFS를 구현한다. 발견 시점에 부모와 거리를 기록해 가중치 없는 그래프의 최단 경로를 복원하는 과정까지 살펴본다.

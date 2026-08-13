@@ -1,125 +1,1000 @@
 ---
 layout: post
-title: '[C++ 16] 함수의 정의와 호출(Function Call) 메커니즘'
+title: "[C++ 16] 함수의 정의와 호출(Function Call) 메커니즘"
 date: 2026-02-15
 categories: [Dev, C++]
 tags: [C++, Function, Parameter, Return, Modularization]
 use_math: true
 ---
 
-# [C++] 함수의 이름은 구현보다 계약을 먼저 보여준다
+앞에서는 가위바위보 프로그램의 입력, 난수 생성, 승패 판정, 출력을 여러 함수로 나눴다. 함수를 나누자 각 단계가 어떤 값을 받아 무엇을 돌려주는지 분명해졌고, 승패 판정만 따로 검사할 수도 있었다.
 
-## 입력과 출력을 가진 작은 단위 만들기
+함수는 반복되는 코드를 짧게 만드는 문법에 그치지 않는다. 이름, 매개변수, 반환 타입을 통해 **호출자가 무엇을 제공해야 하고 어떤 결과를 기대할 수 있는지** 표현하는 경계다.
 
+## 함수는 입력을 받아 결과를 만드는 실행 단위다
+
+두 정수를 더하는 함수를 먼저 살펴보자.
+
+```cpp
+int Add(int left, int right)
+{
+    return left + right;
+}
+```
+
+함수 정의는 반환 타입, 함수 이름, 매개변수 목록, 함수 몸체로 구성된다.
+
+```text
+int Add(int left, int right)
+│   │   └───────────────── 매개변수 목록
+│   └───────────────────── 함수 이름
+└───────────────────────── 반환 타입
+
+{
+    return left + right;   함수 몸체
+}
+```
+
+각 구성 요소는 호출자에게 다음 정보를 제공한다.
+
+| 구성 요소 | 알려주는 내용 |
+| :--- | :--- |
+| 반환 타입 | 호출이 끝난 뒤 어떤 종류의 결과를 돌려주는가? |
+| 함수 이름 | 어떤 동작이나 질문을 표현하는가? |
+| 매개변수 | 호출자가 어떤 입력을 제공해야 하는가? |
+| 함수 몸체 | 입력으로 실제 결과를 어떻게 만드는가? |
+
+호출자는 함수 몸체의 모든 구현을 알지 못해도 선언만 보고 기본 사용법을 이해할 수 있어야 한다.
+
+```cpp
+int result = Add(10, 20);
+```
+
+`Add`는 두 정수를 받아 정수 하나를 반환한다는 계약을 보여준다.
+
+## 함수를 호출하면 제어 흐름이 함수 몸체로 이동한다
+
+함수 이름 뒤에 괄호를 붙이고 필요한 인자를 전달하면 함수를 호출한다.
 
 ```cpp
 #include <iostream>
-using namespace std;
 
-/**
- * @brief 1. 매개변수와 반환값이 없는 함수
- * - void: 반환할 데이터가 없음을 의미 (Empty)
- * - 입력(Input)도 없고 출력(Output)도 없는 가장 단순한 형태
- */
-void PrintHelloWorld()
+int Add(int left, int right)
 {
-    cout << "Hello World" << endl;
-    // return; // void 함수에서는 return 생략 가능 (자동으로 제어권 반환)
-}
-
-/**
- * @brief 2. 매개변수가 있는 함수
- * @param Num 외부에서 전달받을 정수값
- */
-void PrintNumber(int Num)
-{
-    // 전달받은 인자(Argument)를 출력
-    cout << "입력된 숫자: " << Num << endl;
-}
-
-/**
- * @brief 3. 반환값이 있는 함수
- * @param Num 연산할 원본 데이터
- * @return 입력값에 2를 곱한 결과 (int)
- */
-int MultiplyBy2(int Num)
-{
-    // 호출한 곳으로 연산 결과를 돌려줌
-    return Num * 2;
-}
-
-/**
- * @brief 4. 다중 매개변수 함수
- * @param a 피연산자 1
- * @param b 피연산자 2
- * @return 두 수의 곱셈 결과
- */
-int MultiplyBy(int a, int b)
-{
-    return a * b;
+    int result = left + right;
+    return result;
 }
 
 int main()
 {
-    // [함수 호출]
-    // 정의된 기능을 실행하고, 필요 시 결과값을 받음
+    int sum = Add(10, 20);
+    std::cout << sum << '\n';
+}
+```
 
-    PrintHelloWorld();
+개념적인 실행 흐름은 다음과 같다.
 
-    PrintNumber(10);
+```text
+main에서 Add(10, 20) 호출
+           │
+           ▼
+Add의 매개변수 초기화
+left = 10, right = 20
+           │
+           ▼
+함수 몸체 실행
+result = 30
+           │
+           ▼
+return 30
+           │
+           ▼
+main의 호출 지점으로 돌아옴
+sum = 30
+```
 
-    // 반환값이 있는 함수는 결과값을 바로 출력하거나 변수에 저장 가능
-    cout << "2배 연산 결과: " << MultiplyBy2(4) << endl;
-    cout << "곱셈 연산 결과: " << MultiplyBy(10, 10) << endl;
+실제 인자 전달 위치와 호출 명령은 플랫폼의 호출 규약과 컴파일러 최적화에 따라 달라진다. 언어 수준에서는 호출된 함수가 실행되고 반환되면 호출 지점의 다음 흐름이 이어진다고 이해하면 된다.
+
+## 매개변수와 인자는 서로 다른 이름이다
+
+매개변수(Parameter)는 함수 선언이나 정의에 적힌 입력 변수다.
+
+```cpp
+int Add(int left, int right)
+```
+
+여기서 `left`와 `right`가 매개변수다.
+
+인자(Argument)는 함수를 호출할 때 전달하는 실제 표현식이다.
+
+```cpp
+int first = 10;
+int result = Add(first, 20 + 5);
+```
+
+`first`와 `20 + 5`가 인자다. 두 번째 인자는 먼저 25로 계산되고 그 값으로 `right` 매개변수를 초기화한다.
+
+```text
+함수 정의
+Add(int left, int right)
+        매개변수
+
+함수 호출
+Add(first, 20 + 5)
+       인자
+```
+
+두 용어를 구분하면 “호출자의 인자가 함수의 매개변수로 전달된다”는 흐름을 정확하게 설명할 수 있다.
+
+## 인자의 개수와 타입은 함수 선언에 맞아야 한다
+
+`Add`는 두 개의 `int` 매개변수를 요구한다.
+
+```cpp
+int Add(int left, int right)
+{
+    return left + right;
+}
+```
+
+인자 수가 맞지 않으면 호출할 수 없다.
+
+```cpp
+// int first = Add(10);
+// int second = Add(10, 20, 30);
+```
+
+인자 타입이 매개변수 타입과 다르면 허용되는 변환이 있는지 검사한다.
+
+```cpp
+int result = Add(3.9, 2.1);
+```
+
+두 `double` 값은 `int` 매개변수로 변환되면서 각각 3과 2가 되고 결과는 5다. 컴파일될 수 있지만 소수 부분 손실이 의도한 동작인지는 별도로 확인해야 한다.
+
+중괄호 초기화처럼 함수 호출 자체가 모든 좁히기 변환을 자동으로 막아 주지는 않는다. 경고를 활성화하고 함수가 실제로 받아야 할 타입을 선택한다.
+
+## 값 매개변수는 별도의 객체다
+
+현재까지 사용한 `int value` 형태는 값 매개변수다.
+
+```cpp
+void Increase(int value)
+{
+    ++value;
+}
+```
+
+호출자의 값을 이용해 별도의 매개변수 객체를 초기화하므로 함수 안에서 `value`를 바꿔도 호출자의 원본은 바뀌지 않는다.
+
+```cpp
+#include <iostream>
+
+void Increase(int value)
+{
+    ++value;
+    std::cout << "Inside: " << value << '\n';
+}
+
+int main()
+{
+    int number = 10;
+    Increase(number);
+    std::cout << "Outside: " << number << '\n';
+}
+```
+
+출력은 다음과 같다.
+
+```text
+Inside: 11
+Outside: 10
+```
+
+개념적으로 두 객체를 구분하면 다음과 같다.
+
+```text
+호출자의 number = 10
+          │ 값으로 초기화
+          ▼
+매개변수 value = 10
+          │
+          └── ++value → 11
+
+number는 여전히 10
+```
+
+값 전달은 원본을 보호하고 함수가 독립적인 값을 사용한다는 장점이 있다. 이후 글에서는 원본을 변경해야 할 때 사용하는 포인터와 참조를 다룬다.
+
+## 인자 평가와 매개변수 순서를 혼동하지 않는다
+
+함수 선언에서 매개변수 순서는 정해져 있다.
+
+```cpp
+int Subtract(int left, int right)
+{
+    return left - right;
+}
+```
+
+첫 번째 인자의 값은 `left`, 두 번째 인자의 값은 `right`를 초기화한다.
+
+```cpp
+int result = Subtract(10, 3); // 7
+```
+
+하지만 여러 인자 표현식이 실제로 어느 순서에 평가되는지는 별도의 규칙이다. 중요한 상태 변경을 인자 여러 개에 섞지 않는다.
+
+```cpp
+int value = 10;
+
+// int result = Subtract(value++, value++);
+```
+
+문장을 나누면 의도한 순서를 직접 표현할 수 있다.
+
+```cpp
+int value = 10;
+int left = value++;
+int right = value++;
+int result = Subtract(left, right);
+```
+
+함수의 매개변수 나열 순서와 인자 표현식의 평가 순서는 같은 질문이 아니다.
+
+## 반환값은 호출 표현식의 결과가 된다
+
+`return` 뒤의 표현식은 함수 결과를 만든다.
+
+```cpp
+int Multiply(int left, int right)
+{
+    return left * right;
+}
+```
+
+함수 호출 자체를 하나의 값처럼 사용할 수 있다.
+
+```cpp
+int damage = Multiply(10, 3);
+std::cout << Multiply(4, 5) << '\n';
+bool isLarge = Multiply(7, 8) > 50;
+```
+
+다른 함수의 인자로 바로 전달할 수도 있다.
+
+```cpp
+PrintNumber(Multiply(4, 5));
+```
+
+다만 여러 호출을 한 표현식에 겹쳐 실행 흐름을 읽기 어려워진다면 중간 변수에 의미를 붙인다.
+
+```cpp
+int baseDamage = Multiply(attack, multiplier);
+int finalDamage = ApplyDefence(baseDamage, defence);
+```
+
+중간 변수는 단순히 코드를 늘리는 것이 아니라 각 계산 단계의 의미를 기록할 수 있다.
+
+## `return`은 값을 돌려주고 함수 실행을 끝낸다
+
+`return`이 실행되면 현재 함수의 남은 문장은 실행하지 않고 호출자에게 돌아간다.
+
+```cpp
+int Absolute(int value)
+{
+    if (value >= 0)
+    {
+        return value;
+    }
+
+    return -value;
+}
+```
+
+`value >= 0`이면 첫 번째 `return`에서 함수가 끝난다. 그 아래의 `return -value`는 실행되지 않는다.
+
+```text
+value >= 0 ?
+   ├── true  → return value → 함수 종료
+   └── false → return -value → 함수 종료
+```
+
+`return` 뒤에 같은 경로에서 실행돼야 하는 코드를 두면 도달할 수 없다.
+
+```cpp
+int Add(int left, int right)
+{
+    return left + right;
+    // std::cout << "Done\n"; // 실행되지 않음
+}
+```
+
+컴파일러가 도달 불가능한 코드에 경고를 표시할 수 있다.
+
+## `void`는 반환할 값이 없다는 뜻이다
+
+호출자에게 돌려줄 결과값이 없는 함수는 반환 타입으로 `void`를 사용한다.
+
+```cpp
+void PrintHello()
+{
+    std::cout << "Hello\n";
+}
+```
+
+호출은 가능하지만 결과값을 변수에 저장할 수는 없다.
+
+```cpp
+PrintHello();
+
+// int result = PrintHello(); // 반환값이 없음
+```
+
+`void` 함수도 값 없는 `return;`으로 일찍 끝낼 수 있다.
+
+```cpp
+void PrintPositive(int value)
+{
+    if (value <= 0)
+    {
+        return;
+    }
+
+    std::cout << value << '\n';
+}
+```
+
+함수 몸체 끝에 도달하면 호출자에게 자동으로 돌아가므로 마지막의 `return;`은 생략할 수 있다.
+
+```cpp
+void PrintHello()
+{
+    std::cout << "Hello\n";
+}
+```
+
+`void`가 “아무 일도 하지 않는 함수”라는 뜻은 아니다. 출력하거나 외부 객체를 변경하는 등 반환값 외의 효과가 있을 수 있다.
+
+## `void`가 아닌 함수는 모든 정상 경로에서 값을 반환해야 한다
+
+반환 타입이 `int`인 함수가 일부 경로에서만 값을 반환하면 문제가 된다.
+
+```cpp
+int GetReward(bool won)
+{
+    if (won)
+    {
+        return 100;
+    }
+
+    // won이 false일 때 반환값이 없음
+}
+```
+
+`main`을 제외한 값을 반환하는 함수가 `return` 없이 몸체 끝에 도달하면 정의되지 않은 동작이다. 컴파일러가 경고나 오류로 알려줄 수 있지만 경고 설정에만 의존하지 않는다.
+
+모든 경로에서 값을 반환한다.
+
+```cpp
+int GetReward(bool won)
+{
+    if (won)
+    {
+        return 100;
+    }
 
     return 0;
 }
 ```
----
-## 선언에서 읽을 수 있는 함수의 계약
 
-### 2.1 함수의 기본 구조
-함수는 입력을 받아 처리를 수행하고 출력을 반환하는 '블랙박스' 모델을 따름
+또는 조건 연산자가 더 자연스러운 짧은 값 선택이라면 다음처럼 작성할 수 있다.
 
+```cpp
+int GetReward(bool won)
+{
+    return won ? 100 : 0;
+}
+```
 
+어떤 형태를 사용하든 호출 가능한 모든 정상 경로에서 반환 타입에 맞는 결과가 있어야 한다.
 
-$$f(x) = y \quad \iff \quad \text{ReturnType FunctionName(Parameter)}$$
+## 반환식도 반환 타입으로 변환될 수 있다
 
-| 구성 요소 | 설명 | 비고 |
-| :--- | :--- | :--- |
-| **반환 타입 (Return Type)** | 함수 수행 후 호출자에게 돌려줄 데이터의 자료형임  | 없을 경우 `void` 사용함  |
-| **함수 이름 (Name)** | 함수의 기능을 식별하는 명칭임  | 동사 형태로 짓는 것이 관례임  |
-| **매개변수 (Parameter)** | 함수 내부에서 사용할 입력 데이터를 받는 변수임  | 0개 이상 가능함  |
-| **함수 몸체 (Body)** | 실제 연산이 수행되는 중괄호 `{}` 블록임  | 지역 변수 선언 가능함  |
+함수의 반환식 타입이 선언된 반환 타입과 다르면 허용되는 변환이 일어날 수 있다.
 
-### 2.2 함수 사용의 이점
-* **코드 재사용성 (Reusability):** 반복되는 로직을 하나로 묶어 필요할 때마다 호출하여 사용함
-* **유지보수 용이성 (Maintainability):** 기능 수정 시 함수 내부만 변경하면 되므로 전체 코드 수정이 불필요
-* **추상화 (Abstraction):** 내부 구현을 몰라도 함수의 이름과 매개변수만 알면 기능을 사용할 수 있음
+```cpp
+int GetValue()
+{
+    return 3.9;
+}
+```
 
-### 2.3 매개변수와 인자
-* **매개변수 (Parameter):** 함수 정의부에 선언된 변수 (예: `int Num`)
-* **인자 (Argument):** 함수 호출 시 실제로 전달하는 값 (예: `10`, `4`)
+`double` 3.9가 `int` 3으로 변환된다. 컴파일될 수 있지만 함수 이름과 반환 타입을 본 호출자는 소수 부분이 처음부터 존재하지 않았는지, 내부에서 손실됐는지 알기 어렵다.
 
----
+실수 결과가 필요하다면 반환 타입을 실제 의미에 맞춘다.
 
-## 함수를 나누는 실제 기준
+```cpp
+double GetValue()
+{
+    return 3.9;
+}
+```
 
-### 핵심 요약 및 주의사항
-* **반환 경로:** `void`가 아닌 함수는 실행 가능한 모든 경로에서 반환값을 제공해야 한다. 반환식은 선언된 반환 타입으로 변환 가능해야 한다.
-* **반환 오류:** `void` 함수에서 값을 반환하려 하거나, `int` 함수에서 반환을 누락하면 컴파일 에러가 발생
-* **단일 책임 원칙:** 하나의 함수는 가급적 하나의 기능만 수행하도록 설계
-* **설계 주의:** 여러 기능이 섞여 있으면 함수 이름 짓기가 어렵고 재사용성이 떨어짐
+반환 타입은 단순한 문법 장식이 아니라 함수가 제공하는 결과의 표현 범위와 정밀도를 결정한다.
 
-### Tip
+## 실패를 정상값으로 숨기지 않는다
 
-함수는 단순히 코드를 짧게 자르는 도구가 아니다. 한 가지 책임을 이름으로 설명하고, 필요한 값은 매개변수로 받고, 결과나 상태 변경을 호출자에게 분명히 드러내는 경계다.
+나눗셈 함수에서 분모가 0이면 결과를 만들 수 없다.
 
-매개변수(parameter)는 함수 선언에 적힌 변수이고 인자(argument)는 호출할 때 전달하는 식이다. 현재 예제의 `int`는 값으로 전달되므로 함수 안에서 바꿔도 호출자의 원본은 바뀌지 않는다.
+```cpp
+int Divide(int numerator, int denominator)
+{
+    if (denominator == 0)
+    {
+        return 0;
+    }
 
-## 마무리
+    return numerator / denominator;
+}
+```
 
-좋은 함수는 본문을 읽기 전에도 이름, 매개변수, 반환 타입만으로 사용법을 예상할 수 있다. 다음 글에서는 함수 호출이 실행 흐름과 기계 수준의 호출 프레임에 어떤 영향을 주는지 살펴본다.
-* **함수 원형 (Prototype):** C++ 컴파일러는 위에서 아래로 해석하므로, `main` 함수 아래에 함수를 정의할 경우 상단에 선언부(Signature)를 미리 작성해야 함
-* **Naming Convention:** * **PascalCase:** 함수 이름은 대문자로 시작함 (예: `PrintNumber`)
-* **동사+명사:** 기능을 명확히 설명함 (예: `GetScore`, `SetPlayerName`)
+0은 정상적인 나눗셈 결과일 수도 있다.
+
+```cpp
+int result = Divide(1, 2); // 정수 나눗셈 결과도 0
+```
+
+호출자는 반환값 0만 보고 실패와 정상 결과를 구분할 수 없다. 성공 여부를 별도로 반환할 수 있다.
+
+```cpp
+bool TryDivide(int numerator, int denominator, int& result)
+{
+    if (denominator == 0)
+    {
+        return false;
+    }
+
+    result = numerator / denominator;
+    return true;
+}
+```
+
+이 예제는 원본 값을 수정하는 참조 매개변수를 사용한다. 참조의 상세 규칙은 이후에 다루지만, 인터페이스 관점에서는 성공 여부와 계산 결과가 별도의 정보라는 점이 중요하다.
+
+현대 C++에서는 `std::optional<int>`처럼 “결과가 없을 수 있음”을 타입으로 표현할 수도 있다. 구체적인 오류 원인이 필요하면 별도의 결과 구조체나 오류 타입, 예외 정책을 선택할 수 있다.
+
+함수의 실패를 어떤 값 하나에 몰래 섞지 않아야 호출자가 올바르게 처리할 수 있다.
+
+## 함수 선언은 이름과 호출 방법을 알린다
+
+함수 몸체 없이 반환 타입, 이름, 매개변수 목록만 적은 것을 함수 선언이라고 한다.
+
+```cpp
+int Add(int left, int right);
+```
+
+마지막에 세미콜론이 있고 함수 몸체는 없다. 선언을 본 컴파일러는 이후 호출에서 다음 내용을 검사할 수 있다.
+
+- `Add`라는 함수가 존재한다.
+- 인자로 변환 가능한 정수 두 개가 필요하다.
+- 호출 결과는 `int`다.
+
+```cpp
+int result = Add(10, 20);
+```
+
+함수 선언을 함수 원형(Function prototype)이라고 부르기도 한다.
+
+## 함수 정의는 실제 몸체를 제공한다
+
+함수 정의에는 몸체가 있다.
+
+```cpp
+int Add(int left, int right)
+{
+    return left + right;
+}
+```
+
+정의는 선언 역할도 함께 한다. 따라서 호출보다 먼저 함수 정의가 나타난다면 별도의 선언이 필요하지 않다.
+
+```cpp
+int Add(int left, int right)
+{
+    return left + right;
+}
+
+int main()
+{
+    int result = Add(10, 20);
+}
+```
+
+함수 정의를 `main` 아래에 두고 싶다면 호출 전에 선언을 제공한다.
+
+```cpp
+int Add(int left, int right);
+
+int main()
+{
+    int result = Add(10, 20);
+}
+
+int Add(int left, int right)
+{
+    return left + right;
+}
+```
+
+컴파일러가 소스를 단순히 위에서 아래로 한 번 읽는다고만 설명하기보다, 호출 위치에서 사용할 수 있는 선언이 보여야 한다고 이해하는 편이 정확하다.
+
+## 선언과 정의의 함수 타입은 일치해야 한다
+
+선언과 정의가 서로 다른 함수를 나타내면 호출자가 기대한 정의를 찾지 못할 수 있다.
+
+```cpp
+int Add(int left, int right);
+
+double Add(double left, double right)
+{
+    return left + right;
+}
+```
+
+첫 번째는 `int` 두 개를 받는 함수를 선언하고, 두 번째는 `double` 두 개를 받는 다른 함수를 정의한다. `Add(10, 20)` 호출은 선언된 정수 버전을 선택할 수 있지만 그 정의가 없으므로 링크 단계에서 오류가 발생할 수 있다.
+
+올바른 정의는 선언과 같은 함수여야 한다.
+
+```cpp
+int Add(int left, int right)
+{
+    return left + right;
+}
+```
+
+선언의 매개변수 이름과 정의의 이름은 달라도 함수 타입에는 영향을 주지 않는다.
+
+```cpp
+int Add(int, int);
+
+int Add(int left, int right)
+{
+    return left + right;
+}
+```
+
+하지만 선언에도 의미 있는 이름을 적으면 호출자가 각 인자의 역할을 이해하기 쉽다.
+
+## 헤더에는 선언을, 소스 파일에는 정의를 둘 수 있다
+
+여러 소스 파일에서 같은 함수를 사용하려면 선언을 헤더에 공유하고 정의를 하나의 소스 파일에 둘 수 있다.
+
+```cpp
+// Math.h
+#pragma once
+
+int Add(int left, int right);
+int Multiply(int left, int right);
+```
+
+```cpp
+// Math.cpp
+#include "Math.h"
+
+int Add(int left, int right)
+{
+    return left + right;
+}
+
+int Multiply(int left, int right)
+{
+    return left * right;
+}
+```
+
+```cpp
+// Main.cpp
+#include "Math.h"
+#include <iostream>
+
+int main()
+{
+    std::cout << Add(10, 20) << '\n';
+    std::cout << Multiply(4, 5) << '\n';
+}
+```
+
+`Main.cpp`를 컴파일할 때는 헤더의 선언으로 호출을 검사할 수 있다. 링크 단계에서는 `Math.cpp`에서 생성된 정의와 호출을 연결한다.
+
+정의 파일이 빌드 대상에서 빠지면 선언은 보였기 때문에 컴파일될 수 있지만 링크할 실제 함수가 없어 링크 오류가 발생한다.
+
+## 함수 이름은 구현보다 목적을 표현한다
+
+함수 이름은 호출부에서 가장 먼저 읽는 정보다.
+
+```cpp
+int Function(int a, int b);
+```
+
+타입만으로는 두 정수로 무엇을 하는지 알 수 없다.
+
+```cpp
+int CalculateDamage(int attack, int defence);
+```
+
+이름과 매개변수 이름을 통해 공격력과 방어력으로 피해량을 계산한다는 의도를 예상할 수 있다.
+
+동작을 수행하는 함수에는 동사를 사용할 수 있다.
+
+```cpp
+void PrintPlayerInfo();
+void ApplyDamage(int damage);
+int CalculateDamage(int attack, int defence);
+```
+
+참과 거짓을 묻는 함수는 질문처럼 읽히는 이름이 자연스럽다.
+
+```cpp
+bool IsDead(int hp);
+bool HasEnoughMana(int currentMana, int requiredMana);
+bool CanEnterDungeon(int level, bool hasTicket);
+```
+
+호출부도 문장처럼 읽힌다.
+
+```cpp
+if (IsDead(monsterHp))
+{
+    HandleDeath();
+}
+```
+
+함수 이름 표기법이 PascalCase인지 camelCase인지는 프로젝트 규칙을 따른다. 표기법보다 이름이 실제 동작과 일치하는지가 우선이다.
+
+## 매개변수 이름에는 역할을 담는다
+
+매개변수 이름도 함수 계약의 일부를 설명한다.
+
+```cpp
+int CalculateDamage(int a, int b)
+{
+    return a - b;
+}
+```
+
+`a`와 `b`만으로는 어느 값이 공격력이고 방어력인지 알기 어렵다.
+
+```cpp
+int CalculateDamage(int attack, int defence)
+{
+    return attack - defence;
+}
+```
+
+단위가 중요한 값에는 이름에 단위를 포함할 수 있다.
+
+```cpp
+double CalculateDistance(double speedMetersPerSecond, double timeSeconds)
+{
+    return speedMetersPerSecond * timeSeconds;
+}
+```
+
+같은 `double`이라도 두 인자의 단위와 순서를 호출자가 이해할 수 있다.
+
+```cpp
+double distance = CalculateDistance(5.0, 3.0);
+```
+
+매개변수 수가 많고 모두 같은 타입이라면 순서 실수를 컴파일러가 찾기 어렵다. 관련 값을 구조체로 묶거나 더 강한 타입을 사용하는 설계는 이후 객체와 타입 설계에서 다룰 수 있다.
+
+## 함수가 한 가지 책임을 가진다는 의미
+
+함수를 짧은 줄 수로 만드는 것과 한 가지 책임을 갖게 하는 것은 다르다.
+
+```cpp
+void RunBattle()
+{
+    // 입력 받기
+    // 난수 생성
+    // 피해 계산
+    // 체력 변경
+    // 결과 출력
+    // 파일 저장
+}
+```
+
+이 함수는 여러 이유로 변경될 수 있다.
+
+- 입력 장치가 바뀐다.
+- 전투 공식이 바뀐다.
+- 출력 형식이 바뀐다.
+- 저장 형식이 바뀐다.
+
+서로 다른 책임을 함수로 나눌 수 있다.
+
+```cpp
+int ReadPlayerAction();
+int CalculateDamage(int attack, int defence);
+void ApplyDamage(int damage);
+void PrintBattleResult();
+void SaveBattleRecord();
+```
+
+“한 함수는 무조건 몇 줄 이하여야 한다”는 기준보다, 함수 이름 하나로 담당하는 일을 설명할 수 있는지와 변경 이유가 몇 개인지를 본다.
+
+## 같은 코드가 두 번 보인다고 바로 함수로 만들 필요는 없다
+
+중복 제거는 함수 분리의 한 이유지만 모양이 같은 코드가 항상 같은 개념은 아니다.
+
+```cpp
+playerHp = std::max(0, playerHp - damage);
+monsterHp = std::max(0, monsterHp - damage);
+```
+
+두 문장이 같은 피해 규칙을 따른다면 함수로 묶을 수 있다.
+
+```cpp
+int CalculateRemainingHp(int hp, int damage)
+{
+    return std::max(0, hp - damage);
+}
+```
+
+반면 우연히 현재 구현만 같은 두 정책을 너무 일찍 묶으면 이후 한쪽 규칙만 바뀔 때 함수가 복잡한 조건을 갖게 될 수 있다.
+
+함수로 묶을 때는 코드 모양뿐 아니라 같은 의미와 같은 변경 이유를 공유하는지 확인한다.
+
+## 지나치게 작은 함수도 이름이 가치를 제공해야 한다
+
+한 줄 함수도 이름이 의미를 높일 수 있다.
+
+```cpp
+bool IsDead(int hp)
+{
+    return hp <= 0;
+}
+```
+
+호출부에서 정책을 질문처럼 읽을 수 있다.
+
+```cpp
+if (IsDead(monsterHp))
+{
+    HandleDeath();
+}
+```
+
+반대로 이름이 본문을 그대로 번역할 뿐이면 함수가 새로운 의미를 제공하지 않을 수 있다.
+
+```cpp
+int AddOne(int value)
+{
+    return value + 1;
+}
+```
+
+`AddOne`이 도메인에서 레벨 증가나 다음 인덱스 계산이라는 의미를 가진다면 유용할 수 있다. 단순히 모든 연산을 함수로 감싸는 것이 목적은 아니다.
+
+## 함수의 입력과 외부 의존성을 구분한다
+
+다음 함수는 매개변수가 없지만 실제로는 전역 상태에 의존한다.
+
+```cpp
+int PlayerAttack = 20;
+int MonsterDefence = 5;
+
+int CalculateDamage()
+{
+    return PlayerAttack - MonsterDefence;
+}
+```
+
+선언만 보면 어떤 값으로 결과가 결정되는지 알기 어렵다. 필요한 값을 매개변수로 받으면 의존성이 호출부에 드러난다.
+
+```cpp
+int CalculateDamage(int attack, int defence)
+{
+    return attack - defence;
+}
+```
+
+```cpp
+int damage = CalculateDamage(playerAttack, monsterDefence);
+```
+
+명시적인 입력을 사용하는 함수는 다른 값으로 재사용하고 고정된 입력으로 테스트하기 쉽다.
+
+모든 전역 접근이 금지된다는 뜻은 아니다. 로깅, 설정, 시스템 서비스처럼 프로그램 구조상 공유되는 의존성도 있다. 중요한 것은 함수 선언만 보고 알 수 없는 의존성이 늘어날수록 호출 결과를 추론하기 어려워진다는 점이다.
+
+## 계산과 출력을 분리하면 결과를 재사용할 수 있다
+
+계산 함수 안에서 결과를 바로 출력할 수 있다.
+
+```cpp
+void CalculateAndPrintDamage(int attack, int defence)
+{
+    int damage = attack - defence;
+    std::cout << damage << '\n';
+}
+```
+
+하지만 계산 결과를 UI, 로그, 테스트, 다른 계산에서 사용하려면 출력과 결합된 함수는 불편하다.
+
+```cpp
+int CalculateDamage(int attack, int defence)
+{
+    return std::max(0, attack - defence);
+}
+```
+
+호출자가 필요한 방식으로 결과를 사용한다.
+
+```cpp
+int damage = CalculateDamage(playerAttack, monsterDefence);
+std::cout << "Damage: " << damage << '\n';
+monsterHp -= damage;
+```
+
+계산 함수는 같은 입력에 같은 결과를 만드는 역할에 집중하고, 출력과 상태 변경은 별도의 단계로 둘 수 있다.
+
+## 함수 호출에는 비용이 있을 수 있지만 먼저 구조를 만든다
+
+함수를 호출할 때는 호출 규약에 따른 제어 이동과 상태 관리가 필요할 수 있다. 하지만 컴파일러는 작은 함수를 호출부에 펼치는 인라인 최적화를 적용하거나 계산 자체를 미리 수행할 수도 있다.
+
+```cpp
+int Square(int value)
+{
+    return value * value;
+}
+```
+
+소스 코드에 함수 호출이 있다는 사실만으로 실제 기계 코드에 호출 명령이 반드시 남는다고 단정할 수 없다. 반대로 함수가 짧다고 항상 인라인되는 것도 아니다.
+
+입문 단계에서 호출 비용을 줄이기 위해 함수를 합치기보다 책임과 데이터 흐름이 분명한 구조를 먼저 만든다. 성능이 중요한 실제 구간은 최적화 빌드에서 측정하고 생성된 코드를 확인한 뒤 판단한다.
+
+## `inline` 키워드는 인라인 최적화를 보장하지 않는다
+
+함수 앞에 `inline`을 붙일 수 있다.
+
+```cpp
+inline int Square(int value)
+{
+    return value * value;
+}
+```
+
+이 키워드는 컴파일러에게 함수 몸체를 반드시 호출부에 복사하라고 명령하지 않는다. 현대 C++에서 중요한 언어적 역할은 동일한 inline 함수 정의가 여러 번역 단위에 나타나는 것을 허용하는 것이다.
+
+헤더에 짧은 함수 정의를 둘 때 사용할 수 있다.
+
+```cpp
+// Math.h
+#pragma once
+
+inline int Square(int value)
+{
+    return value * value;
+}
+```
+
+클래스 정의 내부에 정의한 멤버 함수나 `constexpr` 함수는 관련 규칙에 따라 암시적으로 inline이 될 수 있다.
+
+실제 최적화 여부는 함수 크기, 호출 위치, 최적화 설정, 링크 시간 최적화 등 여러 조건을 보고 컴파일러가 결정한다.
+
+## `constexpr` 함수는 컴파일 시간과 실행 시간 모두 사용할 수 있다
+
+계산이 상수 표현식으로 가능하다면 `constexpr` 함수를 정의할 수 있다.
+
+```cpp
+constexpr int Square(int value)
+{
+    return value * value;
+}
+```
+
+컴파일 시간 값으로 호출하면 상수 표현식에 사용할 수 있다.
+
+```cpp
+constexpr int Area = Square(5);
+int values[Square(3)];
+```
+
+실행 중 결정된 값으로도 호출할 수 있다.
+
+```cpp
+int input = 0;
+std::cin >> input;
+int result = Square(input);
+```
+
+`constexpr`가 모든 호출을 컴파일 시간에 실행한다는 뜻은 아니다. 상수 표현식 조건을 만족하는 호출을 컴파일 시간에 평가할 수 있게 한다.
+
+## 전체 실습 코드
+
+플레이어와 몬스터의 능력치로 피해량을 계산하고 한 번의 공격을 처리하는 예제다.
+
+```cpp
+#include <algorithm>
+#include <iostream>
+
+constexpr int CalculateDamage(int attack, int defence)
+{
+    return std::max(0, attack - defence);
+}
+
+bool IsDead(int hp)
+{
+    return hp <= 0;
+}
+
+int CalculateRemainingHp(int hp, int damage)
+{
+    return std::max(0, hp - damage);
+}
+
+void PrintCharacterState(const char* name, int hp)
+{
+    std::cout << name << " HP: " << hp << '\n';
+}
+
+int main()
+{
+    constexpr int PlayerAttack = 25;
+    constexpr int MonsterDefence = 8;
+
+    int monsterHp = 50;
+    int damage = CalculateDamage(PlayerAttack, MonsterDefence);
+
+    PrintCharacterState("Monster", monsterHp);
+    std::cout << "Damage: " << damage << '\n';
+
+    monsterHp = CalculateRemainingHp(monsterHp, damage);
+    PrintCharacterState("Monster", monsterHp);
+
+    if (IsDead(monsterHp))
+    {
+        std::cout << "Monster defeated.\n";
+    }
+    else
+    {
+        std::cout << "Monster survived.\n";
+    }
+}
+```
+
+각 함수의 계약을 선언만 보고 정리하면 다음과 같다.
+
+| 함수 | 입력 | 반환 결과 | 외부 효과 |
+| :--- | :--- | :--- | :--- |
+| `CalculateDamage` | 공격력, 방어력 | 0 이상의 피해량 | 없음 |
+| `IsDead` | 현재 HP | 사망 여부 | 없음 |
+| `CalculateRemainingHp` | 현재 HP, 피해량 | 0 이상의 남은 HP | 없음 |
+| `PrintCharacterState` | 이름, 현재 HP | 없음 | 표준 출력에 기록 |
+
+`main`은 세부 계산을 직접 구현하지 않고 각 함수를 순서대로 조합한다.
+
+```text
+피해량 계산
+     │
+     ▼
+기존 상태 출력
+     │
+     ▼
+남은 HP 계산
+     │
+     ▼
+변경된 상태 출력
+     │
+     ▼
+사망 여부 판단
+```
+
+함수를 나눌 때 코드 줄 수보다 입력, 결과, 외부 효과가 분명한지 확인한다.
+
+## 다음 학습: 함수 호출 중 만들어지는 실행 문맥
+
+함수의 선언은 호출 방법을 알리고 정의는 실제 동작을 제공한다. 값 매개변수는 인자의 값으로 초기화된 별도 객체이며, `return`은 함수 결과를 만들고 호출 지점으로 제어를 돌려준다.
+
+다음 글에서는 함수가 연속해서 호출될 때 각 호출의 매개변수와 지역 변수가 어떻게 구분되는지 살펴보고, 디버거의 호출 스택과 구현 수준의 스택 프레임을 연결한다.

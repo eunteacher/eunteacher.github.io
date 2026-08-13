@@ -1,0 +1,430 @@
+---
+layout: post
+title: '[C++ 48] 전방 선언: 헤더 의존성과 불완전 타입 구분하기'
+date: 2026-05-04
+categories: [Dev, C++]
+tags: [C++, Forward Declaration, Incomplete Type, Header Dependency, Include]
+---
+
+클래스가 다른 클래스를 가리킨다는 이유로 모든 헤더를 서로 포함하면 작은 변경도 많은 소스 파일을 다시 컴파일하게 되고 순환 포함 관계가 생기기 쉽다. 반대로 필요한 정의 없이 타입을 사용하면 컴파일러는 객체 크기나 멤버 구성을 알 수 없다.
+
+전방 선언(Forward declaration)은 타입의 이름이 존재한다고 먼저 알리고 전체 정의는 필요한 위치에서 포함하는 방법이다. 핵심은 “헤더 대신 항상 전방 선언한다”가 아니라 불완전 타입(Incomplete type)만으로 가능한 작업과 완전한 타입이 필요한 작업을 구분하는 데 있다.
+
+## 전방 선언은 타입의 이름만 먼저 알린다
+
+`Player`가 공격 대상으로 `Monster`를 가리킨다고 가정한다.
+
+```cpp
+class Monster;
+
+class Player
+{
+private:
+    Monster* target_ = nullptr;
+};
+```
+
+`class Monster;`는 `Monster`라는 클래스 타입이 어딘가에 정의될 것이라고 컴파일러에 알린다. 이 시점에는 다음 정보가 없다.
+
+```text
+Monster의 크기
+Monster의 데이터 멤버
+Monster가 가진 멤버 함수
+Monster의 기반 클래스
+```
+
+따라서 `Monster`는 아직 불완전 타입이다. 이름은 사용할 수 있지만 객체의 구체적인 배치를 알아야 하는 작업은 할 수 없다.
+
+## 포인터와 참조 선언에는 전체 크기가 필요하지 않다
+
+포인터 멤버에 필요한 저장 공간은 가리키는 객체의 크기가 아니라 포인터 자체의 크기다.
+
+```cpp
+class Monster;
+
+class Player
+{
+public:
+    void SetTarget(Monster* target);
+
+private:
+    Monster* target_;
+};
+```
+
+컴파일러는 `Monster`의 구성은 몰라도 `Monster*` 멤버가 포인터라는 사실은 안다. 참조를 사용하는 함수 선언도 가능하다.
+
+```cpp
+void Attack(Monster& monster);
+const Monster* FindMonster();
+```
+
+포인터와 참조 자체를 선언하고 전달하는 데는 대상 타입의 전체 정의가 필요하지 않은 경우가 많다. 이를 이용하면 헤더가 다른 헤더의 구현 세부 사항에 직접 의존하는 정도를 줄일 수 있다.
+
+포인터 크기를 무조건 4바이트 또는 8바이트라고 언어 규칙처럼 단정할 필요도 없다. 구현 환경에 따라 달라질 수 있지만 같은 객체 포인터 타입을 저장할 수 있도록 컴파일러가 크기를 알고 있다는 사실이면 충분하다.
+
+## 값 멤버에는 완전한 타입이 필요하다
+
+다른 객체를 값으로 포함하면 `Player` 객체 안에 `Monster` 저장 공간이 직접 들어간다.
+
+```cpp
+class Monster;
+
+class Player
+{
+private:
+    // Monster target_; // 불완전 타입을 값 멤버로 사용할 수 없음
+};
+```
+
+`sizeof(Player)`와 멤버 배치를 결정하려면 `sizeof(Monster)`를 알아야 한다. 따라서 값 멤버를 선언하기 전에 `Monster`의 전체 정의를 포함해야 한다.
+
+```cpp
+#include "Monster.h"
+
+class Player
+{
+private:
+    Monster target_;
+};
+```
+
+상속도 기반 클래스의 전체 정의가 필요하다.
+
+```cpp
+class Player;
+
+// class Knight : public Player // Player의 정의가 필요
+// {
+// };
+```
+
+전방 선언만으로 충분한지는 타입 이름을 알고 있으면 되는지, 크기·멤버·상속 관계까지 알아야 하는지를 기준으로 판단한다.
+
+## 멤버를 사용하는 함수 정의에는 전체 타입이 필요하다
+
+헤더에서는 `Monster*`만 보관하고 멤버 함수는 선언만 한다.
+
+```cpp
+// Player.h
+#pragma once
+
+class Monster;
+
+class Player
+{
+public:
+    void SetTarget(Monster* target);
+    void AttackTarget();
+
+private:
+    Monster* target_ = nullptr;
+};
+```
+
+`Player.cpp`에서 `Monster.h`를 포함한 뒤 함수를 정의한다.
+
+```cpp
+// Player.cpp
+#include "Player.h"
+#include "Monster.h"
+
+void Player::AttackTarget()
+{
+    if (target_ != nullptr)
+    {
+        target_->TakeDamage(10);
+    }
+}
+```
+
+`target_->TakeDamage`를 해석하려면 `Monster`가 해당 멤버 함수를 제공하는지 알아야 한다. 포인터 선언에는 불완전 타입으로 충분했지만 포인터를 역참조해 멤버를 사용하는 정의에는 완전한 타입이 필요하다.
+
+이 구조는 헤더에는 필요한 선언만 남기고 구현에 필요한 포함을 `.cpp` 파일로 이동한다.
+
+## 헤더의 인라인 함수는 포함 의존성을 다시 요구할 수 있다
+
+함수 본문을 클래스 안에 작성하면 그 본문을 읽는 모든 번역 단위가 컴파일할 수 있어야 한다.
+
+```cpp
+class Monster;
+
+class Player
+{
+public:
+    void AttackTarget()
+    {
+        // target_->TakeDamage(10); // Monster 정의를 알 수 없음
+    }
+
+private:
+    Monster* target_ = nullptr;
+};
+```
+
+`Monster` 멤버를 호출하는 인라인 정의를 헤더에 유지하려면 `Monster.h`를 포함해야 한다. 의존성을 줄이고 싶다면 함수 본문을 `.cpp` 파일로 옮긴다.
+
+```text
+헤더: 타입 이름, 포인터와 함수 선언
+소스: 전체 정의가 필요한 멤버 접근과 구현
+```
+
+짧다는 이유만으로 모든 멤버 함수를 헤더 안에 정의하면 구현 의존성이 헤더에 다시 퍼질 수 있다.
+
+## 순환 포함은 include guard만으로 관계가 해결되지 않는다
+
+`Player.h`가 `Monster.h`를 포함하고 `Monster.h`도 `Player.h`를 포함한다고 가정한다.
+
+```text
+Player.h  → Monster.h
+Monster.h → Player.h
+```
+
+`#pragma once`나 include guard는 같은 헤더가 한 번역 단위에서 반복 처리되는 것을 막는다. 하지만 어느 한쪽을 처리하는 시점에 필요한 클래스 정의가 아직 나타나지 않는 문제까지 자동으로 해결하지는 않는다.
+
+두 클래스가 서로를 포인터로만 가리킨다면 각 헤더에서 상대 타입을 전방 선언할 수 있다.
+
+```cpp
+// Player.h
+class Monster;
+
+class Player
+{
+private:
+    Monster* target_ = nullptr;
+};
+```
+
+```cpp
+// Monster.h
+class Player;
+
+class Monster
+{
+private:
+    Player* target_ = nullptr;
+};
+```
+
+각 `.cpp` 파일은 실제 멤버 접근에 필요한 헤더를 포함한다. 이 방식은 헤더 사이의 순환 포함을 끊는다.
+
+두 타입이 서로를 값으로 포함하려 한다면 두 객체가 무한히 중첩되는 구조가 되므로 단순 전방 선언으로 해결할 수 없다. 소유 관계를 다시 설계하거나 한쪽을 포인터 기반 관계로 바꿔야 한다.
+
+## 헤더는 자신이 선언에 필요한 의존성을 직접 제공해야 한다
+
+전방 선언을 사용한다고 해서 필요한 `#include`까지 무조건 제거하는 것은 아니다. 헤더 안에서 표준 라이브러리 타입을 값으로 사용한다면 해당 타입을 정의하는 헤더를 직접 포함한다.
+
+```cpp
+#include <string>
+
+class Player
+{
+private:
+    std::string name_;
+};
+```
+
+다른 헤더가 우연히 `<string>`을 먼저 포함해 줄 것이라고 기대하지 않는다. 헤더는 단독으로 포함돼도 자신이 제공하는 선언을 컴파일할 수 있는 자기 완결성을 가져야 한다.
+
+전방 선언이 가능한 표준 라이브러리 타입을 직접 선언하는 것도 피한다. 표준 라이브러리 구현과 템플릿 선언은 사용자가 임의로 재현해서는 안 되며 필요한 표준 헤더를 포함한다.
+
+## 포인터 멤버는 소유권까지 설명하지 않는다
+
+`Monster* target_`는 전방 선언으로 헤더 의존성을 줄일 수 있지만 포인터 자체는 소유 관계를 말해 주지 않는다.
+
+```cpp
+Monster* target_ = nullptr;
+```
+
+다음 질문은 별도로 정해야 한다.
+
+- `Player`가 `Monster`를 제거할 책임이 있는가?
+- `Monster`가 먼저 소멸할 수 있는가?
+- null을 허용하는가?
+- 여러 객체가 같은 `Monster`를 가리킬 수 있는가?
+
+원본 예제의 `_target`은 공격 대상을 잠시 가리키는 비소유 포인터로 해석하는 것이 자연스럽다. 이 경우 `Player` 소멸자에서 `delete target_`를 실행하면 안 되며 대상의 수명은 다른 시스템이 보장해야 한다.
+
+독점 소유를 표현하기 위해 `std::unique_ptr<Monster>`를 헤더에 선언하면서 전방 선언을 사용할 수도 있지만 소멸자가 정의되는 위치 등 불완전 타입과 관련된 추가 조건이 있다. 스마트 포인터 편에서 자세히 다룬다.
+
+## 전체 구현
+
+헤더에서는 전방 선언만 사용하고 소스 파일에서 전체 정의를 포함하는 작은 예제 구조다.
+
+### Monster.h
+
+```cpp
+#pragma once
+
+class Monster
+{
+public:
+    explicit Monster(int hp);
+
+    void TakeDamage(int damage);
+    int Hp() const;
+
+private:
+    int hp_;
+};
+```
+
+### Monster.cpp
+
+```cpp
+#include "Monster.h"
+
+#include <algorithm>
+
+Monster::Monster(int hp) : hp_(std::max(0, hp))
+{
+}
+
+void Monster::TakeDamage(int damage)
+{
+    if (damage <= 0)
+    {
+        return;
+    }
+
+    hp_ = damage >= hp_ ? 0 : hp_ - damage;
+}
+
+int Monster::Hp() const
+{
+    return hp_;
+}
+```
+
+### Player.h
+
+```cpp
+#pragma once
+
+class Monster;
+
+class Player
+{
+public:
+    explicit Player(int attack);
+
+    void SetTarget(Monster* target);
+    void ClearTarget();
+    bool AttackTarget();
+
+private:
+    int attack_;
+    Monster* target_ = nullptr;
+};
+```
+
+`Player.h`에는 `Monster.h`를 포함하지 않는다. `Monster*`의 선언과 저장에는 전방 선언으로 충분하다.
+
+### Player.cpp
+
+```cpp
+#include "Player.h"
+
+#include "Monster.h"
+
+#include <algorithm>
+
+Player::Player(int attack) : attack_(std::max(0, attack))
+{
+}
+
+void Player::SetTarget(Monster* target)
+{
+    target_ = target;
+}
+
+void Player::ClearTarget()
+{
+    target_ = nullptr;
+}
+
+bool Player::AttackTarget()
+{
+    if (target_ == nullptr)
+    {
+        return false;
+    }
+
+    target_->TakeDamage(attack_);
+    return true;
+}
+```
+
+`Player.cpp`에서는 `Monster::TakeDamage`를 호출하므로 `Monster.h`를 포함한다.
+
+### Main.cpp
+
+```cpp
+#include "Monster.h"
+#include "Player.h"
+
+#include <cassert>
+#include <iostream>
+
+int main()
+{
+    Player player{30};
+    Monster monster{100};
+
+    assert(!player.AttackTarget());
+
+    player.SetTarget(&monster);
+    assert(player.AttackTarget());
+    assert(monster.Hp() == 70);
+
+    player.ClearTarget();
+    assert(!player.AttackTarget());
+
+    std::cout << "Monster HP: " << monster.Hp() << '\n';
+}
+```
+
+실행 결과는 다음과 같다.
+
+```text
+Monster HP: 70
+```
+
+`Player.h`는 `Monster`의 크기와 멤버를 몰라도 컴파일된다. 실제 공격 구현이 있는 `Player.cpp`와 `Monster` 객체를 직접 생성하는 `Main.cpp`에서 전체 정의를 포함한다.
+
+`target_`은 비소유 포인터이며 `SetTarget`은 대상의 수명을 연장하지 않는다. 예제에서는 `monster`가 `player`의 공격 호출이 끝날 때까지 살아 있으므로 유효하다. 대상이 먼저 소멸하는 구조라면 포인터를 지우는 별도의 수명 관리가 필요하다.
+
+## 실제 다중 파일 컴파일 확인
+
+위 코드는 세 번역 단위로 나눠 컴파일할 수 있다.
+
+```text
+Monster.cpp → Monster.obj
+Player.cpp  → Player.obj
+Main.cpp    → Main.obj
+              ↓
+            실행 파일 링크
+```
+
+`Player.cpp`는 `Player.h`를 먼저 포함한다. 이렇게 하면 `Player.h`가 다른 헤더의 우연한 선행 포함에 기대지 않고 스스로 컴파일 가능한지 확인하기 쉽다.
+
+전방 선언은 실행 성능을 높이는 기능이 아니다. 헤더 사이의 불필요한 컴파일 의존성을 줄여 변경 영향 범위와 빌드 비용을 관리하는 도구다. 작은 프로젝트에서는 차이가 작아도 헤더를 많이 공유하는 프로젝트에서는 의존성 구조가 누적된다.
+
+## 전방 선언을 검토할 때 확인할 기준
+
+1. 타입의 이름만 필요한가, 크기와 멤버 정의까지 필요한가?
+2. 포인터나 참조 선언만 있는 헤더에서 전방 선언으로 충분한가?
+3. 값 멤버, 상속 또는 `sizeof` 때문에 전체 정의가 필요한가?
+4. 불완전 타입의 멤버를 사용하는 함수 본문을 `.cpp`로 옮겼는가?
+5. 인라인 함수가 헤더에 새로운 포함 의존성을 만들고 있지 않은가?
+6. `#pragma once`가 순환 타입 관계까지 해결한다고 오해하지 않는가?
+7. 헤더가 우연한 간접 포함 없이 자기 완결적인가?
+8. 표준 라이브러리 타입을 임의로 전방 선언하지 않았는가?
+9. 포인터 사용과 객체 소유권을 별도로 설계했는가?
+10. 전방 선언이 실제 의존성을 감추거나 코드를 복잡하게 만들지는 않는가?
+
+전방 선언의 핵심은 헤더 포함 횟수를 무조건 줄이는 것이 아니다. 공개 선언에 필요한 정보만 노출하고 구현에 필요한 전체 정의는 구현 파일로 보내 타입 사이의 결합을 명확하게 관리하는 것이다.
+
+## 다음 학습: 클래스를 나눈 Text RPG 구조 조립하기
+
+다음 글에서는 `Game`, `Field`, `Player`, `Monster`와 `Creature`로 분리된 Text RPG 프로젝트를 살펴본다. 각 클래스의 책임, 소유 관계와 게임 루프의 호출 흐름을 따라가며 여러 파일로 나눈 코드가 실제로 어떻게 연결되는지 정리한다.

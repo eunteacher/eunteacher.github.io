@@ -1,0 +1,597 @@
+---
+layout: post
+title: '[C++ 69] 오른값 참조와 이동 의미론: 자원 소유권을 복사하지 않고 이전하기'
+date: 2026-05-25
+categories: [Dev, C++]
+tags: [C++, Modern C++, Rvalue Reference, Move Semantics, std::move]
+---
+
+동적 메모리처럼 소유 비용이 큰 자원을 가진 객체를 복사하려면 새 자원을 확보하고 내용을 복제해야 한다. 반면 곧 수명이 끝날 임시 객체나 더 이상 현재 값이 필요 없는 객체라면 자원을 복제하지 않고 새 객체에 넘길 수 있다.
+
+C++11의 오른값 참조와 이동 의미론(move semantics)은 이런 소유권 이전을 타입 시스템과 오버로드로 표현한다. 핵심 문법은 `T&&`, 이동 생성자, 이동 대입 연산자와 `std::move`다.
+
+다만 `std::move`가 객체를 직접 옮기거나 원본을 자동으로 비우는 것은 아니다. 이동 가능한 오버로드가 선택되도록 표현식의 값 범주를 바꿀 뿐이며, 실제 자원 이전은 타입의 이동 연산이 구현한다.
+
+## 왼값과 오른값은 표현식의 분류다
+
+왼값(lvalue)은 일반적으로 이름과 식별 가능한 위치를 가진 표현식이다.
+
+```cpp
+int value = 10;
+value = 20;
+```
+
+표현식 `value`는 선언문 이후에도 같은 객체를 식별할 수 있는 왼값이다. 반면 리터럴이나 함수가 값으로 반환한 임시 객체는 오른값 계열 표현식이다.
+
+```cpp
+42
+std::string("temporary")
+MakePlayer()
+```
+
+“코드의 등호 왼쪽에 있으면 왼값, 오른쪽에 있으면 오른값”으로 구분하면 안 된다.
+
+```cpp
+int first = 10;
+int second = first;
+```
+
+두 번째 문장에서 `first`는 등호 오른쪽에 있지만 여전히 왼값이다. 값 범주는 표현식의 위치가 아니라 그 표현식이 객체를 어떻게 식별하고 어떤 연산에 바인딩될 수 있는지를 나타낸다.
+
+현대 C++의 값 범주는 lvalue, xvalue, prvalue로 더 세밀하게 나뉜다. 이동을 처음 이해할 때는 다음 관계가 중요하다.
+
+```text
+glvalue
+├─ lvalue : 지속되는 객체를 식별하는 일반적인 표현식
+└─ xvalue : 자원을 재사용할 수 있음을 나타내는 만료 예정 표현식
+
+rvalue
+├─ xvalue
+└─ prvalue: 값을 계산하거나 임시 객체를 초기화하는 표현식
+```
+
+`std::move(object)`의 결과는 xvalue다.
+
+## 오른값이 항상 수정 불가능한 것은 아니다
+
+원본에서는 오른값의 특징을 수정 불가능이라고 설명한다. 리터럴 `3`에는 대입할 수 없지만, 그것만으로 모든 오른값이 const라는 뜻은 아니다.
+
+```cpp
+// 3 = 4; // 대입의 왼쪽 피연산자로 사용할 수 없음
+```
+
+클래스형 오른값은 비상수 멤버 함수를 호출할 수도 있다.
+
+```cpp
+std::string("abc").clear();
+```
+
+오른값 참조도 비상수 객체에 바인딩되면 그 객체를 수정할 수 있다.
+
+```cpp
+void Clear(std::string&& text)
+{
+    text.clear();
+}
+```
+
+값 범주와 const 여부는 서로 다른 축이다. “오른값이므로 수정할 수 없다”가 아니라 표현식의 타입, const와 함수 한정 조건을 함께 확인한다.
+
+## 참조 종류에 따라 바인딩 대상과 의미가 달라진다
+
+일반적인 비상수 왼값 참조는 왼값에 바인딩된다.
+
+```cpp
+void Edit(Player& player);
+
+Player player;
+Edit(player);
+// Edit(Player{}); // 임시 객체에는 바인딩할 수 없음
+```
+
+상수 왼값 참조는 왼값과 오른값 모두 받을 수 있고 읽기 전용 접근에 사용한다.
+
+```cpp
+void Inspect(const Player& player);
+
+Inspect(player);
+Inspect(Player{});
+```
+
+특정 타입의 오른값 참조는 오른값에 바인딩된다.
+
+```cpp
+void Consume(Player&& player);
+
+Consume(Player{});
+// Consume(player); // 왼값은 직접 바인딩할 수 없음
+```
+
+```text
+매개변수             왼값 인자    오른값 인자    대표 의도
+T&                   가능         불가능         원본 수정
+const T&             가능         가능           읽기 전용 관찰
+T&&                  불가능       가능           이동 가능한 대상
+```
+
+`const T&&`도 문법적으로 가능하지만 자원을 빼내려면 대상을 수정해야 하는 이동 연산과 잘 맞지 않아 일반적인 이동 인터페이스에서는 드물다.
+
+## 이동 생성자와 이동 대입은 호출 시점이 다르다
+
+이동 생성자는 새 객체를 만들 때 오른값의 자원을 받는다.
+
+```cpp
+Buffer(Buffer&& other) noexcept;
+
+Buffer source(1024);
+Buffer destination = std::move(source);
+```
+
+이동 대입 연산자는 이미 존재하는 객체의 현재 자원을 정리하고 새 자원을 받는다.
+
+```cpp
+Buffer& operator=(Buffer&& other) noexcept;
+
+Buffer source(1024);
+Buffer destination(256);
+destination = std::move(source);
+```
+
+대입 대상 `destination`은 이미 자원을 소유할 수 있으므로 기존 자원을 잃지 않게 정리해야 한다. 원본처럼 포인터를 단순히 덮어쓰면 대상이 이전에 소유하던 메모리가 누수될 수 있다.
+
+## 이동 생성자는 자원을 넘기고 원본을 안전한 상태로 만든다
+
+원시 포인터를 가진 간단한 버퍼의 이동 생성자는 다음처럼 구현할 수 있다.
+
+```cpp
+Buffer(Buffer&& other) noexcept
+    : data_(std::exchange(other.data_, nullptr)),
+      size_(std::exchange(other.size_, 0))
+{
+}
+```
+
+`std::exchange`는 `other.data_`의 기존 값을 반환하면서 그 멤버를 `nullptr`로 바꾼다. 새 객체는 기존 자원을 소유하고 원본은 빈 상태가 된다.
+
+```text
+이동 전
+source.data ──→ [buffer]
+destination       없음
+
+이동 후
+source.data       nullptr
+destination.data ──→ [buffer]
+```
+
+두 객체의 소멸자가 실행돼도 같은 포인터를 두 번 해제하지 않는다.
+
+원본을 반드시 빈 상태로 만들어야 한다는 일반 규칙은 없다. 각 타입은 자신의 불변식을 지키는 유효한 상태를 남겨야 한다. 빈 상태는 자원 소유 타입에서 흔하고 설명하기 쉬운 선택이다.
+
+## 이동 대입은 기존 자원과 자기 이동을 처리해야 한다
+
+이동 대입은 대상이 가진 기존 자원을 먼저 고려한다.
+
+```cpp
+Buffer& operator=(Buffer&& other) noexcept
+{
+    if (this == &other)
+    {
+        return *this;
+    }
+
+    delete[] data_;
+    data_ = std::exchange(other.data_, nullptr);
+    size_ = std::exchange(other.size_, 0);
+    return *this;
+}
+```
+
+`delete[] data_` 없이 포인터를 덮어쓰면 대상이 원래 소유하던 자원을 잃는다. 자기 자신을 이동 대입하는 경우도 타입의 계약에 맞게 안전하게 처리한다.
+
+```cpp
+buffer = std::move(buffer);
+```
+
+표준 라이브러리 타입은 자기 이동 대입 뒤 유효하지만 값이 정해지지 않은 상태를 보장하는 방향으로 규정돼 있다. 사용자 정의 타입에서는 간단한 동일 주소 검사로 현재 값을 유지하는 정책을 선택할 수 있다.
+
+## std::move는 이동을 실행하지 않는다
+
+`std::move`는 개념적으로 특정 타입의 오른값 참조로 변환하는 캐스트다.
+
+```cpp
+std::move(source)
+```
+
+이 표현식 자체는 `source`의 멤버를 바꾸거나 메모리를 복사하지 않는다. 이동 생성자나 이동 대입처럼 `T&&`를 받는 연산에 전달됐을 때 그 연산이 실제로 자원을 이전한다.
+
+```cpp
+std::string source = "hello";
+auto&& view = std::move(source);
+
+// 여기까지는 이동 생성이나 대입이 실행되지 않음
+assert(source == "hello");
+```
+
+실제 이동은 새 객체를 초기화할 때 일어난다.
+
+```cpp
+std::string destination = std::move(source);
+```
+
+이름 때문에 `std::move` 호출만으로 객체가 이동됐다고 생각하지 않는다. 더 정확한 의미는 “이 표현식의 자원을 이동 대상으로 취급해도 된다”는 허용 표시다.
+
+## std::move를 사용해도 복사가 일어날 수 있다
+
+타입에 이동 생성자가 없고 복사 생성자가 `const T&`를 받는다면 오른값도 상수 왼값 참조에 바인딩될 수 있다.
+
+```cpp
+class CopyOnly
+{
+public:
+    CopyOnly(const CopyOnly&);
+};
+
+CopyOnly source;
+CopyOnly destination = std::move(source); // 복사 생성자가 선택될 수 있음
+```
+
+`std::move`는 이동 연산의 존재나 효율을 보장하지 않는다.
+
+const 객체에 `std::move`를 적용하는 경우도 주의한다.
+
+```cpp
+const std::string source = "hello";
+std::string destination = std::move(source);
+```
+
+결과 표현식은 `const std::string&&`다. 일반적인 이동 생성자는 원본을 수정해야 하므로 `std::string&&`를 받고 const 오른값에는 바인딩할 수 없다. 대신 `const std::string&` 복사 생성자가 선택된다.
+
+```text
+std::move(nonConst) → T&&       → 이동 가능
+std::move(constObj) → const T&& → 보통 복사
+```
+
+이동하려는 소유 객체를 불필요하게 const로 만들지 않는다.
+
+## 이름이 있는 오른값 참조 변수는 왼값 표현식이다
+
+다음 함수의 매개변수 타입은 `Buffer&&`다.
+
+```cpp
+void Relay(Buffer&& buffer)
+{
+    Store(buffer);
+}
+```
+
+하지만 함수 본문에서 이름 `buffer`를 사용하는 표현식은 왼값이다. 이름이 있고 반복해서 식별할 수 있기 때문이다. `Store`에 복사와 이동 오버로드가 있다면 위 호출은 복사를 선택할 수 있다.
+
+다시 이동 대상으로 전달하려면 명시적으로 `std::move`를 적용한다.
+
+```cpp
+void Relay(Buffer&& buffer)
+{
+    Store(std::move(buffer));
+}
+```
+
+```text
+선언 타입: Buffer&&
+표현식 buffer의 값 범주: lvalue
+표현식 std::move(buffer)의 값 범주: xvalue
+```
+
+이 규칙은 같은 객체에서 실수로 여러 번 자원을 빼내는 일을 줄이고, 실제로 넘기는 지점에 이동 의도를 다시 표시하게 한다.
+
+## 이동 후 객체는 유효하지만 값이 정해지지 않을 수 있다
+
+표준 라이브러리 객체는 이동된 후 valid but unspecified state, 즉 클래스 불변식은 유지되지만 구체적인 값은 보장되지 않는 상태에 놓이는 것이 일반적이다.
+
+```cpp
+std::string source = "hello";
+std::string destination = std::move(source);
+```
+
+다음처럼 특정 값을 단정하면 안 된다.
+
+```cpp
+// assert(source.empty()); // 표준의 일반적인 이동 후 보장으로 의존하면 안 됨
+```
+
+이동 후에도 소멸자를 호출할 수 있고 새 값을 대입할 수 있다.
+
+```cpp
+source = "reused";
+assert(source == "reused");
+```
+
+`empty()`처럼 전제 조건이 없는 관찰 연산을 호출하는 것도 가능하지만 그 결과가 무엇인지는 타입의 별도 보장이 없다면 예측하지 않는다. `back()`처럼 비어 있지 않아야 하는 연산은 먼저 상태를 확정해야 한다.
+
+“이동 후에는 원본을 절대 사용하면 안 된다”보다 “구체적인 값에 의존하지 말고 소멸하거나 새 값을 대입하거나 타입이 명시적으로 보장한 연산만 수행한다”가 정확하다.
+
+## 복사와 이동 오버로드의 선택
+
+같은 타입의 상수 왼값 참조와 오른값 참조 오버로드를 두면 인자의 값 범주에 따라 선택된다.
+
+```cpp
+void Store(const Buffer& buffer)
+{
+    std::cout << "copy path\n";
+}
+
+void Store(Buffer&& buffer)
+{
+    std::cout << "move path\n";
+}
+```
+
+```cpp
+Buffer buffer(16);
+
+Store(buffer);            // 왼값: const Buffer&
+Store(Buffer(16));        // 임시 객체: Buffer&&
+Store(std::move(buffer)); // xvalue: Buffer&&
+```
+
+오른값 참조 오버로드가 호출됐다는 사실만으로 자원이 자동 이전되는 것은 아니다. `Store(Buffer&&)`의 구현이 버퍼를 다른 객체에 이동해야 실제 소유권이 바뀐다.
+
+## noexcept는 컨테이너 재할당에서 중요하다
+
+`std::vector`가 재할당할 때 기존 요소를 새 저장 공간으로 옮겨야 한다. 이동 도중 예외가 발생해 원본 요소 일부가 이미 변경되면 기존 상태를 유지하기 어려울 수 있다.
+
+따라서 복사 가능 타입에서 이동 생성자가 예외를 던질 수 있다면 벡터는 강한 예외 보장을 위해 이동 대신 복사를 선택할 수 있다.
+
+```cpp
+Buffer(Buffer&& other) noexcept;
+```
+
+실제로 예외를 던지지 않는 이동 연산에는 `noexcept`를 표시한다. 컨테이너가 안전하게 이동 경로를 선택할 수 있고 타입 특성에도 의도가 드러난다.
+
+```cpp
+static_assert(std::is_nothrow_move_constructible_v<Buffer>);
+```
+
+예외를 던질 가능성이 있는 작업을 무조건 `noexcept`로 표시하면 예외 발생 시 `std::terminate`가 호출된다. 구현이 정말 비예외인지 확인한다.
+
+## 스마트 포인터에서는 소유권 이동이 직접 드러난다
+
+`std::unique_ptr`는 단독 소유권을 표현하므로 복사가 삭제돼 있고 이동만 가능하다.
+
+```cpp
+auto first = std::make_unique<Knight>();
+// auto second = first; // 복사 불가
+
+auto second = std::move(first);
+
+assert(first == nullptr);
+assert(second != nullptr);
+```
+
+이 경우 이동 후 원본 `unique_ptr`가 비어 있다는 점은 `unique_ptr`의 명시적인 보장이다. 모든 타입의 이동 후 상태를 이 사례와 같다고 일반화하지 않는다.
+
+스마트 포인터를 사용하면 원본의 수동 `new`, `delete`, 깊은 복사와 이중 해제 문제를 크게 줄일 수 있다. 자원 소유 타입은 가능하면 표준 RAII 타입을 멤버로 구성해 컴파일러가 제공하는 이동 연산을 활용한다.
+
+## 불필요한 std::move는 복사 생략을 방해할 수 있다
+
+지역 객체를 값으로 반환할 때는 보통 이름 있는 반환값 최적화(NRVO)나 암시적 이동 후보 규칙에 맡긴다.
+
+```cpp
+Buffer MakeBuffer()
+{
+    Buffer buffer(1024);
+    return buffer;
+}
+```
+
+다음처럼 습관적으로 `std::move`를 붙이면 NRVO를 방해할 수 있다.
+
+```cpp
+Buffer MakeBuffer()
+{
+    Buffer buffer(1024);
+    return std::move(buffer);
+}
+```
+
+반환문에서 지역 객체 이름에 무조건 `std::move`를 붙이는 것은 최적화가 아니다. 소유권을 넘겨야 하는 명확한 왼값 지점에만 사용한다.
+
+이미 오른값인 임시 객체에도 `std::move`가 필요 없다.
+
+```cpp
+Buffer destination = Buffer(1024);
+```
+
+## Rule of Zero를 우선하고 수동 구현은 필요할 때만 한다
+
+원시 자원을 직접 소유하면 소멸자, 복사 생성자, 복사 대입, 이동 생성자와 이동 대입의 정책을 함께 관리해야 한다. 이를 Rule of Five 관점에서 검토한다.
+
+가능하면 자원을 `std::vector`, `std::string`, `std::unique_ptr` 같은 RAII 멤버로 보관한다.
+
+```cpp
+class Packet
+{
+private:
+    std::vector<std::byte> data_;
+};
+```
+
+이 클래스는 멤버 타입의 올바른 복사·이동·소멸 동작을 그대로 사용할 수 있어 특수 멤버 함수를 직접 작성하지 않아도 된다. 이것이 Rule of Zero다.
+
+수동 이동 구현은 자원 관리 원리를 배우거나 타입 고유의 소유권 정책이 필요할 때 사용한다.
+
+## 전체 구현
+
+학습용 `Buffer`에서 깊은 복사와 자원 이동의 차이, 이동 후 재사용과 오른값 참조 매개변수의 값 범주를 확인한다.
+
+```cpp
+#include <algorithm>
+#include <cassert>
+#include <cstddef>
+#include <iostream>
+#include <type_traits>
+#include <utility>
+
+class Buffer
+{
+public:
+    explicit Buffer(std::size_t size = 0)
+        : data_(size == 0 ? nullptr : new int[size]{}), size_(size)
+    {
+    }
+
+    Buffer(const Buffer& other) : Buffer(other.size_)
+    {
+        if (size_ > 0)
+        {
+            std::copy(other.data_, other.data_ + size_, data_);
+        }
+
+        ++copyCount;
+    }
+
+    Buffer& operator=(const Buffer& other)
+    {
+        if (this == &other)
+        {
+            return *this;
+        }
+
+        Buffer copy(other);
+        swap(copy);
+        return *this;
+    }
+
+    Buffer(Buffer&& other) noexcept
+        : data_(std::exchange(other.data_, nullptr)), size_(std::exchange(other.size_, 0))
+    {
+        ++moveCount;
+    }
+
+    Buffer& operator=(Buffer&& other) noexcept
+    {
+        if (this == &other)
+        {
+            return *this;
+        }
+
+        delete[] data_;
+        data_ = std::exchange(other.data_, nullptr);
+        size_ = std::exchange(other.size_, 0);
+        ++moveCount;
+        return *this;
+    }
+
+    ~Buffer()
+    {
+        delete[] data_;
+    }
+
+    void swap(Buffer& other) noexcept
+    {
+        using std::swap;
+        swap(data_, other.data_);
+        swap(size_, other.size_);
+    }
+
+    int& operator[](std::size_t index) { assert(index < size_); return data_[index]; }
+    const int& operator[](std::size_t index) const { assert(index < size_); return data_[index]; }
+    std::size_t size() const noexcept { return size_; }
+    bool empty() const noexcept { return size_ == 0; }
+
+    inline static int copyCount = 0;
+    inline static int moveCount = 0;
+
+private:
+    int* data_ = nullptr;
+    std::size_t size_ = 0;
+};
+
+void Store(const Buffer& source, Buffer& destination)
+{
+    destination = source;
+}
+
+void Store(Buffer&& source, Buffer& destination)
+{
+    destination = std::move(source);
+}
+
+static_assert(std::is_copy_constructible_v<Buffer>);
+static_assert(std::is_nothrow_move_constructible_v<Buffer>);
+
+int main()
+{
+    Buffer::copyCount = 0;
+    Buffer::moveCount = 0;
+
+    Buffer original(3);
+    original[0] = 10;
+    original[1] = 20;
+    original[2] = 30;
+
+    Buffer copied = original;
+    copied[0] = 100;
+
+    assert(original[0] == 10);
+    assert(copied[0] == 100);
+    assert(Buffer::copyCount == 1);
+
+    Buffer moved = std::move(original);
+
+    assert(original.empty());
+    assert(moved.size() == 3);
+    assert(moved[1] == 20);
+    assert(Buffer::moveCount == 1);
+
+    original = Buffer(1);
+    original[0] = 77;
+    assert(original[0] == 77);
+
+    Buffer destination;
+    Store(std::move(moved), destination);
+
+    assert(moved.empty());
+    assert(destination.size() == 3);
+    assert(destination[2] == 30);
+    assert(Buffer::moveCount == 3);
+
+    std::cout << "Copy operations: " << Buffer::copyCount << '\n';
+    std::cout << "Move operations: " << Buffer::moveCount << '\n';
+    std::cout << "Moved values: " << destination[0] << ' ' << destination[1] << ' ' << destination[2] << '\n';
+    std::cout << "Reused original value: " << original[0] << '\n';
+}
+```
+
+실행 결과는 다음과 같다.
+
+```text
+Copy operations: 1
+Move operations: 3
+Moved values: 10 20 30
+Reused original value: 77
+```
+
+복사 생성은 크기 3의 새 저장 공간을 만들고 요소를 복제하므로 복사본의 값을 바꿔도 원본이 유지된다. 첫 이동은 포인터와 크기만 새 객체에 이전하고 원본을 빈 상태로 만든다.
+
+이동된 `original`에는 크기 1의 임시 버퍼를 이동 대입해 정상적으로 재사용한다. `Store(Buffer&&)` 안에서는 이름 있는 `source`가 왼값이므로 `std::move(source)`를 다시 적용해 `destination`의 이동 대입을 호출한다. 이동 생성 한 번과 이동 대입 두 번으로 최종 이동 횟수는 세 번이며 저장된 값은 그대로 유지된다.
+
+## 이동 의미론을 사용할 때 확인할 기준
+
+1. 값 범주를 등호의 왼쪽·오른쪽 위치만으로 판단하지 않는가?
+2. 오른값과 const 여부를 서로 다른 개념으로 구분하는가?
+3. 이동 생성과 이동 대입의 호출 시점을 구분하는가?
+4. 이동 대입 전에 대상이 소유하던 기존 자원을 정리하는가?
+5. 이동 뒤 원본이 소멸 가능한 유효 상태로 남는가?
+6. `std::move`가 이동을 실행하는 함수가 아니라 xvalue 변환이라는 점을 아는가?
+7. const 객체에 `std::move`를 적용하면 보통 복사가 선택된다는 점을 고려하는가?
+8. 이름 있는 `T&&` 매개변수가 함수 본문에서는 왼값임을 아는가?
+9. 이동 후 객체의 구체적인 값을 타입의 보장 없이 가정하지 않는가?
+10. 예외를 던지지 않는 이동 연산에 정확히 `noexcept`를 표시했는가?
+11. 반환할 지역 객체에 불필요한 `std::move`를 붙여 복사 생략을 방해하지 않는가?
+12. 원시 자원 수동 관리보다 Rule of Zero와 RAII 멤버 구성이 가능한가?
+
+이동 의미론의 핵심은 복사를 더 빠르게 만드는 마법이 아니다. 더 이상 현재 값이 필요하지 않은 객체의 자원을 재사용할 수 있다는 의도를 값 범주로 전달하고, 타입의 이동 연산이 소유권을 안전하게 이전하도록 만드는 것이다.
+
+## 다음 학습: 전달 참조와 완벽한 전달
+
+다음 글에서는 함수 템플릿의 `T&&`가 특정 타입의 오른값 참조와 다르게 동작하는 전달 참조(forwarding reference)를 살펴본다. 참조 축약, 템플릿 타입 추론과 `std::forward`가 인자의 원래 값 범주를 보존하는 과정을 정리한다.

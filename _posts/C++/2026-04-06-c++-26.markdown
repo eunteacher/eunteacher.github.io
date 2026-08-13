@@ -7,121 +7,759 @@ tags: [C++, Array, Pointer, Memory, Initialization]
 use_math: true
 ---
 
-# [C++] 배열은 포인터가 아니라 크기를 가진 객체다
+앞에서는 포인터로 연속된 요소를 다룰 때 시작 위치만으로는 배열의 길이를 알 수 없다는 점을 살펴봤다. 포인터 산술과 인덱스 접근을 이해하려면 먼저 배열 자체가 무엇인지 구분해야 한다.
 
-동일한 타입의 데이터를 연속된 메모리에 할당하여 관리하는 배열의 기초 문법과 배열 이름이 포인터로 붕괴(Decay)되는 원리를 분석
+내장 배열(Built-in array)은 포인터가 아니다. **같은 타입의 요소를 정해진 개수만큼 연속해서 포함하는 하나의 객체**다. 다만 많은 표현식과 함수 호출에서 배열이 첫 요소를 가리키는 포인터로 변환되기 때문에 둘이 같은 것처럼 보인다.
 
-## 선언·초기화·인덱스 접근
+## 배열 타입에는 요소 타입과 개수가 포함된다
+
+정수 다섯 개를 가진 배열을 선언한다.
 
 ```cpp
-#include <iostream>
-using namespace std;
+int scores[5];
+```
 
-// 게임 캐릭터의 스탯을 관리하는 구조체 정의
-struct FStat
+`scores`의 타입은 단순한 `int*`가 아니라 `int[5]`다.
+
+```text
+배열 객체 scores
+┌────────┬────────┬────────┬────────┬────────┐
+│ int[0] │ int[1] │ int[2] │ int[3] │ int[4] │
+└────────┴────────┴────────┴────────┴────────┘
+             요소 5개가 하나의 배열을 구성
+```
+
+요소 개수도 타입의 일부이므로 `int[5]`와 `int[10]`은 서로 다른 배열 타입이다.
+
+```cpp
+int smallScores[5]{};
+int largeScores[10]{};
+```
+
+두 배열 모두 요소 타입은 `int`지만 전체 타입과 크기는 다르다.
+
+## 내장 배열의 요소 개수는 컴파일 시간에 정해진다
+
+일반적인 내장 배열 선언의 요소 개수는 컴파일 시간에 사용할 수 있는 값이어야 한다.
+
+```cpp
+constexpr int MonsterCount = 10;
+int monsterHp[MonsterCount]{};
+```
+
+실행 중 입력받은 값으로 내장 배열 크기를 정하는 가변 길이 배열(Variable Length Array)은 표준 C++ 기능이 아니다.
+
+```cpp
+int count = 0;
+std::cin >> count;
+// int values[count];
+```
+
+일부 컴파일러가 확장 기능으로 허용할 수 있지만 이식 가능한 표준 C++ 코드로 간주하지 않는다. 실행 중 크기가 결정되고 변경될 수 있는 연속 저장 공간이 필요하면 `std::vector`를 사용한다.
+
+```cpp
+#include <vector>
+
+std::vector<int> CreateScoreTable(std::size_t count)
 {
-    int hp = 0xAAAAAAAA;
-    int attack = 0xBBBBBBBB;
-    int defence = 0xDDDDDDDD;
+    return std::vector<int>(count);
+}
+```
+
+호출자가 사용자 입력을 크기로 사용한다면 음수, 입력 실패, 과도한 할당 요청을 먼저 검사한 뒤 검증된 개수를 전달해야 한다.
+
+고정된 개수가 프로그램 의미에 포함된다면 내장 배열이나 `std::array`를 선택할 수 있다.
+
+## 배열의 저장 기간은 선언 위치와 방식에 따라 달라진다
+
+내장 배열이 항상 스택에 생성된다고 설명하면 정확하지 않다.
+
+```cpp
+int GlobalScores[5]{};
+
+void RunGame()
+{
+    int localScores[5]{};
+    static int savedScores[5]{};
+}
+```
+
+- `GlobalScores`는 정적 저장 기간을 가진다.
+- `localScores`는 일반적으로 자동 저장 기간을 가진다.
+- `savedScores`는 함수 안에 있지만 정적 저장 기간을 가진다.
+
+동적 저장 기간을 가진 배열 객체도 만들 수 있지만 직접 `new[]`와 `delete[]`를 관리하기보다 `std::vector`나 스마트 포인터처럼 소유권을 표현하는 타입을 우선 검토한다.
+
+저장 기간과 실제 메모리 배치는 구현과 최적화에 따라 달라질 수 있다. 배열의 핵심 언어 규칙은 같은 타입의 요소가 정해진 순서로 연속되어 있다는 점이다.
+
+## 배열 요소는 인덱스 0부터 시작한다
+
+요소가 다섯 개라면 유효한 인덱스는 0부터 4까지다.
+
+```cpp
+int scores[5] = {10, 20, 30, 40, 50};
+
+int first = scores[0];
+int last = scores[4];
+```
+
+배열 요소의 위치를 정리하면 다음과 같다.
+
+```text
+요소 개수: 5
+유효 인덱스: 0, 1, 2, 3, 4
+마지막 인덱스: 요소 개수 - 1
+```
+
+인덱스가 요소 개수와 같으면 마지막 요소가 아니라 배열 바로 다음 위치다.
+
+```cpp
+// int invalid = scores[5];
+```
+
+내장 배열의 `operator[]`는 런타임 경계 검사를 제공하지 않는다. 범위를 벗어난 요소를 읽거나 쓰면 정의되지 않은 동작(Undefined behavior)이 발생하며, 반드시 즉시 충돌하거나 오류 메시지를 보여준다고 보장되지 않는다.
+
+## `array[index]`는 포인터 연산과 연결된다
+
+내장 배열의 인덱스 표현은 포인터 산술과 역참조로 설명할 수 있다.
+
+```cpp
+int valueByIndex = scores[2];
+int valueByPointer = *(scores + 2);
+```
+
+언어 규칙상 다음 관계가 성립한다.
+
+$$array[index] \equiv *(array + index)$$
+
+여기서 `scores`는 표현식에서 첫 요소 포인터로 변환되고, `+2`는 같은 배열의 세 번째 요소를 가리킨다. 이 관계가 인덱스 경계를 자동으로 확인한다는 뜻은 아니다.
+
+일반 코드에서는 `scores[index]`가 의도를 더 직접적으로 보여준다. 포인터 표현은 배열과 포인터의 관계를 이해할 때 사용하고, 특별한 이유 없이 인덱스 접근을 복잡하게 바꾸지 않는다.
+
+## 초기화하지 않은 지역 배열의 기본 타입 요소는 값이 정해지지 않는다
+
+자동 저장 기간의 지역 배열을 초기화하지 않으면 기본 타입 요소는 의미 있는 초기값을 갖는다고 기대할 수 없다.
+
+```cpp
+void RunGame()
+{
+    int scores[5];
+    // std::cout << scores[0] << '\n';
+}
+```
+
+첫 요소를 읽기 전에 값을 지정하지 않았으므로 올바른 결과를 기대할 수 없다. 이를 디버그 환경에서 보이는 특정 16진수 패턴으로 초기화된다고 설명해서는 안 된다. 그런 패턴은 도구가 디버깅을 돕기 위해 보여주는 구현 세부 사항일 수 있으며 C++의 초기값 규칙이 아니다.
+
+선언과 동시에 빈 중괄호로 값 초기화하면 모든 정수 요소가 0이 된다.
+
+```cpp
+int scores[5]{};
+```
+
+초기 상태가 필요하다면 코드에 명시해 의도를 분명하게 만든다.
+
+## 초기화 목록보다 배열이 크면 나머지 요소는 0으로 초기화된다
+
+일부 요소만 초기값을 제공할 수 있다.
+
+```cpp
+int scores[5] = {10, 20};
+```
+
+결과는 다음과 같다.
+
+```text
+scores[0] = 10
+scores[1] = 20
+scores[2] = 0
+scores[3] = 0
+scores[4] = 0
+```
+
+명시하지 않은 나머지 요소도 목록 초기화 규칙에 따라 값 초기화된다.
+
+빈 목록은 모든 요소를 값 초기화하는 같은 규칙을 사용한다.
+
+```cpp
+int scores[5] = {};
+```
+
+현대 C++에서는 다음처럼 `=` 없이 작성해도 된다.
+
+```cpp
+int scores[5]{};
+```
+
+## 초기값 개수로 배열 크기를 추론할 수 있다
+
+대괄호 안의 요소 개수를 생략하면 초기화 목록에서 크기를 추론할 수 있다.
+
+```cpp
+int scores[] = {10, 20, 30, 40};
+```
+
+이 배열의 타입은 `int[4]`다.
+
+```cpp
+constexpr int scoreCount = 4;
+```
+
+초기화 목록보다 작은 크기를 명시하면 모든 값을 담을 수 없어 컴파일 오류가 발생한다.
+
+```cpp
+// int invalid[2] = {10, 20, 30};
+```
+
+내장 배열은 요소 개수가 0인 배열을 일반적인 표준 C++ 배열로 선언할 수 없다. 빈 범위가 필요하다면 `std::array<T, 0>`, 빈 `std::vector<T>` 또는 `std::span<T>` 같은 타입을 사용할 수 있다.
+
+## 구조체 배열도 각 요소를 초기화한다
+
+게임 캐릭터의 능력치를 구조체로 묶고 배열을 만들 수 있다.
+
+```cpp
+struct Character
+{
+    const char* name;
+    int hp;
+    int attack;
+    int defence;
 };
+
+Character party[3] = {
+    {"Knight", 100, 20, 15},
+    {"Archer", 75, 25, 10},
+    {"Mage", 50, 30, 5}
+};
+```
+
+`party[0]`, `party[1]`, `party[2]`는 각각 독립된 `Character` 객체다.
+
+```cpp
+party[0].hp = 80;
+party[2].attack = 35;
+```
+
+한 요소를 수정해도 다른 요소가 자동으로 바뀌지 않는다.
+
+구조체에 기본 멤버 초기값을 지정할 수도 있다.
+
+```cpp
+struct Character
+{
+    const char* name = "Unknown";
+    int hp = 1;
+    int attack = 1;
+    int defence = 0;
+};
+```
+
+```cpp
+Character monsters[3]{};
+```
+
+각 요소를 값 초기화하는 과정에서 기본 멤버 초기값이 사용된다.
+
+## 배열 전체는 일반 대입할 수 없다
+
+두 내장 배열을 선언한 뒤 배열 전체를 대입할 수는 없다.
+
+```cpp
+int source[3] = {10, 20, 30};
+int destination[3]{};
+
+// destination = source;
+```
+
+내장 배열 타입은 일반 대입 연산을 제공하지 않는다. 필요한 경우 요소별로 복사한다.
+
+```cpp
+for (int index = 0; index < 3; ++index)
+{
+    destination[index] = source[index];
+}
+```
+
+알고리즘을 사용할 수도 있다.
+
+```cpp
+#include <algorithm>
+#include <iterator>
+
+std::copy(std::begin(source), std::end(source), std::begin(destination));
+```
+
+배열 전체를 값처럼 복사하고 대입해야 한다면 `std::array`가 더 자연스럽다.
+
+```cpp
+#include <array>
+
+std::array<int, 3> source{10, 20, 30};
+std::array<int, 3> destination{};
+destination = source;
+```
+
+## 배열의 바이트 크기와 요소 개수는 다르다
+
+배열 타입이 유지되는 위치에서 `sizeof`는 배열 객체 전체의 바이트 크기를 반환한다.
+
+```cpp
+int scores[5] = {10, 20, 30, 40, 50};
+std::size_t bytes = sizeof(scores);
+```
+
+요소 개수는 전체 크기를 한 요소 크기로 나눠 계산할 수 있다.
+
+```cpp
+std::size_t count = sizeof(scores) / sizeof(scores[0]);
+```
+
+개념적인 관계는 다음과 같다.
+
+$$sizeof(array) = ElementCount \times sizeof(ElementType)$$
+
+하지만 이 계산은 `scores`가 실제 배열 타입으로 보이는 위치에서만 유효하다. 포인터로 변환된 뒤 `sizeof(pointer)`를 적용하면 포인터 객체의 크기를 얻는다.
+
+C++17부터는 `std::size`를 사용해 의도를 더 직접적으로 표현할 수 있다.
+
+```cpp
+#include <iterator>
+
+std::size_t count = std::size(scores);
+```
+
+요소 타입이 바뀌어도 나눗셈 공식을 수정할 필요가 없고 배열이 아닌 포인터를 실수로 전달하면 해당 사용법이 성립하지 않아 문제를 발견하기 쉽다.
+
+## `auto`가 항상 배열 타입을 보존하지는 않는다
+
+배열 이름을 일반 `auto` 변수 초기화에 사용하면 첫 요소 포인터로 변환된다.
+
+```cpp
+int scores[5] = {10, 20, 30, 40, 50};
+auto pointer = scores;
+```
+
+`pointer`의 타입은 `int*`다. 원래 배열의 요소 개수 5는 타입에 남지 않는다.
+
+배열 참조로 받으면 배열 타입과 크기를 보존할 수 있다.
+
+```cpp
+auto& arrayReference = scores;
+```
+
+`arrayReference`의 타입은 `int (&)[5]`다. 참조를 통해 원본 배열 요소에 접근하고 `std::size(arrayReference)`로 크기도 얻을 수 있다.
+
+```cpp
+arrayReference[0] = 100;
+std::size_t count = std::size(arrayReference);
+```
+
+`auto`가 알아서 배열인지 포인터인지 원하는 형태로 정해 준다고 가정하지 않고 초기화 표현식에서 배열-포인터 변환이 일어나는지 확인한다.
+
+## 범위 기반 반복문은 배열 경계를 이용한다
+
+내장 배열은 범위 기반 `for`문으로 순회할 수 있다.
+
+```cpp
+int scores[5] = {10, 20, 30, 40, 50};
+
+for (int score : scores)
+{
+    std::cout << score << '\n';
+}
+```
+
+`score`는 각 요소의 값을 복사한 지역 변수다. 반복문 안에서 `score`를 바꿔도 원본 배열 요소는 변하지 않는다.
+
+원본 요소를 수정하려면 참조로 받는다.
+
+```cpp
+for (int& score : scores)
+{
+    score += 10;
+}
+```
+
+읽기만 하면서 복사를 피하고 싶다면 상수 참조를 사용할 수 있다.
+
+```cpp
+for (const int& score : scores)
+{
+    std::cout << score << '\n';
+}
+```
+
+`int`처럼 작은 기본 타입은 값으로 읽어도 자연스럽다. 큰 구조체 요소를 읽기만 할 때 `const T&`가 더 유용할 수 있다.
+
+```cpp
+for (const Character& character : party)
+{
+    std::cout << character.name << '\n';
+}
+```
+
+## 배열은 많은 표현식에서 첫 요소 포인터로 변환된다
+
+배열 이름을 포인터 초기화에 사용하면 첫 요소 포인터로 변환된다.
+
+```cpp
+int scores[5] = {10, 20, 30, 40, 50};
+int* first = scores;
+```
+
+함수 인자로 전달할 때도 일반적으로 같은 변환이 일어난다.
+
+```cpp
+void ResetScores(int* scores, std::size_t count);
+
+ResetScores(scores, std::size(scores));
+```
+
+하지만 모든 문맥에서 변환되는 것은 아니다.
+
+- `sizeof(scores)`는 배열 전체 크기를 구한다.
+- `&scores`는 배열 전체를 가리키는 `int (*)[5]`를 만든다.
+- `auto& reference = scores`는 배열 참조를 만든다.
+- `decltype(scores)`는 선언된 배열 타입을 얻는다.
+
+배열은 필요할 때 포인터로 변환되는 객체이지 포인터의 다른 표기법이 아니다.
+
+## 함수 매개변수의 배열 표기는 포인터로 조정된다
+
+함수 매개변수에 대괄호를 사용해도 일반 배열 매개변수가 만들어지는 것은 아니다.
+
+```cpp
+void ResetScores(int scores[], std::size_t count)
+{
+    for (std::size_t index = 0; index < count; ++index)
+    {
+        scores[index] = 0;
+    }
+}
+```
+
+이 함수의 `scores` 매개변수 타입은 `int*`로 조정된다.
+
+```cpp
+void ResetScores(int* scores, std::size_t count);
+```
+
+대괄호에 숫자를 적어도 호출 인자의 길이를 강제하지 않는다.
+
+```cpp
+void ResetScores(int scores[10], std::size_t count);
+```
+
+이 선언도 매개변수 타입 관점에서는 `int*`다. 10개짜리 배열만 받을 수 있다는 계약을 컴파일러가 일반적으로 검사해 주지 않는다.
+
+함수 안에서 `sizeof(scores)`를 계산하면 호출자가 전달한 배열 전체가 아니라 포인터 매개변수의 크기를 얻는다.
+
+```cpp
+// std::size_t wrongCount = sizeof(scores) / sizeof(scores[0]);
+```
+
+원래 요소 개수는 포인터 타입에 포함되지 않으므로 함수에 별도로 전달해야 한다.
+
+## 포인터와 요소 개수를 함께 전달한다
+
+배열을 포인터로 받는 함수는 요소 개수를 함께 요구할 수 있다.
+
+```cpp
+int SumScores(const int* scores, std::size_t count)
+{
+    int sum = 0;
+
+    for (std::size_t index = 0; index < count; ++index)
+    {
+        sum += scores[index];
+    }
+
+    return sum;
+}
+```
+
+배열 타입이 유지되는 호출 위치에서 크기를 구해 전달한다.
+
+```cpp
+int scores[5] = {10, 20, 30, 40, 50};
+int sum = SumScores(scores, std::size(scores));
+```
+
+이 인터페이스에는 호출자가 지켜야 할 계약이 있다.
+
+- `count > 0`이라면 `scores`는 null이 아니다.
+- `scores`는 적어도 `count`개의 유효한 연속 `int` 요소를 가리킨다.
+- 함수가 실행되는 동안 모든 대상 요소가 살아 있다.
+- 함수가 읽기만 하므로 `const int*`를 사용한다.
+
+실제 배열보다 큰 개수를 전달해도 함수가 포인터만으로 실수를 찾아낼 수 없다.
+
+```cpp
+// int invalidSum = SumScores(scores, 100);
+```
+
+데이터 포인터와 개수를 따로 전달하면 둘의 일관성을 호출자가 유지해야 한다.
+
+## 배열 참조는 요소 개수를 타입에 유지한다
+
+배열을 참조로 받으면 포인터 변환을 막고 크기를 보존할 수 있다.
+
+```cpp
+template <std::size_t Count>
+int SumScores(const int (&scores)[Count])
+{
+    int sum = 0;
+
+    for (int score : scores)
+    {
+        sum += score;
+    }
+
+    return sum;
+}
+```
+
+호출할 때 요소 개수를 별도로 적지 않는다.
+
+```cpp
+int scores[5] = {10, 20, 30, 40, 50};
+int sum = SumScores(scores);
+```
+
+컴파일러는 전달한 배열 타입에서 `Count`를 추론한다. 크기가 다른 배열도 각각의 `Count`로 같은 함수 템플릿을 사용할 수 있다.
+
+```cpp
+int shortScores[3] = {10, 20, 30};
+int longScores[5] = {10, 20, 30, 40, 50};
+
+int firstSum = SumScores(shortScores);
+int secondSum = SumScores(longScores);
+```
+
+템플릿 문법의 상세 규칙은 이후에 다루더라도, 배열을 참조로 받으면 요소 개수를 잃지 않는다는 점을 확인할 수 있다.
+
+## `std::array`는 고정 크기 배열을 값 타입처럼 다룬다
+
+고정된 요소 개수를 유지하면서 복사·대입과 멤버 함수를 사용하고 싶다면 `std::array`를 사용할 수 있다.
+
+```cpp
+#include <array>
+
+std::array<int, 5> scores{10, 20, 30, 40, 50};
+```
+
+요소 타입과 개수가 템플릿 인자에 포함된다.
+
+```cpp
+std::size_t count = scores.size();
+int first = scores.front();
+int last = scores.back();
+```
+
+배열 전체 대입도 가능하다.
+
+```cpp
+std::array<int, 5> copiedScores{};
+copiedScores = scores;
+```
+
+`operator[]`는 일반적으로 경계를 검사하지 않지만 `at()`은 범위를 검사하고 잘못된 인덱스에서 예외를 던진다.
+
+```cpp
+int value = scores.at(2);
+```
+
+내장 배열과 마찬가지로 요소가 연속되어 있고 `data()`로 첫 요소 포인터를 얻을 수 있다.
+
+```cpp
+int* firstPointer = scores.data();
+```
+
+## 실행 중 크기가 달라진다면 `std::vector`를 사용한다
+
+몬스터 수가 입력이나 게임 진행에 따라 결정된다면 동적 크기 컨테이너가 필요하다.
+
+```cpp
+#include <vector>
+
+std::vector<int> monsterHp;
+monsterHp.push_back(30);
+monsterHp.push_back(50);
+```
+
+현재 요소 수는 `size()`로 확인한다.
+
+```cpp
+std::size_t count = monsterHp.size();
+```
+
+`std::vector`는 연속된 요소를 소유하고 크기를 실행 중 변경할 수 있다. 크기나 용량 변경으로 재할당되면 기존 요소를 가리키던 포인터, 참조와 반복자가 무효화될 수 있으므로 해당 연산의 무효화 규칙을 확인해야 한다.
+
+단순히 “동적 배열은 힙에 있다”라고만 이해하지 않는다. `std::vector` 객체 자체와 벡터가 관리하는 요소 저장소의 수명·소유권은 구분해야 한다.
+
+## `std::span`은 소유하지 않는 연속 범위를 전달한다
+
+함수가 내장 배열, `std::array`, `std::vector`의 요소를 같은 방식으로 잠시 읽어야 한다면 C++20의 `std::span`을 사용할 수 있다.
+
+```cpp
+#include <span>
+
+int SumScores(std::span<const int> scores)
+{
+    int sum = 0;
+
+    for (int score : scores)
+    {
+        sum += score;
+    }
+
+    return sum;
+}
+```
+
+여러 종류의 연속 범위를 전달할 수 있다.
+
+```cpp
+int builtInScores[3] = {10, 20, 30};
+std::array<int, 3> arrayScores{40, 50, 60};
+std::vector<int> vectorScores{70, 80, 90};
+
+int firstSum = SumScores(builtInScores);
+int secondSum = SumScores(arrayScores);
+int thirdSum = SumScores(vectorScores);
+```
+
+`std::span`은 요소를 소유하지 않고 시작 위치와 크기에 해당하는 범위 정보를 제공한다. 원본 저장소가 소멸하거나 벡터 재할당으로 요소 위치가 바뀌면 기존 span도 더 이상 사용할 수 없다.
+
+함수 인자 하나로 범위와 읽기 권한을 표현할 수 있지만 `operator[]`가 모든 접근을 자동 검사하거나 대상 수명을 연장하는 것은 아니다.
+
+## 어떤 배열 타입을 선택할지 기준을 세운다
+
+| 요구사항 | 우선 검토할 타입 |
+| :--- | :--- |
+| 언어 수준의 단순한 고정 배열이 필요함 | `T[N]` |
+| 고정 크기와 값 타입의 복사·대입이 필요함 | `std::array<T, N>` |
+| 실행 중 요소 수가 바뀜 | `std::vector<T>` |
+| 연속 요소를 소유하지 않고 함수에 전달함 | `std::span<T>` |
+
+내장 배열이 항상 나쁘거나 표준 컨테이너가 언제나 정답인 것은 아니다. C API와 상호 운용하거나 언어 규칙을 직접 다루는 코드에서는 내장 배열이 필요할 수 있다. 일반 애플리케이션 코드에서는 크기와 소유권을 타입에 보존하는 표준 컨테이너가 실수를 줄이는 경우가 많다.
+
+## 전체 예제로 파티 배열을 초기화하고 처리한다
+
+세 명의 캐릭터를 내장 배열로 만들고 파티 전체에 피해를 적용하는 예제다.
+
+```cpp
+#include <algorithm>
+#include <cstddef>
+#include <iostream>
+#include <iterator>
+
+struct Character
+{
+    const char* name;
+    int hp;
+    int maxHp;
+};
+
+void PrintParty(const Character* party, std::size_t count)
+{
+    if (party == nullptr)
+    {
+        return;
+    }
+
+    for (std::size_t index = 0; index < count; ++index)
+    {
+        const Character& character = party[index];
+        std::cout << character.name << " HP: " << character.hp << " / " << character.maxHp << '\n';
+    }
+}
+
+void ApplyPartyDamage(Character* party, std::size_t count, int damage)
+{
+    if (party == nullptr)
+    {
+        return;
+    }
+
+    int appliedDamage = std::max(0, damage);
+
+    for (std::size_t index = 0; index < count; ++index)
+    {
+        Character& character = party[index];
+        character.hp = std::max(0, character.hp - appliedDamage);
+    }
+}
+
+Character* FindLowestHp(Character* party, std::size_t count)
+{
+    if (party == nullptr || count == 0)
+    {
+        return nullptr;
+    }
+
+    Character* lowest = &party[0];
+
+    for (std::size_t index = 1; index < count; ++index)
+    {
+        if (party[index].hp < lowest->hp)
+        {
+            lowest = &party[index];
+        }
+    }
+
+    return lowest;
+}
 
 int main()
 {
-    // 1. 배열의 선언
-    // 배열의 크기는 반드시 컴파일 타임에 결정되는 상수(const)여야 함
-    const int monsterCount = 10;
-    FStat monsters[monsterCount];
+    Character party[] = {
+        {"Knight", 100, 100},
+        {"Archer", 75, 75},
+        {"Mage", 50, 50}
+    };
 
-    // 2. 배열 이름과 포인터의 관계
-    // 배열 식은 대부분의 표현식에서 첫 요소 포인터로 변환됨
-    auto WhoAmI = monsters;
-    FStat* monster_0 = monsters;
+    std::size_t partySize = std::size(party);
+    PrintParty(party, partySize);
+    ApplyPartyDamage(party, partySize, 20);
 
-    monster_0->hp = 100;
-    monster_0->attack = 10;
-    monster_0->defence = 1;
+    Character* lowest = FindLowestHp(party, partySize);
 
-    // 3. 포인터 산술 연산을 통한 배열 요소 접근
-    // 포인터에 +1을 하면 지정된 타입(FStat)의 크기만큼 메모리 주소가 이동함
-    FStat* monster_1 = monsters + 1;
-    monster_1->hp = 200;
-    monster_1->attack = 20;
-    monster_1->defence = 2;
-
-    // 4. 포인터와 참조(Reference)의 상호 변환
-    // *(monsters + 2) 연산을 통해 3번째 요소의 원본에 접근하고 참조자를 부여함
-    FStat& monster_2 = *(monsters + 2);
-    monster_2.hp = 300;
-    monster_2.attack = 30;
-    monster_2.defence = 3;
-
-    // [주의] 참조(&) 연산자 없이 대입하면 원본이 아닌 값의 '복사본'이 생성됨
-    FStat temp = *(monsters + 2);
-    temp.hp = 999; // 원본 배열(monsters)의 데이터는 변하지 않음
-
-    // 5. 인덱스(Index) 연산자를 활용한 순회
-    // 배열은 0번 인덱스부터 시작하며, arr[i]는 *(arr + i)와 완전히 동일한 연산임
-    monsters[0].hp = 100;
-    monsters[0].attack = 10;
-    monsters[0].defence = 1;
-
-    for (int i = 0; i < 10; i++)
+    if (lowest != nullptr)
     {
-        monsters[i].hp = 100 * (i + 1);
-        monsters[i].attack = 10 * (i + 1);
-        monsters[i].defence = 1 * (i + 1);
+        lowest->hp = std::min(lowest->maxHp, lowest->hp + 10);
     }
 
-    // 6. 배열의 초기화 문법
-    int numbers[5] = {};                                // 모든 요소를 0으로 초기화
-    int numbers2[10] = { 1, 2, 3, 4, 5 };               // 명시된 요소 외의 나머지는 0으로 초기화
-    int numbers3[] = { 1, 23, 4, 5, 6, 2, 333, 32 };    // 데이터 개수에 맞게 배열 크기가 자동 지정됨
-
-    // 7. 문자열 배열 초기화
-    // C스타일 문자열 배열의 마지막에는 반드시 문자열의 끝을 알리는 널 문자('\0')가 포함되어야 함
-    char helloStr[] = { 'H', 'e', 'l', 'l', 'o', '\0' };
-
-    return 0;
+    PrintParty(party, partySize);
 }
 ```
----
-## 배열과 포인터가 같아 보이는 이유
 
-배열은 다수의 동일한 데이터를 논리적이고 연속적인 메모리 공간에 배치하여 관리 효율성을 높이는 기초 자료구조임
+`party`를 선언한 `main`에서는 배열 타입이 유지되므로 `std::size(party)`로 요소 개수를 얻을 수 있다. 함수 호출에서는 첫 요소 포인터로 변환되기 때문에 같은 `partySize`를 함께 전달한다.
 
-### 배열(Array)의 주요 특성
+`PrintParty`는 `const Character*`로 요소를 읽기만 하고, `ApplyPartyDamage`와 `FindLowestHp`는 수정 가능한 요소 포인터를 사용한다. `FindLowestHp`는 빈 범위를 받으면 `nullptr`을 반환한다.
 
-| 특성 | 세부 설명 | 비고 |
-| :--- | :--- | :--- |
-| **메모리 연속성** | 모든 데이터가 메모리상에 빈틈없이 일렬로 배치됨 | 캐시 지역성(Cache Locality)이 우수하여 탐색 속도가 빠름 |
-| **정적 할당** | 선언 시점에 크기가 고정되며, 실행 도중 크기를 변경할 수 없음 | 동적 확장이 필요한 경우 힙(Heap) 동적 할당을 사용해야 함 |
-| **인덱스 접근** | 시작 주소로부터의 오프셋(Offset)을 계산하여 임의 접근(Random Access) 지원 | 시간 복잡도 $O(1)$ 보장 |
+현재 호출에서는 실제 배열과 올바른 요소 개수를 함께 전달한다. 함수 자체는 잘못된 포인터와 개수의 조합을 완전히 검증할 수 없으므로 실제 코드에서는 `std::span`으로 묶는 방식도 검토할 수 있다.
 
-### 포인터 연산과 인덱스의 관계 수식
+이 코드는 배열의 초기화와 전달 규칙을 설명하는 예제이며 실제 실행 결과를 확인했다고 가정하지 않는다. 회복 덧셈은 현재의 작은 양수 범위를 전제로 하므로 외부의 큰 정수를 받는다면 표현 범위 검사도 필요하다.
 
-언어 규칙상 `A[i]`는 `*(A + i)`와 같은 의미다. 이것이 특정 어셈블리 명령 하나로 번역된다는 뜻은 아니다.
-배열의 시작 주소(Base Address)를 기준으로 $i$번째 요소의 실제 메모리 주소를 계산하는 수식은 다음과 같음
+## 배열을 사용할 때 확인할 기준
 
-$$\text{Address}(A[i]) = \text{Base Address} + (i \times \text{sizeof}(\text{Type}))$$
+내장 배열을 선언하고 함수에 전달할 때 다음 내용을 확인한다.
 
-배열 자체는 요소 개수가 타입에 포함된 객체지만, 많은 표현식에서 첫 요소 포인터로 변환되기 때문에 포인터처럼 보인다.
+1. 요소 타입과 개수가 배열 타입에 어떻게 포함되는가?
+2. 요소 개수는 컴파일 시간에 결정되는 유효한 값인가?
+3. 기본 타입 요소를 사용하기 전에 초기화했는가?
+4. 인덱스가 0 이상 요소 개수 미만인가?
+5. 현재 표현식에서 배열 타입이 유지되는가, 포인터로 변환됐는가?
+6. `sizeof` 또는 `std::size`를 실제 배열에 적용하고 있는가?
+7. 함수에 포인터와 실제 요소 개수를 함께 전달했는가?
+8. 배열 전체 복사·대입이 필요하다면 `std::array`가 더 자연스럽지 않은가?
+9. 실행 중 크기가 달라진다면 `std::vector`가 필요한가?
+10. 비소유 연속 범위를 전달한다면 `std::span`으로 경계를 묶을 수 있는가?
 
-## 경계와 크기를 함께 전달하기
+배열의 연속성은 빠른 인덱스 접근과 순회를 가능하게 하지만 경계 검사를 자동으로 제공하지 않는다. 크기 정보가 배열 타입에 있을 때 활용하고, 포인터로 변환된 뒤에는 길이를 별도로 관리해야 한다.
 
-### 핵심 요약 및 주의사항
+## 다음 학습: 문자열에서 드러나는 배열과 포인터의 차이
 
-* **상수 크기 지정**: C++ 표준에서 정적 배열의 크기는 반드시 컴파일 타임에 결정되는 리터럴 또는 상수(`const`, `constexpr`)여야 하며, 변수를 사용한 동적 크기 지정(VLA)은 표준을 위반하므로 주의해야 함
-* **Out of Bounds 위험**: 기본 `operator[]`는 경계를 검사하지 않는다. 범위를 벗어난 접근은 정의되지 않은 동작이며 반드시 즉시 충돌한다고 보장되지 않아 더 위험하다.
-* **배열의 붕괴(Array Decay)**: 배열의 이름을 함수 매개변수로 전달하면 배열의 전체 크기 정보는 소실되고 오직 첫 번째 요소의 시작 주소(`Type*`)만 전달됨
+배열은 요소 개수가 타입에 포함된 저장 공간이고, 포인터는 다른 객체를 가리키는 값이다. 배열 이름은 많은 표현식에서 첫 요소 포인터로 변환되지만 `sizeof`, 주소 연산과 배열 참조처럼 배열 타입을 유지하는 문맥도 있다.
 
-### Tip
-
-* **가독성을 위한 인덱스 사용**: 포인터 덧셈 연산 `*(arr + i)`를 직접 사용하는 것보다, 논리적으로 직관적인 인덱스 연산 `arr[i]`를 사용하는 것이 코드 가독성과 유지보수에 압도적으로 유리함
-* **모던 C++ 컨테이너 권장**: 고정 크기는 `std::array`, 동적 크기는 `std::vector`, 소유하지 않는 연속 범위는 `std::span`을 고려한다. `operator[]`는 보통 경계를 검사하지 않으므로 필요하면 `.at()` 등 검사 가능한 인터페이스를 사용한다.
-
-`sizeof(array) / sizeof(array[0])`는 배열 타입이 유지되는 위치에서만 동작한다. 함수 매개변수로 붕괴한 뒤에는 사용할 수 없다. 데이터와 크기를 함께 전달하는 인터페이스가 안전하다.
-
-## 마무리
-
-배열의 핵심은 연속성과 고정된 요소 수다. 포인터로 변환되는 순간 크기 정보가 사라질 수 있다는 점을 기억해야 한다.
-* **참조자 기반 순회**: 배열의 요소를 반복문으로 순회할 때 값을 복사하지 않고 원본을 직접 수정하려면 `for (auto& item : arr)` 형태의 범위 기반 for문(Range-based for loop)을 적극 활용하는 것이 좋음
+다음 글에서는 이 차이를 문자 데이터에 적용한다. `const char* text = "Hello"`는 문자열 리터럴을 가리키지만 `char text[] = "Hello"`는 문자들을 새 배열에 복사해 초기화한다. 두 선언의 수정 가능성, 크기, null 문자와 수명 차이를 구분한다.

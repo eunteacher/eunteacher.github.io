@@ -1,0 +1,333 @@
+---
+layout: post
+title: '[C++ 42] 정적 멤버: 객체가 아닌 클래스에 속한 상태와 함수'
+date: 2026-04-28
+categories: [Dev, C++]
+tags: [C++, Static Member, Static Local Variable, Storage Duration, Class]
+---
+
+마린마다 체력은 다르지만 공격력 업그레이드는 모든 마린에게 함께 적용될 수 있다. 객체별 데이터와 클래스 전체가 공유하는 데이터를 같은 방식으로 저장하면 각 객체의 값을 일일이 변경하거나 전역 변수를 따로 관리하게 된다.
+
+정적 멤버(Static member)는 특정 객체가 아니라 클래스 자체에 연결된 멤버다. 이번 글에서는 일반 멤버와 정적 멤버의 차이, 정적 데이터 멤버의 정의, 정적 멤버 함수의 제약과 함수 지역 `static`의 수명을 구분한다.
+
+## 일반 데이터 멤버는 객체마다 따로 존재한다
+
+마린 두 개를 만들면 각 객체는 자신의 체력을 가진다.
+
+```cpp
+class Marine
+{
+public:
+    explicit Marine(int hp) : hp_(hp)
+    {
+    }
+
+private:
+    int hp_;
+};
+```
+
+```cpp
+Marine first{40};
+Marine second{30};
+```
+
+`first.hp_`에 해당하는 저장 공간과 `second.hp_`에 해당하는 저장 공간은 서로 다르다. 첫 번째 마린이 피해를 받아도 두 번째 마린의 체력은 바뀌지 않아야 하므로 객체별 멤버가 자연스럽다.
+
+```text
+first  → hp_: 40
+second → hp_: 30
+```
+
+## 정적 데이터 멤버는 모든 객체가 하나를 공유한다
+
+공격력 업그레이드를 클래스 전체의 상태로 두려면 데이터 멤버에 `static`을 붙인다.
+
+```cpp
+class Marine
+{
+public:
+    static int attackDamage_;
+};
+```
+
+`attackDamage_`는 각 `Marine` 객체 안에 하나씩 들어가는 값이 아니다. 프로그램에 하나 존재하는 정적 데이터 멤버를 모든 마린이 공유한다.
+
+```cpp
+Marine::attackDamage_ = 7;
+```
+
+객체를 통해서도 접근할 수 있는 경우가 있지만 클래스에 속한 값이라는 의미를 드러내려면 `Marine::attackDamage_`처럼 클래스 이름으로 접근한다.
+
+```text
+first.hp_              객체 first의 상태
+second.hp_             객체 second의 상태
+Marine::attackDamage_  Marine 클래스가 공유하는 상태
+```
+
+정적 데이터 멤버는 객체의 일부가 아니므로 일반적으로 클래스 인스턴스의 `sizeof`에 포함되지 않는다.
+
+## 클래스 안의 선언과 클래스 밖의 정의를 구분한다
+
+전통적인 방식에서는 클래스 안에 정적 데이터 멤버를 선언하고 하나의 소스 파일에서 정의한다.
+
+```cpp
+class Marine
+{
+private:
+    static int attackDamage_;
+};
+```
+
+```cpp
+int Marine::attackDamage_ = 5;
+```
+
+클래스 밖의 정의가 실제 저장 공간을 제공한다. 헤더에 일반 정의를 넣어 여러 번역 단위에서 포함하면 중복 정의 문제가 생길 수 있으므로 보통 `.cpp` 파일에 한 번 작성한다.
+
+C++17부터는 `inline static` 데이터 멤버를 클래스 안에서 정의하고 초기화할 수 있다.
+
+```cpp
+class Marine
+{
+private:
+    inline static int attackDamage_ = 5;
+};
+```
+
+이 방식은 헤더에 정의가 나타나도 여러 번역 단위에서 하나의 개체로 취급될 수 있게 한다. 사용하는 C++ 표준 버전과 프로젝트의 코드 구성 방식에 맞춰 선택한다.
+
+## 정적 멤버 함수에는 this가 없다
+
+정적 멤버 함수는 특정 객체를 선택하지 않고 호출할 수 있다.
+
+```cpp
+class Marine
+{
+public:
+    static void SetAttackDamage(int damage);
+};
+
+Marine::SetAttackDamage(10);
+```
+
+호출 대상 객체가 없으므로 함수 안에는 `this` 포인터가 없다. 어떤 마린의 `hp_`를 의미하는지 결정할 수 없기 때문에 일반 데이터 멤버에 직접 접근할 수 없다.
+
+```cpp
+void Marine::SetAttackDamage(int damage)
+{
+    attackDamage_ = damage;
+    // hp_ = 100; // 어떤 Marine 객체의 hp_인지 알 수 없음
+}
+```
+
+정적 멤버와 전역 변수에는 접근할 수 있고, 필요한 객체를 매개변수로 받으면 그 객체의 공개 인터페이스를 사용할 수도 있다.
+
+```cpp
+static void Repair(Marine& marine, int amount);
+```
+
+정적 멤버 함수도 클래스의 접근 권한을 가지므로 선택된 `Marine` 객체가 있다면 그 객체의 비공개 멤버에 접근할 수 있다. 제한의 핵심은 비공개 여부가 아니라 암시적인 호출 객체와 `this`가 없다는 점이다.
+
+## 정적 함수는 클래스와 관련된 객체 없는 작업에 사용한다
+
+공유 공격력을 읽고 변경하는 동작은 특정 마린 한 명보다 `Marine` 클래스 자체와 관련된다.
+
+```cpp
+class Marine
+{
+public:
+    static int AttackDamage();
+    static void SetAttackDamage(int damage);
+
+private:
+    static int attackDamage_;
+};
+```
+
+```cpp
+int Marine::AttackDamage()
+{
+    return attackDamage_;
+}
+
+void Marine::SetAttackDamage(int damage)
+{
+    attackDamage_ = std::max(0, damage);
+}
+```
+
+외부에서 정적 데이터를 직접 수정하도록 공개하는 대신 변경 함수를 제공하면 유효 범위 검사와 정책을 한곳에 둘 수 있다.
+
+정적 멤버 함수에는 `const` 한정자를 붙일 수 없다. `const` 멤버 함수는 `*this` 객체를 변경하지 않겠다는 의미인데 정적 함수에는 `this`가 없기 때문이다.
+
+## 클래스 정적 멤버와 함수 지역 static은 사용 범위가 다르다
+
+함수 안의 지역 변수에도 `static`을 붙일 수 있다.
+
+```cpp
+int GenerateId()
+{
+    static int nextId = 1;
+    return nextId++;
+}
+```
+
+`nextId`의 이름은 `GenerateId` 안에서만 보이지만 저장 기간은 함수 호출이 끝나도 계속된다.
+
+```text
+첫 번째 호출 → 1 반환, nextId는 2
+두 번째 호출 → 2 반환, nextId는 3
+세 번째 호출 → 3 반환, nextId는 4
+```
+
+일반 지역 변수처럼 호출할 때마다 새로 만들어지는 것이 아니다. 제어 흐름이 선언에 처음 도달할 때 한 번 초기화되고 프로그램 종료 시점까지 상태를 유지한다.
+
+C++11부터 함수 지역 정적 객체의 초기화는 여러 스레드가 동시에 처음 접근해도 한 번만 완료되도록 보장된다. 하지만 초기화 이후의 `nextId++` 연산 자체가 자동으로 스레드 안전해지는 것은 아니다. 여러 스레드에서 호출한다면 별도의 동기화나 원자적 연산이 필요하다.
+
+## static은 문맥에 따라 서로 다른 역할을 한다
+
+같은 키워드라도 선언 위치에 따라 역할을 구분해야 한다.
+
+```text
+클래스의 static 멤버  객체가 아니라 클래스에 속함
+함수 지역 static      지역 범위를 유지하며 정적 저장 기간을 가짐
+네임스페이스 범위 static 해당 번역 단위 내부 연결을 가짐
+```
+
+세 경우 모두 단순히 “스택이 아닌 곳에 저장된다”로만 설명하면 접근 범위와 연결 관계의 차이를 놓친다. 저장 장치의 `.data`, `.bss` 같은 구체적인 배치는 실행 파일 형식, 초기값과 컴파일러·링커 구현에 따라 달라질 수 있으며 C++ 언어의 핵심 계약은 아니다.
+
+언어 차원에서는 이름이 어디에서 보이는지, 객체가 얼마나 오래 존재하는지, 하나의 개체가 어떤 범위에서 공유되는지를 확인한다.
+
+## 공유 상태는 전역 상태와 같은 비용을 가진다
+
+정적 데이터 멤버는 클래스 이름 안에 들어 있지만 여러 코드가 같은 값을 읽고 변경한다는 점에서는 전역 상태와 비슷하다.
+
+```cpp
+Marine::SetAttackDamage(20);
+```
+
+어디서든 값이 바뀔 수 있으면 함수의 결과가 숨은 외부 상태에 의존하고 테스트 사이에도 값이 남을 수 있다. 여러 게임 세션이나 서로 다른 규칙 세트를 동시에 운영해야 할 때 클래스 전체에 값이 하나뿐이라는 제약도 문제가 된다.
+
+다음 조건을 확인한 뒤 정적 상태를 선택한다.
+
+- 정말 모든 객체가 동일한 값을 공유해야 하는가?
+- 값의 변경 주체와 시점을 추적할 수 있는가?
+- 테스트마다 상태를 독립적으로 구성해야 하지 않는가?
+- 여러 스레드에서 동시에 읽고 변경하지 않는가?
+- 별도의 설정 객체를 전달하는 편이 더 유연하지 않은가?
+
+상수처럼 변하지 않는 값이나 타입과 직접 관련된 유틸리티 함수에는 정적 멤버가 자연스럽다. 실행 중 자주 바뀌는 공유 상태는 수명과 소유 주체를 더 명시적으로 설계한다.
+
+## 전체 구현
+
+두 마린의 체력은 독립적으로 변경하고 공격력은 클래스 전체에서 공유하는 예제다.
+
+```cpp
+#include <algorithm>
+#include <cassert>
+#include <iostream>
+
+class Marine
+{
+public:
+    explicit Marine(int hp) : hp_(std::max(0, hp))
+    {
+    }
+
+    void TakeDamage(int damage)
+    {
+        if (damage <= 0)
+        {
+            return;
+        }
+
+        hp_ = damage >= hp_ ? 0 : hp_ - damage;
+    }
+
+    int Hp() const
+    {
+        return hp_;
+    }
+
+    static int AttackDamage()
+    {
+        return attackDamage_;
+    }
+
+    static void SetAttackDamage(int damage)
+    {
+        attackDamage_ = std::max(0, damage);
+    }
+
+private:
+    int hp_;
+    static int attackDamage_;
+};
+
+int Marine::attackDamage_ = 5;
+
+int GenerateId()
+{
+    static int nextId = 1;
+    return nextId++;
+}
+
+void VerifyMarines()
+{
+    Marine first{40};
+    Marine second{30};
+
+    first.TakeDamage(10);
+    second.TakeDamage(5);
+    assert(first.Hp() == 30);
+    assert(second.Hp() == 25);
+
+    assert(Marine::AttackDamage() == 5);
+    Marine::SetAttackDamage(7);
+    assert(Marine::AttackDamage() == 7);
+
+    assert(GenerateId() == 1);
+    assert(GenerateId() == 2);
+    assert(GenerateId() == 3);
+
+    std::cout << "first HP: " << first.Hp() << '\n';
+    std::cout << "second HP: " << second.Hp() << '\n';
+    std::cout << "shared attack: " << Marine::AttackDamage() << '\n';
+}
+
+int main()
+{
+    VerifyMarines();
+}
+```
+
+실행 결과는 다음과 같다.
+
+```text
+first HP: 30
+second HP: 25
+shared attack: 7
+```
+
+피해를 받은 결과는 각 객체의 `hp_`에 따로 저장된다. 반면 `SetAttackDamage(7)`은 하나뿐인 `Marine::attackDamage_`를 변경하므로 모든 마린이 같은 공격력을 사용한다. `GenerateId`의 `nextId`는 함수 밖에서 직접 접근할 수 없지만 호출이 끝난 뒤에도 값을 유지한다.
+
+학습용 `GenerateId`는 정수 범위 소진과 동시 호출을 처리하지 않는다. 실제 식별자 생성기는 필요한 범위, 중복 정책, 영속성과 스레드 안전성을 별도로 설계해야 한다.
+
+## 정적 상태를 검토할 때 확인할 기준
+
+1. 값이 객체별 상태인가, 클래스 전체가 공유할 상태인가?
+2. 정적 데이터 멤버의 정의가 정확히 한 번 제공되는가?
+3. C++17 이상이라면 `inline static`이 파일 구성에 더 적합한가?
+4. 정적 멤버 함수에서 특정 객체가 필요한 작업을 억지로 처리하고 있지 않은가?
+5. 정적 데이터를 직접 공개하지 않고 유효한 변경 경로를 제공하는가?
+6. 함수 지역 정적 변수의 범위와 저장 기간을 구분하는가?
+7. 정적 지역 변수의 초기화 보장과 이후 상태 변경의 스레드 안전성을 혼동하지 않는가?
+8. 공유 상태가 테스트와 여러 실행 문맥을 결합하지 않는가?
+9. 구체적인 메모리 섹션 배치를 표준 동작처럼 가정하지 않는가?
+
+정적 멤버는 단순히 “모든 객체가 쓰는 변수”가 아니다. 객체가 없어도 클래스 차원에서 존재하는 상태와 동작을 표현한다. 편리하게 전역 상태를 숨기는 용도가 아니라 공유 범위와 수명이 실제 요구사항에 맞을 때 사용해야 한다.
+
+## 다음 학습: 동적 할당과 객체 수명 직접 관리하기
+
+다음 글에서는 실행 중 필요한 크기와 시점에 맞춰 메모리를 확보하는 동적 할당을 살펴본다. `new`와 `delete`, 배열 할당, 메모리 누수와 잘못된 해제를 구분하고 직접 수명 관리를 최소화해야 하는 이유도 함께 정리한다.

@@ -1,0 +1,568 @@
+---
+layout: post
+title: '[C++ 34] 헤더와 소스 파일 분리: 선언·정의와 빌드 과정 이해하기'
+date: 2026-04-20
+categories: [Dev, C++]
+tags: [C++, Header, Source File, Include, Linker]
+---
+
+지금까지 예제 대부분은 하나의 `.cpp` 파일 안에 모든 타입과 함수를 작성했다. 파일이 하나라면 위에서 아래로 선언을 읽고 같은 번역 단위 안에서 정의를 찾을 수 있다.
+
+프로그램이 커지면 캐릭터, 전투, 입력과 출력 코드를 파일별로 나누게 된다. 이때 단순히 코드를 잘라 옮기기만 하면 컴파일러가 다른 파일의 이름을 알지 못하거나, 선언만 있고 정의를 찾지 못하거나, 같은 정의가 여러 번 생기는 문제가 발생한다.
+
+이번 글에서는 다음 역할을 구분한다.
+
+- 헤더 파일은 다른 번역 단위에 필요한 선언과 타입 정의를 제공한다.
+- 소스 파일은 헤더에서 선언한 함수의 정의를 제공한다.
+- `#include`는 전처리 과정에서 필요한 헤더 내용을 현재 파일에 포함한다.
+- 링커는 각 소스 파일에서 만들어진 결과를 하나의 프로그램으로 연결한다.
+
+## 이름을 사용하기 전에 선언이 보여야 한다
+
+다음 코드는 `CallSecond`를 먼저 호출하지만 그 이름을 아직 선언하지 않았다.
+
+```cpp
+void CallFirst()
+{
+    CallSecond();
+}
+
+void CallSecond()
+{
+}
+```
+
+C++ 컴파일러는 `CallFirst`의 본문을 처리하는 시점에 `CallSecond`가 함수인지, 어떤 인자를 받고 무엇을 반환하는지 알아야 한다.
+
+함수 선언을 먼저 제공하면 호출 표현식을 검사할 수 있다.
+
+```cpp
+void CallSecond();
+
+void CallFirst()
+{
+    CallSecond();
+}
+
+void CallSecond()
+{
+}
+```
+
+첫 줄은 함수의 존재와 타입을 알리는 선언이다. 마지막 함수 본문은 실제 동작을 제공하는 정의다.
+
+## 선언과 정의는 담당하는 정보가 다르다
+
+함수 선언은 호출자가 알아야 할 인터페이스를 제공한다.
+
+```cpp
+int Add(int left, int right);
+```
+
+이 선언만으로 컴파일러는 다음 내용을 확인할 수 있다.
+
+- 함수 이름은 `Add`다.
+- 정수 인자 두 개를 받는다.
+- 정수 하나를 반환한다.
+
+함수 정의는 본문을 포함해 실제 동작을 제공한다.
+
+```cpp
+int Add(int left, int right)
+{
+    return left + right;
+}
+```
+
+하나의 선언은 필요한 여러 파일에서 반복해서 보일 수 있다. 반면 일반적인 비인라인 함수 정의는 전체 프로그램에 하나만 존재해야 한다.
+
+```text
+선언: 이 이름과 타입을 사용할 수 있다.
+정의: 이 함수가 실제로 어떻게 동작하는지 제공한다.
+```
+
+변수와 클래스에서는 선언·정의 규칙이 함수와 완전히 같지 않을 수 있다. 이번 글은 먼저 일반 함수와 파일 분리 흐름에 집중한다.
+
+## 각 `.cpp`는 별도의 번역 단위가 된다
+
+소스 파일 두 개를 빌드한다고 가정한다.
+
+```text
+main.cpp
+CharacterPrinter.cpp
+```
+
+구현 환경은 일반적으로 각 `.cpp`와 그 파일이 포함한 헤더들을 하나의 번역 단위(Translation unit)로 전처리하고 컴파일한다.
+
+```text
+main.cpp + 포함된 헤더
+        │
+        ▼
+    번역 단위 1
+        │
+        ▼
+    목적 파일 1
+
+CharacterPrinter.cpp + 포함된 헤더
+        │
+        ▼
+    번역 단위 2
+        │
+        ▼
+    목적 파일 2
+```
+
+한 소스 파일에서 선언한 일반 함수가 다른 소스 파일에 자동으로 보이는 것은 아니다. 각 번역 단위가 필요한 선언을 직접 포함해야 한다.
+
+컴파일이 끝나면 링커가 목적 파일과 필요한 라이브러리를 연결한다.
+
+```text
+목적 파일 1 ─┐
+             ├─ 링커 ─> 실행 파일
+목적 파일 2 ─┘
+```
+
+Visual Studio가 이 과정을 한 번의 Build 명령으로 실행해도 컴파일과 링크에서 발생하는 문제는 구분해야 한다.
+
+## `#include`는 별도 파일을 자동으로 연결하는 명령이 아니다
+
+다음 전처리 지시문은 헤더 내용을 현재 소스 파일에 포함한다.
+
+```cpp
+#include "CharacterPrinter.h"
+```
+
+개념적으로는 전처리 단계에서 해당 위치에 헤더의 토큰들이 들어오는 것으로 이해할 수 있다.
+
+```text
+main.cpp
+    + CharacterPrinter.h 내용
+    + CharacterStats.h 내용
+              │
+              ▼
+        전처리된 번역 단위
+```
+
+하지만 `#include`가 `CharacterPrinter.cpp`를 컴파일하거나 함수 정의를 실행 파일에 자동으로 추가하는 것은 아니다. 함수가 다른 `.cpp`에 정의돼 있다면 그 소스 파일도 프로젝트의 빌드 대상이어야 한다.
+
+헤더를 포함해 선언은 보였지만 구현 소스가 빌드되지 않으면 컴파일은 통과하고 링크에서 정의를 찾지 못할 수 있다.
+
+## 꺾쇠와 큰따옴표는 주로 검색 의도를 구분한다
+
+표준 라이브러리 헤더는 일반적으로 꺾쇠를 사용한다.
+
+```cpp
+#include <iostream>
+#include <string>
+```
+
+프로젝트 내부 헤더는 보통 큰따옴표를 사용한다.
+
+```cpp
+#include "CharacterPrinter.h"
+```
+
+큰따옴표 형식은 구현이 정한 방식으로 먼저 검색하고 찾지 못하면 꺾쇠 형식처럼 다시 검색한다. 실제 디렉터리와 검색 순서는 컴파일러 설정에 영향을 받는다.
+
+따라서 다음처럼 단순하게 이해하는 편이 좋다.
+
+- `<...>`는 표준·외부 라이브러리 헤더에 주로 사용한다.
+- `"..."`는 현재 프로젝트가 관리하는 헤더에 주로 사용한다.
+
+꺾쇠가 C++ 공식 파일만 허용하거나 큰따옴표가 현재 폴더만 검색한다는 식으로 절대적인 규칙을 만들지는 않는다.
+
+## 헤더에는 다른 파일이 사용할 인터페이스를 둔다
+
+캐릭터 능력치 타입을 별도 헤더에 정의한다.
+
+```cpp
+// CharacterStats.h
+#ifndef BLOG_CHARACTER_STATS_H_INCLUDED
+#define BLOG_CHARACTER_STATS_H_INCLUDED
+
+struct CharacterStats
+{
+    int hp;
+    int attack;
+    int defense;
+};
+
+#endif
+```
+
+다른 번역 단위에서 `CharacterStats` 객체를 직접 만들거나 멤버에 접근하려면 완전한 타입 정의가 보여야 한다.
+
+출력 문자열을 만드는 함수는 별도 헤더에 선언한다.
+
+```cpp
+// CharacterPrinter.h
+#ifndef BLOG_CHARACTER_PRINTER_H_INCLUDED
+#define BLOG_CHARACTER_PRINTER_H_INCLUDED
+
+#include "CharacterStats.h"
+
+#include <string>
+
+std::string FormatStats(const CharacterStats& stats);
+
+#endif
+```
+
+반환 타입 `std::string`을 선언에 사용하므로 `<string>`을 포함한다. 매개변수 타입인 `CharacterStats`도 필요하므로 해당 타입을 정의한 헤더를 포함한다.
+
+헤더 사용자가 우연히 다른 헤더를 먼저 포함해야만 컴파일되는 구조를 만들지 않는다. 헤더 하나만 포함해도 그 헤더의 선언을 사용할 수 있도록 필요한 의존성을 직접 제공한다.
+
+## 함수 정의는 소스 파일에 둔다
+
+헤더에서 선언한 함수를 `.cpp`에 정의한다.
+
+```cpp
+// CharacterPrinter.cpp
+#include "CharacterPrinter.h"
+
+#include <string>
+
+std::string FormatStats(const CharacterStats& stats)
+{
+    return "HP: " + std::to_string(stats.hp) + " ATT: " + std::to_string(stats.attack) + " DEF: " + std::to_string(stats.defense);
+}
+```
+
+소스 파일은 자신의 헤더를 먼저 포함한다. 그러면 헤더가 다른 우연한 include에 의존하거나 함수 선언과 정의의 타입이 다른 문제를 해당 소스 파일에서 바로 발견하기 쉽다.
+
+`FormatStats`의 선언은 여러 번역 단위에 포함될 수 있지만 함수 본문은 이 `.cpp` 하나에만 있다.
+
+## `main`은 공개된 선언만 사용한다
+
+호출자는 함수 구현이 있는 소스 파일을 직접 포함하지 않는다.
+
+```cpp
+// main.cpp
+#include "CharacterPrinter.h"
+
+#include <cassert>
+#include <iostream>
+#include <string>
+
+int main()
+{
+    CharacterStats knight{100, 20, 5};
+    std::string text = FormatStats(knight);
+
+    assert(text == "HP: 100 ATT: 20 DEF: 5");
+    std::cout << text << '\n';
+}
+```
+
+`main.cpp`는 `FormatStats`의 선언만 알면 호출 표현식을 컴파일할 수 있다. 실제 정의와 연결하는 일은 링크 단계에서 처리된다.
+
+```text
+main.cpp                  CharacterPrinter.cpp
+   │                              │
+   │ FormatStats 선언 확인         │ FormatStats 정의 제공
+   └──────────────┬───────────────┘
+                  ▼
+                링커
+```
+
+## 헤더 중복 포함을 막아야 한다
+
+`CharacterPrinter.h`가 `CharacterStats.h`를 포함하고, 다른 헤더도 같은 파일을 포함할 수 있다.
+
+```text
+main.cpp
+ ├─ CharacterPrinter.h
+ │    └─ CharacterStats.h
+ └─ AnotherHeader.h
+      └─ CharacterStats.h
+```
+
+전처리 결과에 같은 타입 정의가 반복해서 들어오면 한 번역 단위 안에서 재정의 문제가 생길 수 있다.
+
+Include guard는 매크로 상태로 헤더 내용을 한 번만 활성화한다.
+
+```cpp
+#ifndef BLOG_CHARACTER_STATS_H_INCLUDED
+#define BLOG_CHARACTER_STATS_H_INCLUDED
+
+// 헤더 내용
+
+#endif
+```
+
+첫 포함에서는 매크로가 정의돼 있지 않아 내용을 처리하고 매크로를 정의한다. 같은 번역 단위에서 다시 포함하면 `#ifndef` 조건이 거짓이어서 내용을 건너뛴다.
+
+## Include guard 이름은 예약 식별자를 피한다
+
+원본 헤더는 다음 형태의 매크로를 사용한다.
+
+```cpp
+// #ifndef _TEST1_H__
+// #define _TEST1_H__
+```
+
+밑줄로 시작하고 바로 대문자가 오는 식별자와 이중 밑줄을 포함한 식별자는 구현을 위해 예약된 범위에 해당할 수 있다. 사용자 코드에서 이런 이름을 만들지 않는다.
+
+프로젝트와 경로를 반영한 충돌 가능성 낮은 이름을 사용한다.
+
+```cpp
+#ifndef BLOG_CHARACTER_STATS_H_INCLUDED
+#define BLOG_CHARACTER_STATS_H_INCLUDED
+```
+
+매크로 이름은 전처리 단계의 넓은 이름 공간에서 사용되므로 다른 헤더와 겹치지 않게 만든다.
+
+## `#pragma once`와 Include guard 중 하나를 선택한다
+
+많은 컴파일러는 다음 지시문을 지원한다.
+
+```cpp
+#pragma once
+```
+
+파일 하나를 번역 단위에 한 번만 포함하도록 처리한다. 짧고 매크로 이름 충돌을 고민하지 않아도 된다는 장점이 있다.
+
+다만 `#pragma once`는 C++ 언어 표준이 직접 규정하는 전처리 지시문은 아니다. MSVC, GCC와 Clang을 포함한 주요 컴파일러가 지원하지만 구현 기능이라는 점은 구분한다.
+
+Include guard는 표준 전처리 지시문만으로 같은 목적을 표현한다. 프로젝트의 컴파일러와 이식성 요구에 따라 둘 중 하나를 선택하면 된다.
+
+```cpp
+#pragma once
+
+// 또는
+
+#ifndef BLOG_CHARACTER_STATS_H_INCLUDED
+#define BLOG_CHARACTER_STATS_H_INCLUDED
+// ...
+#endif
+```
+
+같은 헤더에 두 방식을 함께 작성해도 보통 동작하지만 중복 방어가 실질적인 의미를 추가하지는 않는다. 팀 규칙에 맞는 한 방식을 일관되게 사용한다.
+
+`#pragma once`가 언제나 더 빠르다고 단정할 필요도 없다. 실제 처리 방식과 차이는 컴파일러 구현, 파일 시스템과 빌드 환경에 따라 달라질 수 있다.
+
+## 헤더에 함수 본문이 있다고 항상 잘못된 것은 아니다
+
+원본 설명처럼 헤더에 일반 함수를 정의하고 여러 `.cpp`에서 포함하면 중복 정의 링크 오류가 발생할 수 있다.
+
+```cpp
+// 잘못된 일반 함수 헤더 정의 예
+void PrintMessage()
+{
+    // 여러 번역 단위에 동일한 비인라인 정의가 생길 수 있다.
+}
+```
+
+하지만 헤더에 함수 구현을 두는 모든 경우가 잘못된 것은 아니다.
+
+```cpp
+inline int Add(int left, int right)
+{
+    return left + right;
+}
+```
+
+ODR 조건을 만족하는 `inline` 함수 정의는 여러 번역 단위에 나타날 수 있다. 클래스 정의 안에서 정의한 멤버 함수도 일반적으로 암시적 `inline`이다.
+
+```cpp
+struct Counter
+{
+    int GetValue() const
+    {
+        return value;
+    }
+
+    int value = 0;
+};
+```
+
+템플릿은 필요한 구체화를 컴파일할 때 정의가 보여야 하므로 보통 헤더에 정의한다.
+
+```cpp
+template <typename T>
+T Maximum(T left, T right)
+{
+    return left < right ? right : left;
+}
+```
+
+따라서 규칙은 “헤더에는 구현을 절대 작성하지 않는다”가 아니다. 일반 비인라인 함수는 보통 `.cpp`에 두고, `inline`, 템플릿과 클래스 정의처럼 여러 번역 단위에 정의가 보여야 하는 경우를 구분한다.
+
+## 헤더에서 `using namespace`를 사용하지 않는다
+
+헤더에 다음 지시문을 작성하면 그 헤더를 포함한 모든 코드의 이후 영역에 영향을 준다.
+
+```cpp
+// 헤더에서 피한다.
+// using namespace std;
+```
+
+호출자가 선택하지 않은 이름들이 전역 이름 검색에 들어오며 프로젝트가 커질수록 이름 충돌과 모호한 호출 가능성이 커진다.
+
+헤더에서는 필요한 타입에 전체 이름을 사용한다.
+
+```cpp
+std::string FormatStats(const CharacterStats& stats);
+```
+
+소스 파일에서도 `std::`를 직접 쓰면 각 이름의 소속을 확인하기 쉽다. 제한된 함수 범위에서 특정 이름만 가져오는 방식은 프로젝트 규칙에 따라 선택할 수 있지만 헤더 전체에 네임스페이스를 개방하지 않는다.
+
+## 사용하지 않는 include는 의존성만 늘린다
+
+원본의 `Test2.h`는 자신의 선언 없이 `Test1.h`만 포함한다.
+
+```cpp
+#pragma once
+#include "Test1.h"
+```
+
+실제 역할이 없다면 이 헤더를 거쳐 간접적으로 타입을 얻는 구조를 만들 필요가 없다. 필요한 파일이 필요한 선언의 헤더를 직접 포함한다.
+
+불필요한 include는 다음 문제를 만들 수 있다.
+
+- 헤더 변경 시 다시 컴파일할 번역 단위가 늘어난다.
+- 실제 의존성이 어느 파일에 있는지 파악하기 어려워진다.
+- 우연한 간접 include에 기대는 코드가 생긴다.
+- 매크로와 이름이 예상보다 넓게 노출된다.
+
+헤더는 자기 선언을 완성하는 데 필요한 파일을 포함하고, 소스는 자신이 직접 사용하는 선언의 헤더를 포함한다.
+
+## 오류가 발생한 단계를 구분한다
+
+파일을 분리하면 비슷해 보이는 문제도 발생 단계가 다르다.
+
+### 선언이 보이지 않는 경우
+
+```cpp
+int main()
+{
+    FormatStats({100, 20, 5});
+}
+```
+
+필요한 헤더를 포함하지 않았다면 컴파일러가 이름과 호출 타입을 알 수 없다. 이는 컴파일 단계의 문제다.
+
+### 선언은 있지만 정의가 없는 경우
+
+```cpp
+std::string FormatStats(const CharacterStats& stats);
+```
+
+선언을 포함했지만 정의한 `.cpp`를 프로젝트에서 빌드하지 않으면 호출 코드는 컴파일될 수 있다. 최종 연결에서 함수 정의를 찾지 못해 unresolved external symbol 같은 링크 오류가 발생할 수 있다.
+
+### 정의가 여러 번 생긴 경우
+
+일반 비인라인 함수 본문을 헤더에 두고 여러 `.cpp`가 포함하면 각 번역 단위에 정의가 생긴다. 링크 단계에서 multiple definition 또는 already defined 같은 오류가 발생할 수 있다.
+
+```text
+이름을 모름                 → 컴파일 오류
+선언은 봤지만 정의가 없음   → 링크 오류
+허용되지 않는 정의가 여러 개 → 링크 오류
+```
+
+오류 메시지에서 컴파일러와 링커 중 어느 단계가 실패했는지 먼저 확인하면 원인 범위를 줄일 수 있다.
+
+## 전체 다중 파일 예제
+
+프로젝트는 네 파일로 구성한다.
+
+```text
+CharacterStats.h
+CharacterPrinter.h
+CharacterPrinter.cpp
+main.cpp
+```
+
+### `CharacterStats.h`
+
+```cpp
+#ifndef BLOG_CHARACTER_STATS_H_INCLUDED
+#define BLOG_CHARACTER_STATS_H_INCLUDED
+
+struct CharacterStats
+{
+    int hp;
+    int attack;
+    int defense;
+};
+
+#endif
+```
+
+### `CharacterPrinter.h`
+
+```cpp
+#ifndef BLOG_CHARACTER_PRINTER_H_INCLUDED
+#define BLOG_CHARACTER_PRINTER_H_INCLUDED
+
+#include "CharacterStats.h"
+
+#include <string>
+
+std::string FormatStats(const CharacterStats& stats);
+
+#endif
+```
+
+### `CharacterPrinter.cpp`
+
+```cpp
+#include "CharacterPrinter.h"
+
+#include <string>
+
+std::string FormatStats(const CharacterStats& stats)
+{
+    return "HP: " + std::to_string(stats.hp) + " ATT: " + std::to_string(stats.attack) + " DEF: " + std::to_string(stats.defense);
+}
+```
+
+### `main.cpp`
+
+```cpp
+#include "CharacterPrinter.h"
+
+#include <cassert>
+#include <iostream>
+#include <string>
+
+int main()
+{
+    CharacterStats knight{100, 20, 5};
+    std::string text = FormatStats(knight);
+
+    assert(text == "HP: 100 ATT: 20 DEF: 5");
+    std::cout << text << '\n';
+}
+```
+
+Visual Studio 프로젝트에 두 `.cpp`를 모두 추가하면 각 파일이 별도로 컴파일되고 링크된다. 명령행에서는 사용하는 컴파일러에 맞춰 두 소스 파일을 함께 빌드 대상으로 전달할 수 있다.
+
+```powershell
+cl /std:c++20 /EHsc main.cpp CharacterPrinter.cpp
+```
+
+```bash
+g++ -std=c++20 main.cpp CharacterPrinter.cpp -o example
+```
+
+컴파일 명령의 정확한 옵션과 출력 파일 형식은 빌드 환경에 따라 달라질 수 있다. 핵심은 헤더가 아니라 함수 정의가 들어 있는 두 `.cpp`가 모두 빌드 대상이라는 점이다.
+
+## 파일을 나눌 때 확인할 기준
+
+1. 이름을 사용하는 번역 단위에 필요한 선언이 보이는가?
+2. 일반 함수 정의가 하나의 `.cpp`에 존재하는가?
+3. 해당 `.cpp`가 실제 프로젝트 빌드 대상에 포함됐는가?
+4. 헤더가 자신의 선언에 필요한 타입을 직접 포함하는가?
+5. 우연한 간접 include에 의존하지 않는가?
+6. Include guard가 예약 식별자나 다른 헤더와 충돌하지 않는가?
+7. `#pragma once`와 Include guard를 이유 없이 중복하지 않는가?
+8. 헤더의 함수 정의가 `inline` 또는 템플릿처럼 허용되는 이유를 갖는가?
+9. 헤더에서 `using namespace`로 포함한 파일 전체에 영향을 주지 않는가?
+10. 오류가 컴파일 단계인지 링크 단계인지 먼저 구분했는가?
+
+파일 분리의 목적은 파일 수를 늘리는 데 있지 않다. 다른 코드가 알아야 하는 인터페이스와 내부 구현의 경계를 만들고, 각 번역 단위의 의존성을 명시적으로 관리하는 데 있다.
+
+## 다음 학습: 클래스라는 타입으로 데이터와 동작을 설계한다
+
+다음 글에서는 `Knight`의 체력, 공격력과 위치를 하나의 클래스로 묶고 이동·공격·사망 동작을 멤버 함수로 표현한다. 구조체에서도 멤버 함수를 사용할 수 있지만 `class`의 기본 접근 제한과 외부 정의 문법을 연결해 객체의 공개 인터페이스를 구분한다.

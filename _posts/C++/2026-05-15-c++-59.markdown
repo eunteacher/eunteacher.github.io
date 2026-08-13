@@ -1,0 +1,659 @@
+---
+layout: post
+title: '[C++ 59] 동적 배열 직접 구현하기: 저장 공간과 객체 수명, 반복자의 연결'
+date: 2026-05-15
+categories: [Dev, C++]
+tags: [C++, Data Structure, Dynamic Array, Iterator, RAII]
+---
+
+앞에서 `std::vector`의 `size`, `capacity`와 반복자 무효화를 살펴봤다. 이번에는 같은 원리를 학습용 동적 배열에 직접 구현한다.
+
+단순히 `new[]`로 배열을 만들고 값을 복사하는 데서 끝내지 않는다. 저장 공간만 확보된 영역과 실제 객체가 살아 있는 영역을 구분하고, 재할당·복사·이동·소멸 과정에서 객체 수명을 어떻게 관리해야 하는지 확인한다.
+
+여기서 만드는 `SimpleVector`는 동작 원리를 확인하기 위한 축소 구현이다. 실제 `std::vector`의 모든 생성자, 할당자 규칙, 예외 보장과 API를 대체하려는 컨테이너가 아니다.
+
+## 먼저 지켜야 할 세 가지 불변식
+
+동적 배열은 다음 상태를 항상 유지해야 한다.
+
+```text
+0 <= size <= capacity
+data == nullptr이면 size == 0, capacity == 0
+[data, data + size)에는 살아 있는 T 객체가 존재
+[data + size, data + capacity)에는 저장 공간만 존재
+```
+
+`size`는 현재 생성된 요소의 수이고 `capacity`는 확보한 저장 공간에 들어갈 수 있는 요소의 수다. 두 값을 구분하려면 용량만큼의 `T` 객체를 미리 생성해서는 안 된다.
+
+```text
+data
+ ↓
+[객체][객체][객체][빈 저장 공간][빈 저장 공간]
+ └──── size = 3 ────┘
+ └────────── capacity = 5 ──────────┘
+```
+
+이 불변식은 `push_back`, `reserve`, `clear`뿐 아니라 예외가 발생한 뒤에도 유지돼야 한다.
+
+## 원본의 new T[capacity]가 단순한 이유와 한계
+
+처음 구현하기 쉬운 방식은 다음과 같다.
+
+```cpp
+T* newData = new T[newCapacity];
+```
+
+이 코드는 저장 공간만 얻는 것이 아니라 `T` 객체를 `newCapacity`개 모두 생성한다. `size`가 3이고 `capacity`가 100이라면 논리적으로는 요소가 3개지만 실제로는 `T` 객체 100개의 생성자가 호출된다.
+
+이 방식에는 다음 제약이 생긴다.
+
+- `T`에 기본 생성자가 필요하다.
+- 아직 사용하지 않는 용량까지 객체 생성 비용을 낸다.
+- `clear()`에서 `_size = 0`만 수행하면 기존 객체의 소멸자가 즉시 호출되지 않는다.
+- 새 배열에 대입하는 방식이라 복사 대입 가능한 타입을 요구한다.
+
+정수만 넣는 첫 실습에서는 문제가 잘 드러나지 않는다. 하지만 클래스형 요소의 수명까지 `std::vector`처럼 다루려면 **메모리 할당과 객체 생성을 분리**해야 한다.
+
+## allocator로 저장 공간과 객체 생성을 분리한다
+
+`std::allocator<T>`와 `std::allocator_traits`를 사용하면 `T` 객체를 아직 만들지 않은 저장 공간을 확보할 수 있다.
+
+```cpp
+using Allocator = std::allocator<T>;
+using Traits = std::allocator_traits<Allocator>;
+
+T* data = Traits::allocate(allocator, capacity);      // 저장 공간 확보
+Traits::construct(allocator, data, value);            // 해당 위치에 T 생성
+Traits::destroy(allocator, data);                      // T의 수명 종료
+Traits::deallocate(allocator, data, capacity);         // 저장 공간 반환
+```
+
+각 단계의 책임은 다르다.
+
+```text
+allocate   : T를 담을 수 있는 원시 저장 공간 확보
+construct  : 지정한 위치에서 T 객체의 수명 시작
+destroy    : T 객체의 수명 종료
+deallocate : 원시 저장 공간 반환
+```
+
+`deallocate` 전에 살아 있는 모든 요소를 `destroy`해야 한다. 반대로 아직 객체가 생성되지 않은 여유 공간에는 `destroy`를 호출하지 않는다.
+
+## 반복자는 현재 요소의 위치를 감싼다
+
+벡터의 요소는 연속되어 있으므로 학습용 반복자는 요소 포인터 하나를 보관해 구현할 수 있다.
+
+```cpp
+template<typename T>
+class SimpleIterator
+{
+public:
+    using difference_type = std::ptrdiff_t;
+    using value_type = std::remove_cv_t<T>;
+    using pointer = T*;
+    using reference = T&;
+    using iterator_category = std::random_access_iterator_tag;
+    using iterator_concept = std::contiguous_iterator_tag;
+
+    SimpleIterator() = default;
+    explicit SimpleIterator(pointer pointer) : pointer_(pointer) {}
+
+    reference operator*() const { return *pointer_; }
+    pointer operator->() const { return pointer_; }
+    reference operator[](difference_type offset) const { return pointer_[offset]; }
+
+    SimpleIterator& operator++() { ++pointer_; return *this; }
+    SimpleIterator operator++(int) { SimpleIterator old = *this; ++(*this); return old; }
+    SimpleIterator& operator--() { --pointer_; return *this; }
+    SimpleIterator operator--(int) { SimpleIterator old = *this; --(*this); return old; }
+
+    SimpleIterator& operator+=(difference_type offset) { pointer_ += offset; return *this; }
+    SimpleIterator& operator-=(difference_type offset) { pointer_ -= offset; return *this; }
+
+    friend SimpleIterator operator+(SimpleIterator iterator, difference_type offset) { return iterator += offset; }
+    friend SimpleIterator operator+(difference_type offset, SimpleIterator iterator) { return iterator += offset; }
+    friend SimpleIterator operator-(SimpleIterator iterator, difference_type offset) { return iterator -= offset; }
+    friend difference_type operator-(SimpleIterator left, SimpleIterator right) { return left.pointer_ - right.pointer_; }
+    friend bool operator==(SimpleIterator, SimpleIterator) = default;
+    friend auto operator<=>(SimpleIterator, SimpleIterator) = default;
+
+private:
+    pointer pointer_ = nullptr;
+};
+```
+
+`operator*`가 `T&`를 반환하므로 반복자를 통해 요소를 읽고 수정할 수 있다.
+
+```cpp
+auto it = values.begin();
+*it = 100;
+assert(values[0] == 100);
+```
+
+후위 증가에서는 증가 전 위치를 반환해야 하므로 기존 반복자를 복사하고 현재 반복자를 증가시킨다. 전위 증가는 자기 자신을 바로 반환한다.
+
+```cpp
+SimpleIterator& operator++()
+{
+    ++pointer_;
+    return *this;
+}
+
+SimpleIterator operator++(int)
+{
+    SimpleIterator old = *this;
+    ++(*this);
+    return old;
+}
+```
+
+포인터 차감과 순서 비교는 같은 배열 범위에서 얻은 반복자끼리만 수행해야 한다. 이 반복자가 포인터를 감쌌다고 해서 서로 다른 컨테이너의 반복자 연산이 유효해지는 것은 아니다.
+
+## begin과 end는 실제 요소 범위를 만든다
+
+`begin()`은 첫 요소 위치, `end()`는 마지막 요소 다음 위치를 반환한다.
+
+```cpp
+using iterator = SimpleIterator<T>;
+using const_iterator = SimpleIterator<const T>;
+
+iterator begin() { return iterator(data_); }
+iterator end() { return iterator(data_ == nullptr ? nullptr : data_ + size_); }
+const_iterator begin() const { return const_iterator(data_); }
+const_iterator end() const { return const_iterator(data_ == nullptr ? nullptr : data_ + size_); }
+```
+
+빈 컨테이너의 `data_`는 `nullptr`이다. 원본처럼 `&_data[0]`을 만들면 존재하지 않는 요소에 접근하는 표현이 된다. 빈 상태에서는 `begin()`과 `end()`가 모두 null 상태의 반복자를 반환하도록 처리한다.
+
+`const` 컨테이너에서는 `SimpleIterator<const T>`를 반환해 반복자를 통한 요소 수정을 막는다.
+
+```cpp
+const SimpleVector<int>& readOnly = values;
+auto it = readOnly.begin();
+// *it = 10; // const_iterator이므로 수정 불가
+```
+
+## push_back은 필요할 때 용량을 늘리고 요소 하나를 생성한다
+
+이번 구현은 첫 용량을 1로 잡고 공간이 부족할 때 두 배로 늘린다.
+
+```cpp
+void push_back(T value)
+{
+    if (size_ == capacity_)
+    {
+        reserve(capacity_ == 0 ? 1 : capacity_ * 2);
+    }
+
+    Traits::construct(allocator_, data_ + size_, std::move(value));
+    ++size_;
+}
+```
+
+인자를 값으로 받는 이유는 기존 요소를 다시 추가하는 경우도 안전하게 다루기 위해서다.
+
+```cpp
+values.push_back(values[0]);
+```
+
+호출 시 먼저 인자 객체를 복사한 다음 필요하면 재할당한다. 따라서 재할당으로 `values[0]`의 주소가 바뀌어도 이미 만들어진 인자 객체에서 새 요소를 생성할 수 있다. 학습용 구현이라 복사 또는 이동이 한 번 더 필요할 수 있다.
+
+용량을 두 배로 키우는 정책은 이 클래스가 선택한 정책이다. 표준 `std::vector`의 정확한 증가 배율을 뜻하지 않는다. 또한 최대 크기와 정수 오버플로 검사는 전체 구현에서 생략했으므로 범용 라이브러리 코드로 사용해서는 안 된다.
+
+## reserve는 기존 요소를 새 저장 공간으로 옮긴다
+
+현재 용량보다 큰 값이 요청됐을 때만 재할당한다.
+
+```cpp
+void reserve(std::size_t newCapacity)
+{
+    if (newCapacity <= capacity_)
+    {
+        return;
+    }
+
+    T* newData = Traits::allocate(allocator_, newCapacity);
+    std::size_t constructed = 0;
+
+    try
+    {
+        for (; constructed < size_; ++constructed)
+        {
+            Traits::construct(allocator_, newData + constructed, std::move_if_noexcept(data_[constructed]));
+        }
+    }
+    catch (...)
+    {
+        while (constructed > 0)
+        {
+            --constructed;
+            Traits::destroy(allocator_, newData + constructed);
+        }
+
+        Traits::deallocate(allocator_, newData, newCapacity);
+        throw;
+    }
+
+    destroy_elements();
+
+    if (data_ != nullptr)
+    {
+        Traits::deallocate(allocator_, data_, capacity_);
+    }
+
+    data_ = newData;
+    capacity_ = newCapacity;
+}
+```
+
+새 저장 공간을 먼저 확보하고 요소 이동 또는 복사를 모두 마친 뒤 기존 공간을 정리한다. 생성 중 예외가 발생하면 새 공간에 이미 만들어진 요소만 역순으로 소멸시키고 새 저장 공간을 반환한다.
+
+`std::move_if_noexcept`는 이동 생성자가 예외를 던질 가능성이 있고 복사가 가능하다면 복사를 선택한다. 이동만 가능하면서 이동 생성자가 예외를 던지는 타입까지 강한 예외 보장을 제공하는 것은 이 구현의 범위를 벗어난다.
+
+재할당을 마치면 기존 주소를 가리키던 반복자, 포인터와 참조는 모두 무효가 된다. 직접 만든 컨테이너에서도 연속 저장이라는 조건 때문에 같은 문제가 발생한다.
+
+## clear는 살아 있는 요소를 실제로 소멸시킨다
+
+`size_ = 0`만 대입하면 논리적인 개수만 바뀔 뿐 클래스형 요소의 소멸자가 호출되지 않는다. 살아 있는 요소를 역순으로 소멸시킨 뒤 크기를 0으로 만든다.
+
+```cpp
+void destroy_elements() noexcept
+{
+    while (size_ > 0)
+    {
+        --size_;
+        Traits::destroy(allocator_, data_ + size_);
+    }
+}
+
+void clear() noexcept
+{
+    destroy_elements();
+}
+```
+
+용량은 그대로 유지하므로 이후 `push_back`에서 기존 저장 공간을 재사용할 수 있다. 컨테이너의 소멸자는 요소를 먼저 소멸시키고 저장 공간까지 반환한다.
+
+```cpp
+~SimpleVector()
+{
+    destroy_elements();
+
+    if (data_ != nullptr)
+    {
+        Traits::deallocate(allocator_, data_, capacity_);
+    }
+}
+```
+
+## 소유 클래스에는 복사와 이동 정책이 필요하다
+
+원시 포인터를 멤버로 가진 클래스에서 컴파일러가 만들어 주는 복사 생성자를 그대로 사용하면 두 객체가 같은 저장 공간 주소를 복사해 가진다.
+
+```text
+원본.data ─┐
+           ├─ 같은 저장 공간
+복사본.data ┘
+```
+
+두 객체의 소멸자가 같은 주소를 각각 해제하므로 이중 해제가 발생한다. 따라서 독립적인 저장 공간과 요소를 만드는 깊은 복사, 또는 소유권을 넘기는 이동을 직접 정의해야 한다.
+
+```cpp
+SimpleVector(const SimpleVector& other)
+{
+    reserve(other.size_);
+
+    try
+    {
+        for (; size_ < other.size_; ++size_)
+        {
+            Traits::construct(allocator_, data_ + size_, other.data_[size_]);
+        }
+    }
+    catch (...)
+    {
+        release_storage();
+        throw;
+    }
+}
+
+SimpleVector(SimpleVector&& other) noexcept
+    : data_(std::exchange(other.data_, nullptr)),
+      size_(std::exchange(other.size_, 0)),
+      capacity_(std::exchange(other.capacity_, 0))
+{
+}
+```
+
+복사는 각 요소를 새 공간에 생성한다. 이동은 포인터와 크기 정보를 가져오고 원본을 빈 상태로 만든다.
+
+복사 대입과 이동 대입은 값을 매개변수로 받은 뒤 내부 상태를 교환하는 copy-and-swap 형태로 합칠 수 있다.
+
+```cpp
+SimpleVector& operator=(SimpleVector other) noexcept
+{
+    swap(other);
+    return *this;
+}
+```
+
+매개변수를 만드는 과정에서 복사 또는 이동이 선택된다. 교환 뒤 매개변수 `other`가 이전 저장 공간을 소유하며 함수가 끝날 때 정리한다.
+
+## 전체 구현
+
+다음 코드는 연속 저장, 재할당, 객체 수명, 복사·이동과 반복자 순회를 한 번에 확인하는 학습용 구현이다.
+
+```cpp
+#include <cassert>
+#include <compare>
+#include <cstddef>
+#include <iostream>
+#include <iterator>
+#include <memory>
+#include <type_traits>
+#include <utility>
+
+template<typename T>
+class SimpleIterator
+{
+public:
+    using difference_type = std::ptrdiff_t;
+    using value_type = std::remove_cv_t<T>;
+    using pointer = T*;
+    using reference = T&;
+    using iterator_category = std::random_access_iterator_tag;
+    using iterator_concept = std::contiguous_iterator_tag;
+
+    SimpleIterator() = default;
+    explicit SimpleIterator(pointer pointer) : pointer_(pointer) {}
+
+    reference operator*() const { return *pointer_; }
+    pointer operator->() const { return pointer_; }
+    reference operator[](difference_type offset) const { return pointer_[offset]; }
+    SimpleIterator& operator++() { ++pointer_; return *this; }
+    SimpleIterator operator++(int) { SimpleIterator old = *this; ++(*this); return old; }
+    SimpleIterator& operator--() { --pointer_; return *this; }
+    SimpleIterator operator--(int) { SimpleIterator old = *this; --(*this); return old; }
+    SimpleIterator& operator+=(difference_type offset) { pointer_ += offset; return *this; }
+    SimpleIterator& operator-=(difference_type offset) { pointer_ -= offset; return *this; }
+
+    friend SimpleIterator operator+(SimpleIterator iterator, difference_type offset) { return iterator += offset; }
+    friend SimpleIterator operator+(difference_type offset, SimpleIterator iterator) { return iterator += offset; }
+    friend SimpleIterator operator-(SimpleIterator iterator, difference_type offset) { return iterator -= offset; }
+    friend difference_type operator-(SimpleIterator left, SimpleIterator right) { return left.pointer_ - right.pointer_; }
+    friend bool operator==(SimpleIterator, SimpleIterator) = default;
+    friend auto operator<=>(SimpleIterator, SimpleIterator) = default;
+
+private:
+    pointer pointer_ = nullptr;
+};
+
+template<typename T>
+class SimpleVector
+{
+private:
+    using Allocator = std::allocator<T>;
+    using Traits = std::allocator_traits<Allocator>;
+
+public:
+    using iterator = SimpleIterator<T>;
+    using const_iterator = SimpleIterator<const T>;
+
+    SimpleVector() = default;
+
+    SimpleVector(const SimpleVector& other)
+    {
+        reserve(other.size_);
+
+        try
+        {
+            for (; size_ < other.size_; ++size_)
+            {
+                Traits::construct(allocator_, data_ + size_, other.data_[size_]);
+            }
+        }
+        catch (...)
+        {
+            release_storage();
+            throw;
+        }
+    }
+
+    SimpleVector(SimpleVector&& other) noexcept
+        : data_(std::exchange(other.data_, nullptr)),
+          size_(std::exchange(other.size_, 0)),
+          capacity_(std::exchange(other.capacity_, 0))
+    {
+    }
+
+    ~SimpleVector()
+    {
+        release_storage();
+    }
+
+    SimpleVector& operator=(SimpleVector other) noexcept
+    {
+        swap(other);
+        return *this;
+    }
+
+    void swap(SimpleVector& other) noexcept
+    {
+        using std::swap;
+        swap(data_, other.data_);
+        swap(size_, other.size_);
+        swap(capacity_, other.capacity_);
+    }
+
+    void push_back(T value)
+    {
+        if (size_ == capacity_)
+        {
+            reserve(capacity_ == 0 ? 1 : capacity_ * 2);
+        }
+
+        Traits::construct(allocator_, data_ + size_, std::move(value));
+        ++size_;
+    }
+
+    void reserve(std::size_t newCapacity)
+    {
+        if (newCapacity <= capacity_)
+        {
+            return;
+        }
+
+        T* newData = Traits::allocate(allocator_, newCapacity);
+        std::size_t constructed = 0;
+
+        try
+        {
+            for (; constructed < size_; ++constructed)
+            {
+                Traits::construct(allocator_, newData + constructed, std::move_if_noexcept(data_[constructed]));
+            }
+        }
+        catch (...)
+        {
+            while (constructed > 0)
+            {
+                --constructed;
+                Traits::destroy(allocator_, newData + constructed);
+            }
+
+            Traits::deallocate(allocator_, newData, newCapacity);
+            throw;
+        }
+
+        destroy_elements();
+
+        if (data_ != nullptr)
+        {
+            Traits::deallocate(allocator_, data_, capacity_);
+        }
+
+        data_ = newData;
+        capacity_ = newCapacity;
+        size_ = constructed;
+    }
+
+    void clear() noexcept
+    {
+        destroy_elements();
+    }
+
+    T& operator[](std::size_t index) { return data_[index]; }
+    const T& operator[](std::size_t index) const { return data_[index]; }
+    std::size_t size() const noexcept { return size_; }
+    std::size_t capacity() const noexcept { return capacity_; }
+    bool empty() const noexcept { return size_ == 0; }
+
+    iterator begin() { return iterator(data_); }
+    iterator end() { return iterator(data_ == nullptr ? nullptr : data_ + size_); }
+    const_iterator begin() const { return const_iterator(data_); }
+    const_iterator end() const { return const_iterator(data_ == nullptr ? nullptr : data_ + size_); }
+
+private:
+    void destroy_elements() noexcept
+    {
+        while (size_ > 0)
+        {
+            --size_;
+            Traits::destroy(allocator_, data_ + size_);
+        }
+    }
+
+    void release_storage() noexcept
+    {
+        destroy_elements();
+
+        if (data_ != nullptr)
+        {
+            Traits::deallocate(allocator_, data_, capacity_);
+        }
+
+        data_ = nullptr;
+        capacity_ = 0;
+    }
+
+    Allocator allocator_;
+    T* data_ = nullptr;
+    std::size_t size_ = 0;
+    std::size_t capacity_ = 0;
+};
+
+struct Tracked
+{
+    explicit Tracked(int value) : value(value) { ++alive; }
+    Tracked(const Tracked& other) : value(other.value) { ++alive; }
+    Tracked(Tracked&& other) noexcept : value(other.value) { ++alive; }
+    ~Tracked() { --alive; }
+
+    inline static int alive = 0;
+    int value = 0;
+};
+
+static_assert(std::contiguous_iterator<SimpleIterator<int>>);
+
+void VerifyValuesAndIteration()
+{
+    SimpleVector<int> values;
+
+    for (int value = 0; value < 5; ++value)
+    {
+        values.push_back(value * 10);
+    }
+
+    assert(values.size() == 5);
+    assert(values.capacity() == 8);
+    assert(values.end() - values.begin() == 5);
+
+    SimpleVector<int> copied = values;
+    copied[0] = 99;
+
+    assert(values[0] == 0);
+    assert(copied[0] == 99);
+
+    std::cout << "Size: " << values.size() << '\n';
+    std::cout << "Capacity: " << values.capacity() << '\n';
+    std::cout << "Values:";
+
+    for (int value : values)
+    {
+        std::cout << ' ' << value;
+    }
+
+    std::cout << '\n';
+}
+
+void VerifyObjectLifetime()
+{
+    SimpleVector<Tracked> objects;
+    objects.push_back(Tracked(10));
+    objects.push_back(Tracked(20));
+    objects.push_back(Tracked(30));
+
+    assert(objects.size() == 3);
+    assert(Tracked::alive == 3);
+
+    const std::size_t oldCapacity = objects.capacity();
+    objects.clear();
+
+    assert(objects.empty());
+    assert(objects.capacity() == oldCapacity);
+    assert(Tracked::alive == 0);
+
+    std::cout << "Alive after clear: " << Tracked::alive << '\n';
+}
+
+int main()
+{
+    VerifyValuesAndIteration();
+    VerifyObjectLifetime();
+}
+```
+
+실행 결과는 다음과 같다.
+
+```text
+Size: 5
+Capacity: 8
+Values: 0 10 20 30 40
+Alive after clear: 0
+```
+
+정수 요소를 다섯 번 추가하면 이 구현이 선택한 `1 → 2 → 4 → 8` 성장 정책에 따라 용량이 8이 된다. 복사본의 첫 요소를 바꿔도 원본이 유지되므로 두 컨테이너가 독립적인 저장 공간을 소유한다.
+
+`Tracked`는 살아 있는 객체 수를 기록한다. 재할당을 거친 뒤에도 논리적인 요소 세 개만 살아 있고, `clear()`를 호출하면 용량은 유지한 채 세 객체의 수명이 끝나 `alive`가 0이 된다.
+
+## std::vector와 비교했을 때 남은 한계
+
+이번 구현은 핵심 원리를 보여주지만 실제 표준 컨테이너와 비교하면 많은 기능이 빠져 있다.
+
+- 최대 크기와 용량 배수의 오버플로를 검사하지 않는다.
+- 사용자 지정 allocator와 allocator 전파 규칙을 지원하지 않는다.
+- `insert`, `erase`, `resize`, `at`, `emplace_back` 등을 구현하지 않았다.
+- 반복자와 `const_iterator` 사이의 변환 및 혼합 비교를 지원하지 않는다.
+- 이동만 가능하면서 이동 생성자가 예외를 던지는 타입에 대한 보장이 제한적이다.
+- 표준 `vector`가 요구하는 모든 복잡도와 예외 보장을 문서화하지 않았다.
+
+직접 만든 컨테이너는 자료구조와 객체 수명을 이해하는 실습으로 사용한다. 실제 프로그램에서는 검증되고 최적화된 `std::vector`를 우선 선택한다.
+
+## 구현을 검토할 때 확인할 기준
+
+1. `size`와 `capacity`가 각각 살아 있는 객체 수와 저장 가능한 수를 나타내는가?
+2. 미사용 용량에 불필요한 `T` 객체를 생성하지 않는가?
+3. 재할당 중 생성에 실패했을 때 새로 만든 객체와 저장 공간을 정리하는가?
+4. 기존 요소를 모두 새 공간에 옮긴 뒤에만 이전 저장 공간을 해제하는가?
+5. `clear()`와 소멸자가 살아 있는 요소의 소멸자를 호출하는가?
+6. 복사가 저장 공간을 공유하지 않고 깊은 복사를 수행하는가?
+7. 이동 뒤 원본 객체가 안전한 빈 상태로 남는가?
+8. 빈 컨테이너의 `begin()`과 `end()`를 만들 때 존재하지 않는 요소에 접근하지 않는가?
+9. 재할당 뒤 기존 반복자, 포인터와 참조가 무효라는 점을 호출자가 알고 있는가?
+10. 학습용 구현의 한계를 실제 `std::vector`의 보장처럼 설명하지 않는가?
+
+동적 배열의 핵심은 포인터 세 개나 정수 멤버를 저장하는 데 있지 않다. 확보된 저장 공간과 살아 있는 객체의 범위를 일치시키고, 소유권이 복사·이동·소멸되는 모든 경로에서 그 관계를 유지하는 것이 핵심이다.
+
+## 다음 학습: list와 연결 기반 컨테이너
+
+다음 글에서는 요소를 연속 저장하지 않고 노드의 연결로 관리하는 `std::list`를 살펴본다. 벡터의 중간 삽입·삭제 비용과 반복자 무효화 규칙이 연결 리스트에서는 어떻게 달라지는지 비교한다.

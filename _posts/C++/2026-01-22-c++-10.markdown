@@ -7,117 +7,770 @@ tags: [C++, Scope, Casting, Arithmetic, Overflow]
 use_math: true
 ---
 
-# [C++] 이름이 보이는 범위와 값이 바뀌는 경계
+앞에서는 `const`, 스코프, 객체의 수명, 저장 기간이 서로 다른 개념이라는 것을 살펴봤다. 이번에는 이름이 실제로 보이는 범위를 더 자세히 확인하고, 한 타입의 값을 다른 타입으로 바꿀 때 어떤 정보가 유지되거나 사라지는지 살펴본다.
 
----
+스코프와 타입 변환은 서로 다른 주제처럼 보이지만 둘 다 컴파일러가 코드를 해석하는 경계와 관련이 있다. 스코프는 **현재 위치에서 어떤 이름을 찾을 수 있는지**를 결정하고, 타입 변환은 **현재 값을 다른 타입에서 어떻게 표현할지**를 결정한다.
 
-## 스코프: 이름을 찾을 수 있는 범위
+## 스코프는 이름을 사용할 수 있는 범위다
 
-### 변수의 유효 범위 (Scope)
-* **전역 변수 (Global Variable):** 프로그램 전체에서 접근 가능하며, 데이터 영역(Data Segment)에 저장
-* **지역 변수 (Local Variable):** 선언된 블록과 그 안쪽 블록에서 이름을 사용할 수 있다. 일반적인 지역 변수는 자동 저장 기간을 갖지만, 스코프와 물리적 저장 위치는 같은 개념이 아니다.
-* **이름 충돌 (Name Conflict):** 전역 변수와 지역 변수의 이름이 같을 경우, **지역 변수**가 우선순위를 가짐 (전역 변수는 가려짐)
+스코프(Scope)는 선언한 이름을 소스 코드의 어느 위치에서 찾을 수 있는지를 정한다.
 
-## 타입 변환: 표현 가능한 값의 범위를 확인한다
-* **데이터 손실 (Data Loss):** 대상 타입이 원래 값을 표현하지 못하면 값이 달라질 수 있다. 이를 단순히 모든 환경에서 “상위 비트가 물리적으로 잘린다”고 설명하면 안 된다.
-* **부호 없는 타입 변환:** 정수는 대상 부호 없는 타입의 범위에 들어오도록 2의 거듭제곱을 법으로 한 값으로 변환된다. 메모리 복사 규칙이 아니라 값 변환 규칙이다.
-* **실수 변환:** 정수를 실수(`float`)로 변환할 때 정밀도(Precision) 차이로 인한 근사값 처리가 발생할 수 있음
+```cpp
+int GlobalValue = 10;
 
-### 사칙 연산 주의사항
-* **정수 나눗셈:** `int / int`의 결과는 항상 `int`임 (소수점 버림). 정확한 값을 얻으려면 피연산자 중 하나를 `float`로 캐스팅해야 함
-* **0으로 나누기:** 수학적으로 불가능하며, 프로그램 크래시(Crash)의 주원인이 됨
+void Function()
+{
+    int LocalValue = 20;
+}
+```
 
----
+`GlobalValue`는 namespace 스코프에 선언돼 있고, `LocalValue`는 함수 몸체의 블록 스코프에 선언돼 있다.
 
-## 변환 결과를 확인하는 코드
+```text
+namespace 스코프
+├── GlobalValue
+└── Function
+    └── 함수 블록 스코프
+        └── LocalValue
+```
+
+`Function` 안에서는 두 이름을 모두 찾을 수 있다. 함수 밖에서는 `LocalValue`라는 이름을 사용할 수 없다.
 
 ```cpp
 #include <iostream>
-using namespace std;
 
-// [전역 변수]
-// 프로그램 어디서든 접근 가능
-int hp = 100;
+int GlobalValue = 10;
+
+void Function()
+{
+    int LocalValue = 20;
+    std::cout << GlobalValue << '\n';
+    std::cout << LocalValue << '\n';
+}
 
 int main()
 {
-    // [지역 변수]
-    // main 함수 내부에서만 생존
-    int hp = 10;
-
-    // 이름 충돌: 지역 변수 hp가 전역 변수 hp를 가림
-    cout << "Local hp: " << hp << endl; // 10 출력
-
-    // 같은 스코프 내 중복 선언 불가
-    // int hp = 50; // Error: 재정의 불가
-
-#pragma region 타입 변환 (Type Casting)
-
-    int mp = 10;
-
-    // 1. 작은 타입으로 변환 (Downcasting)
-    // 데이터 손실 없음 (범위 내)
-    short s_mp = mp;
-
-    // 2. 큰 값을 작은 타입으로 변환 (Overflow)
-    mp = 77777; // 0x12FD1 (16진수)
-    s_mp = mp;  // short는 2바이트(16비트)만 수용 가능
-
-    // short가 이 값을 표현하지 못하면 결과는 구현 정의이다.
-    cout << "Truncated Value: " << s_mp << endl;
-
-    // 3. 부호 없는 타입으로 변환 (Unsigned)
-    mp = -1; // 메모리: 1111 1111 ... (2의 보수)
-    unsigned int ui_mp = mp;
-
-    // unsigned int가 32비트라면 UINT_MAX가 된다.
-    cout << "Unsigned Cast: " << ui_mp << endl;
-
-#pragma endregion
-
-#pragma region 산술 연산 (Arithmetic)
-
-    // 1. 나눗셈의 함정 (정수 vs 실수)
-    int max = 1000;
-    int value = 123;
-
-    // int / int = int (소수점 절삭)
-    // 0.123 -> 0
-    float ratio = value / max;
-    cout << "Integer Div: " << ratio << endl;
-
-    // 해결책: 명시적 형변환 (Explicit Casting)
-    ratio = value / static_cast<float>(max);
-    cout << "Float Div: " << ratio << endl;
-
-    // 2. 0으로 나누기 (Divide By Zero)
-    // max = 0;
-    // ratio = value / max; // Runtime Error (Crash)
-
-#pragma endregion
-
-    return 0;
+    Function();
+    std::cout << GlobalValue << '\n';
+    // std::cout << LocalValue << '\n'; // 이름을 찾을 수 없음
 }
 ```
----
-## 암시적 변환을 그냥 넘기지 않기
 
-* **스코프의 우선순위:** 전역 변수와 지역 변수의 이름이 같으면 **지역 변수**가 우선
-* **좁히기 변환:** 더 좁은 정수형으로 바꿀 때 원래 값이 대상 범위에 있는지 먼저 확인한다. 중괄호 초기화는 일부 좁히기 변환을 컴파일 단계에서 막아 준다.
-* **나눗셈 연산:** 확률이나 비율 계산 시 `int / int`를 수행하여 결과가 0이 되는 버그가 빈번함. 반드시 `(float)` 캐스팅을 기억할 것
+스코프는 실제 메모리 주소의 범위가 아니라 **이름 검색에 관한 소스 코드 규칙**이다.
 
----
+## 중괄호는 새로운 블록 스코프를 만든다
 
-## C 스타일 캐스트보다 의도를 드러내기
+함수 몸체뿐 아니라 일반 중괄호도 새로운 블록 스코프를 만든다.
 
-### 연산자 우선순위와 괄호
+```cpp
+#include <iostream>
 
-* `a + b * c` 처럼 연산자가 섞여 있을 때 우선순위가 헷갈린다면, 굳이 외우려 하지 말고 **괄호 `()`**를 사용하는 것이 가장 좋음
-* **예시:** `(a + b) * c` 또는 `a + (b * c)`
-* 이는 컴파일러에게 의도를 명확히 전달하고, 코드를 읽는 사람(협업자)에게도 가독성을 제공
+int main()
+{
+    int outer = 10;
 
-`(float)max`보다 `static_cast<float>(max)`가 검색하기 쉽고 허용하려는 변환 종류도 분명하다. 캐스트가 반복된다면 타입 설계나 계산 순서가 잘못된 것은 아닌지도 확인한다.
+    {
+        int inner = 20;
+        std::cout << outer << '\n';
+        std::cout << inner << '\n';
+    }
 
-## 마무리
+    std::cout << outer << '\n';
+    // std::cout << inner << '\n'; // 블록 밖에서는 사용할 수 없음
+}
+```
 
-스코프는 이름 검색 규칙이고, 저장 기간은 객체가 살아 있는 시간이며, 캐스팅은 값을 다른 타입으로 변환하는 행위다. 서로 다른 문제를 “메모리 바구니” 하나로 묶지 않아야 정확한 코드를 작성할 수 있다.
+안쪽 블록에서는 바깥쪽 스코프의 이름을 찾을 수 있다. 반대로 바깥쪽에서는 안쪽 블록에만 선언된 이름을 찾을 수 없다.
+
+블록은 단순히 이름을 숨기는 용도로만 사용하지 않는다. 자동 저장 기간을 가진 지역 객체는 일반적으로 선언된 블록을 벗어날 때 수명을 마친다.
+
+```cpp
+int main()
+{
+    {
+        const int TemporaryValue = 10;
+        // TemporaryValue를 사용하는 구간
+    }
+
+    // TemporaryValue의 이름도 보이지 않고 객체의 수명도 끝남
+}
+```
+
+다만 지난 글에서 본 `static` 지역 변수처럼 이름의 스코프와 객체의 저장 기간이 다를 수 있으므로 둘을 완전히 같은 개념으로 취급하면 안 된다.
+
+## 선언된 위치부터 이름을 사용할 수 있다
+
+지역 변수는 같은 블록 안이라고 해서 선언보다 앞에서 사용할 수 있는 것이 아니다.
+
+```cpp
+int main()
+{
+    // score = 100; // 아직 score가 선언되지 않음
+    int score = 0;
+    score = 100;
+}
+```
+
+따라서 변수를 사용할 위치와 가까운 곳에서 필요한 값으로 초기화하면 이름이 사용되는 범위를 좁힐 수 있다.
+
+```cpp
+int damage = 0;
+
+if (isCritical)
+{
+    constexpr int CriticalMultiplier = 2;
+    damage = attack * CriticalMultiplier;
+}
+```
+
+`CriticalMultiplier`는 치명타 계산 블록 안에서만 의미가 있으므로 더 넓은 스코프에 둘 필요가 없다.
+
+## 함수 매개변수도 지역 이름이다
+
+함수의 매개변수 이름은 함수 정의의 몸체 안에서 사용할 수 있다.
+
+```cpp
+int Add(int left, int right)
+{
+    int result = left + right;
+    return result;
+}
+```
+
+`left`, `right`, `result`는 `Add` 함수 밖에서 이름으로 접근할 수 없다. 다른 함수에서 같은 이름을 선언해도 서로 다른 스코프에 속한다.
+
+```cpp
+int Multiply(int left, int right)
+{
+    int result = left * right;
+    return result;
+}
+```
+
+두 함수의 `left`, `right`, `result`는 이름만 같을 뿐 서로 다른 객체다.
+
+## `for`문의 초기화 변수는 반복문 안에서만 보인다
+
+`for`문의 초기화 부분에 선언한 변수는 조건식, 증감식, 반복문 몸체에서 사용할 수 있다.
+
+```cpp
+for (int i = 0; i < 5; ++i)
+{
+    std::cout << i << '\n';
+}
+
+// std::cout << i << '\n'; // for문 밖에서는 사용할 수 없음
+```
+
+반복이 끝난 뒤 인덱스가 필요하지 않다면 `for`문 안에 선언하는 편이 스코프를 정확히 표현한다.
+
+반복문 밖에서도 값이 필요하다면 의도적으로 바깥에 선언할 수 있다.
+
+```cpp
+int i = 0;
+
+for (; i < 5; ++i)
+{
+    std::cout << i << '\n';
+}
+
+std::cout << "Final index: " << i << '\n';
+```
+
+변수 스코프를 넓히는 것은 문법 문제가 아니라 이후 코드에서도 그 이름과 값이 필요하다는 설계 결정이다.
+
+## C++17의 `if` 초기화문으로 스코프를 제한할 수 있다
+
+C++17부터 `if` 조건 앞에 초기화문을 작성할 수 있다.
+
+```cpp
+if (int result = CalculateScore(); result >= 100)
+{
+    std::cout << "High score: " << result << '\n';
+}
+else
+{
+    std::cout << "Score: " << result << '\n';
+}
+```
+
+`result`는 `if`와 `else`에서 사용할 수 있지만 해당 조건문이 끝나면 이름이 보이지 않는다.
+
+```cpp
+// std::cout << result << '\n'; // if문 밖에서는 사용할 수 없음
+```
+
+임시 결과를 검사한 뒤 더 이상 사용할 필요가 없을 때 스코프를 짧게 유지할 수 있다.
+
+## 안쪽 선언은 바깥쪽의 같은 이름을 가린다
+
+안쪽 스코프에서 바깥쪽과 같은 이름을 선언하면, 안쪽에서는 가까운 선언이 선택된다. 이를 이름 가림(Name hiding) 또는 섀도잉(Shadowing)이라고 한다.
+
+```cpp
+#include <iostream>
+
+int Hp = 100;
+
+int main()
+{
+    int Hp = 20;
+    std::cout << Hp << '\n'; // 지역 Hp인 20
+}
+```
+
+지역 `Hp`가 존재하는 동안 같은 이름의 전역 `Hp`는 가려진다. 전역 namespace의 이름은 범위 지정 연산자 `::`로 명시할 수 있다.
+
+```cpp
+std::cout << Hp << '\n';   // 지역 Hp
+std::cout << ::Hp << '\n'; // 전역 Hp
+```
+
+문법적으로 접근할 수 있다고 해서 같은 이름을 사용하는 설계가 좋은 것은 아니다. 전역과 지역의 의미가 다르다면 이름도 다르게 정하는 편이 읽기 쉽다.
+
+```cpp
+int DefaultHp = 100;
+
+int main()
+{
+    int currentHp = 20;
+}
+```
+
+이름을 통해 기본값과 현재 상태의 역할이 구분된다.
+
+## 중첩 블록의 이름 가림은 블록을 벗어나면 끝난다
+
+안쪽 블록에서 같은 이름을 다시 선언할 수도 있다.
+
+```cpp
+#include <iostream>
+
+int main()
+{
+    int value = 10;
+    std::cout << value << '\n'; // 10
+
+    {
+        int value = 20;
+        std::cout << value << '\n'; // 20
+    }
+
+    std::cout << value << '\n'; // 다시 바깥 value인 10
+}
+```
+
+안쪽 `value`는 새로운 객체다. 바깥 `value`의 값을 잠시 바꾼 것이 아니므로 안쪽 블록을 벗어나면 바깥 객체의 값 10이 그대로 보인다.
+
+이름 가림은 짧은 예제에서는 동작이 분명해 보이지만 실제 코드에서는 어떤 객체를 사용하는지 혼동하게 만들 수 있다. 특별한 이유가 없다면 가까운 중첩 스코프에서도 같은 이름을 반복하지 않는 편이 좋다.
+
+## namespace는 이름 충돌을 줄인다
+
+서로 다른 기능에서 같은 이름이 필요할 때 namespace로 이름을 그룹화할 수 있다.
+
+```cpp
+namespace Player
+{
+    constexpr int MaxHp = 100;
+}
+
+namespace Monster
+{
+    constexpr int MaxHp = 500;
+}
+```
+
+범위 지정 연산자로 어떤 이름을 사용할지 명시한다.
+
+```cpp
+int playerHp = Player::MaxHp;
+int monsterHp = Monster::MaxHp;
+```
+
+`using namespace` 지시문은 namespace 안의 이름을 현재 범위의 이름 검색에 참여시킨다.
+
+```cpp
+using namespace Player;
+```
+
+작은 예제에서는 입력을 줄일 수 있지만 이름의 출처가 보이지 않고 다른 라이브러리와 충돌할 가능성이 커진다. 특히 헤더 파일이나 넓은 스코프에서는 사용하지 않는 편이 좋다.
+
+필요한 이름 하나만 가져올 수도 있다.
+
+```cpp
+using Player::MaxHp;
+```
+
+하지만 `Player::MaxHp`처럼 출처를 직접 적는 것이 더 분명하다면 굳이 `using` 선언을 추가할 필요는 없다.
+
+## 타입 변환은 같은 값을 다른 타입으로 표현하려는 과정이다
+
+타입 변환(Type conversion)은 한 타입의 값을 다른 타입의 값으로 바꾸는 과정이다.
+
+```cpp
+int count = 10;
+double preciseCount = count;
+```
+
+두 번째 문장에서 `int` 값 10은 `double` 값 10.0으로 변환된다. 원본 변수 `count`의 타입과 값은 바뀌지 않는다.
+
+```text
+count
+int 10
+  │
+  └── double로 변환 ──→ preciseCount
+                         double 10.0
+```
+
+캐스트는 기존 객체의 타입을 메모리에서 직접 바꾸는 작업이 아니다. 표현식을 대상 타입의 값으로 변환해 새로운 결과를 만드는 것이다.
+
+## 암시적 변환은 컴파일러가 필요한 위치에서 수행한다
+
+개발자가 캐스트를 직접 적지 않아도 언어 규칙에 따라 변환이 일어날 수 있다.
+
+```cpp
+int count = 10;
+double result = count;
+```
+
+이런 변환을 암시적 변환(Implicit conversion)이라고 한다.
+
+산술 연산에서도 공통 타입을 만들기 위해 변환이 발생한다.
+
+```cpp
+int count = 5;
+double scale = 0.5;
+
+double result = count * scale;
+```
+
+`count`가 `double`로 변환된 뒤 5.0과 0.5를 곱한다. 결과 타입도 `double`이다.
+
+함수 호출에서도 인자를 매개변수 타입으로 변환할 수 있다.
+
+```cpp
+void PrintValue(double value)
+{
+    std::cout << value << '\n';
+}
+
+int main()
+{
+    int number = 10;
+    PrintValue(number); // int 10을 double 10.0으로 변환
+}
+```
+
+암시적 변환은 편리하지만 정보가 손실되는 변환까지 코드에 조용히 들어갈 수 있다.
+
+## 값의 범위가 넓어 보여도 모든 값을 정확히 담는 것은 아니다
+
+일반적으로 더 넓은 타입으로 변환하면 안전하다고 생각하기 쉽다.
+
+```cpp
+short small = 100;
+int large = small;
+```
+
+대상 환경에서 `int`가 `short`의 모든 값을 표현할 수 있다면 원래 값이 그대로 유지된다.
+
+하지만 정수를 부동소수점으로 바꾸는 경우에는 표현 범위가 넓어도 정밀도 때문에 모든 정수를 정확히 표현하지 못할 수 있다.
+
+```cpp
+#include <iomanip>
+#include <iostream>
+
+int main()
+{
+    int original = 16'777'217;
+    float converted = static_cast<float>(original);
+
+    std::cout << original << '\n';
+    std::cout << std::fixed << std::setprecision(0) << converted << '\n';
+}
+```
+
+IEEE 754 방식의 일반적인 32비트 `float`에서는 16,777,217을 정확히 표현하지 못해 16,777,216과 같은 인접한 값으로 반올림될 수 있다.
+
+타입의 바이트 크기나 최대 지수 범위만 보고 변환의 정확성을 판단해서는 안 된다. 정수는 표현 범위, 부동소수점은 유효 자릿수도 함께 확인해야 한다.
+
+## 좁히기 변환은 원래 정보를 잃을 수 있다
+
+더 넓은 범위의 타입에서 더 좁은 범위의 타입으로 바꾸면 원래 값을 대상 타입에서 표현하지 못할 수 있다.
+
+```cpp
+int original = 77'777;
+short converted = original;
+```
+
+`short`가 77,777을 표현하지 못한다면 변환 결과는 원래 값과 달라진다. 이를 단순히 모든 환경에서 “상위 바이트를 물리적으로 잘라낸다”고 설명하면 안 된다. C++은 타입 사이의 **값 변환 규칙**을 정의하며, 구체적인 결과는 대상 타입과 C++ 표준 버전의 규칙에 영향을 받을 수 있다.
+
+중괄호 초기화는 일부 좁히기 변환을 컴파일 오류로 막아 준다.
+
+```cpp
+double ratio = 0.75;
+int count = 1000;
+
+// int first{ratio};   // 실수에서 정수로 좁히기
+// short second{count}; // 실행 중 값의 좁히기 가능성
+```
+
+반면 `=` 초기화나 대입에서는 변환이 허용될 수 있다.
+
+```cpp
+int first = ratio;    // 0
+short second = count; // count가 short 범위 안이면 값 유지
+```
+
+컴파일된다는 사실은 값이 안전하게 유지된다는 보장이 아니다.
+
+## 명시적 캐스트는 변환 의도를 코드에 적는다
+
+개발자가 대상 타입을 직접 지정하는 것을 명시적 변환이라고 한다.
+
+```cpp
+double ratio = 0.75;
+int count = static_cast<int>(ratio);
+```
+
+`static_cast<int>`는 `double`을 `int`로 바꾸려는 의도를 분명히 보여준다. 결과는 소수 부분을 0 방향으로 버린 0이다.
+
+명시적 캐스트를 작성했다고 해서 위험한 값이 자동으로 안전해지는 것은 아니다.
+
+```cpp
+int original = 77'777;
+short converted = static_cast<short>(original);
+```
+
+캐스트는 “이 변환을 의도했다”는 표시이지, 대상 타입의 범위를 검사하는 기능이 아니다. 변환 전에 값이 표현 가능한 범위에 있는지 확인해야 한다.
+
+## 정수에서 정수로 변환할 때 범위를 확인한다
+
+더 좁은 부호 있는 타입으로 변환해야 한다면 대상 타입의 최솟값과 최댓값을 검사할 수 있다.
+
+```cpp
+#include <limits>
+
+bool TryConvertToShort(int value, short& result)
+{
+    if (value < std::numeric_limits<short>::min() || value > std::numeric_limits<short>::max())
+    {
+        return false;
+    }
+
+    result = static_cast<short>(value);
+    return true;
+}
+```
+
+호출자는 성공 여부와 변환 결과를 구분한다.
+
+```cpp
+#include <iostream>
+
+int main()
+{
+    short result = 0;
+
+    if (TryConvertToShort(30'000, result))
+    {
+        std::cout << result << '\n';
+    }
+    else
+    {
+        std::cout << "short 범위를 벗어났습니다.\n";
+    }
+}
+```
+
+C++20에는 정수 값이 대상 정수 타입의 범위 안에 있는지 검사하는 `std::in_range`도 있다.
+
+```cpp
+#include <utility>
+
+if (std::in_range<short>(value))
+{
+    short converted = static_cast<short>(value);
+}
+```
+
+직접 최솟값과 최댓값을 비교할 때 Signed와 Unsigned가 섞이면 검사식 자체에서 변환 문제가 생길 수 있다. 여러 정수 타입을 일반적으로 처리해야 한다면 표준 라이브러리의 범위 검사 기능이 유용하다.
+
+## 부호 있는 정수를 부호 없는 타입으로 바꾸는 규칙
+
+정수를 부호 없는 타입으로 변환하면 결과가 대상 타입의 범위에 들어오도록 값의 개수를 기준으로 순환한다.
+
+```cpp
+#include <iostream>
+#include <limits>
+
+int main()
+{
+    int signedValue = -1;
+    unsigned int unsignedValue = static_cast<unsigned int>(signedValue);
+
+    std::cout << unsignedValue << '\n';
+    std::cout << std::numeric_limits<unsigned int>::max() << '\n';
+}
+```
+
+두 출력은 같다. `unsigned int`의 값 개수가 $2^N$개라면 결과는 원래 정수와 합동인 범위 내 값으로 정해진다.
+
+```text
+-1 → unsigned int의 최댓값
+-2 → unsigned int의 최댓값 - 1
+```
+
+이것은 단순히 같은 메모리 비트를 다른 방식으로 읽는 규칙이 아니라 정수 값의 변환 규칙이다.
+
+변환 결과가 표준에 정의돼 있더라도 프로그램 의미상 올바르다는 뜻은 아니다. 남은 체력 `-1`이 거대한 양수 체력으로 바뀌면 게임 규칙에는 맞지 않는다.
+
+## 부호 없는 값을 부호 있는 타입으로 바꿀 때도 범위를 확인한다
+
+부호 없는 값이 대상 부호 있는 타입에서 표현 가능하면 값이 그대로 유지된다.
+
+```cpp
+unsigned int source = 100;
+int destination = static_cast<int>(source); // int가 100을 표현할 수 있으므로 100
+```
+
+대상 부호 있는 타입의 최댓값보다 큰 값은 표준 버전과 구현 규칙까지 고려해야 하며, 사람이 기대하는 음수가 된다고 가정해서는 안 된다.
+
+```cpp
+unsigned int source = std::numeric_limits<unsigned int>::max();
+// int destination = static_cast<int>(source); // 결과에 의존하지 않기
+```
+
+변환이 필요하다면 먼저 `std::in_range<int>(source)`처럼 표현 범위를 검사한다.
+
+## 실수를 정수로 바꾸면 소수 부분을 0 방향으로 버린다
+
+부동소수점 값을 정수 타입으로 변환하면 소수 부분은 0 방향으로 버린다.
+
+```cpp
+int first = static_cast<int>(3.9);  // 3
+int second = static_cast<int>(-3.9); // -3
+```
+
+반올림, 올림, 내림과는 다른 동작이다.
+
+```text
+static_cast<int>(3.9)   → 3
+static_cast<int>(-3.9)  → -3
+
+floor(-3.9)             → -4
+```
+
+원하는 정책이 반올림이라면 `std::round`, 내림이라면 `std::floor`, 올림이라면 `std::ceil`처럼 목적에 맞는 함수를 사용한다. 그 결과를 정수로 바꿀 때도 대상 정수 타입의 범위를 확인해야 한다.
+
+NaN, 무한대, 또는 대상 정수 타입이 표현할 수 없는 크기의 유한값을 정수로 변환하면 정의되지 않은 동작이 발생할 수 있다.
+
+```cpp
+#include <cmath>
+#include <limits>
+
+bool CanConvertToInt(double value)
+{
+    if (!std::isfinite(value))
+    {
+        return false;
+    }
+
+    return value >= std::numeric_limits<int>::min() && value <= std::numeric_limits<int>::max();
+}
+```
+
+실제 변환 정책에서는 소수 부분을 허용할지, 반올림 후 범위를 검사할지도 함께 정해야 한다.
+
+## 정수 나눗셈은 결과를 저장하기 전에 끝난다
+
+타입 변환을 이용해 정수 나눗셈을 실수 나눗셈으로 바꿀 수 있다.
+
+```cpp
+int current = 123;
+int maximum = 1000;
+
+double wrong = current / maximum;
+double correct = static_cast<double>(current) / maximum;
+```
+
+`wrong`에서는 정수끼리 먼저 나누므로 결과는 0이고, 그 뒤 `double` 0.0으로 변환된다. `correct`에서는 피연산자 하나를 나눗셈 전에 `double`로 변환하므로 결과는 0.123이다.
+
+```text
+wrong
+123 / 1000 → int 0 → double 0.0
+
+correct
+123 → double 123.0
+123.0 / 1000.0 → double 0.123
+```
+
+캐스트의 위치가 계산 결과를 바꾼다. 결과 변수 앞에 캐스트를 붙이는 것이 아니라 어떤 연산을 어떤 타입으로 수행할지 결정해야 한다.
+
+## `bool` 변환은 0인지 아닌지를 판단한다
+
+정수와 포인터 등의 값은 조건이 필요한 문맥에서 `bool`로 변환될 수 있다.
+
+```cpp
+bool first = static_cast<bool>(0);  // false
+bool second = static_cast<bool>(-1); // true
+bool third = static_cast<bool>(42); // true
+```
+
+정수는 0일 때 `false`, 0이 아닐 때 `true`가 된다. 음수도 0이 아니므로 `true`다.
+
+반대로 `bool`을 정수로 변환하면 `false`는 0, `true`는 1이 된다.
+
+```cpp
+int first = static_cast<int>(false); // 0
+int second = static_cast<int>(true); // 1
+```
+
+이 규칙 때문에 대입 연산을 조건식에 잘못 작성해도 컴파일될 수 있다는 점을 앞에서 확인했다.
+
+## C 스타일 캐스트보다 C++ 캐스트를 사용한다
+
+C 스타일 캐스트는 대상 타입을 괄호 안에 적는다.
+
+```cpp
+double value = 3.14;
+int result = (int)value;
+```
+
+C++ 스타일로는 다음과 같이 작성한다.
+
+```cpp
+int result = static_cast<int>(value);
+```
+
+`static_cast`는 이름이 길지만 다음 장점이 있다.
+
+- 변환이 일어나는 위치를 검색하기 쉽다.
+- 어떤 종류의 변환을 의도했는지 드러난다.
+- 허용하지 않는 변환은 컴파일 단계에서 거부된다.
+- 괄호의 범위가 명확하다.
+
+C 스타일 캐스트는 상황에 따라 여러 C++ 캐스트를 조합한 것처럼 동작할 수 있어, 실제로 어떤 위험한 변환이 허용됐는지 코드에서 파악하기 어렵다.
+
+## C++의 네 가지 이름 있는 캐스트
+
+C++에는 목적이 다른 네 가지 캐스트가 있다.
+
+| 캐스트 | 대표적인 목적 |
+| :--- | :--- |
+| `static_cast` | 숫자 변환, 관련 타입 사이의 일반적인 명시적 변환 |
+| `const_cast` | `const`, `volatile` 한정자 조정 |
+| `reinterpret_cast` | 포인터·정수 표현을 저수준 관점에서 재해석 |
+| `dynamic_cast` | 다형 클래스 계층에서 실행 중 타입 확인 |
+
+현재 단계에서 숫자 타입 변환에는 대부분 `static_cast`를 사용한다. 나머지 캐스트는 포인터, 클래스, 상속, 다형성을 학습한 뒤 각각의 전제와 위험을 함께 다루는 것이 좋다.
+
+이름이 따로 존재한다는 것은 캐스트가 단순히 문법만 다른 같은 기능이 아니라는 뜻이다. 필요한 캐스트가 `reinterpret_cast`라면 값 변환이 아니라 메모리 표현과 포인터 관계를 다루고 있다는 신호다.
+
+## 캐스트가 많다면 타입 설계를 다시 확인한다
+
+캐스트는 필요한 변환을 명시하는 도구지만, 코드 곳곳에서 같은 변환이 반복된다면 데이터 타입 선택이 실제 의미와 맞지 않을 수 있다.
+
+```cpp
+int currentHp = 75;
+int maxHp = 100;
+
+double ratio = static_cast<double>(currentHp) / maxHp;
+```
+
+이 계산처럼 정수 상태에서 실수 비율을 만드는 경계가 한 곳에 명확히 드러난다면 자연스럽다.
+
+반면 값을 저장할 때마다 `int`, `short`, `unsigned int` 사이를 계속 오간다면 다음 질문을 확인한다.
+
+- 이 값에 음수가 필요한가?
+- 실제 최댓값은 얼마인가?
+- 외부 파일이나 네트워크 형식 때문에 폭이 고정돼야 하는가?
+- 계산용 타입과 저장용 타입을 분리해야 하는가?
+- 변환에 실패했을 때 어떤 정책을 사용할 것인가?
+
+경고를 없애기 위해 캐스트를 추가하는 것과 안전한 변환을 설계하는 것은 다르다.
+
+## 전체 실습 코드
+
+스코프, 이름 가림, 정수 범위 검사, 실수 변환을 한 코드에서 확인하는 예제다.
+
+```cpp
+#include <cmath>
+#include <iostream>
+#include <limits>
+
+int DefaultHp = 100;
+
+bool TryConvertToShort(int value, short& result)
+{
+    if (value < std::numeric_limits<short>::min() || value > std::numeric_limits<short>::max())
+    {
+        return false;
+    }
+
+    result = static_cast<short>(value);
+    return true;
+}
+
+bool CanConvertToInt(double value)
+{
+    if (!std::isfinite(value))
+    {
+        return false;
+    }
+
+    return value >= std::numeric_limits<int>::min() && value <= std::numeric_limits<int>::max();
+}
+
+int main()
+{
+    int currentHp = 75;
+    int maxHp = 100;
+
+    std::cout << "Default HP: " << DefaultHp << '\n';
+    std::cout << "Current HP: " << currentHp << '\n';
+
+    {
+        int currentHp = 25;
+        std::cout << "Inner current HP: " << currentHp << '\n';
+    }
+
+    std::cout << "Outer current HP: " << currentHp << '\n';
+
+    double hpRatio = static_cast<double>(currentHp) / maxHp;
+    std::cout << "HP ratio: " << hpRatio << '\n';
+
+    short converted = 0;
+
+    if (TryConvertToShort(30'000, converted))
+    {
+        std::cout << "Converted short: " << converted << '\n';
+    }
+
+    int signedValue = -1;
+    unsigned int unsignedValue = static_cast<unsigned int>(signedValue);
+    std::cout << "Unsigned -1: " << unsignedValue << '\n';
+
+    double preciseValue = 123.75;
+
+    if (CanConvertToInt(preciseValue))
+    {
+        int integerValue = static_cast<int>(preciseValue);
+        std::cout << "Integer value: " << integerValue << '\n';
+    }
+}
+```
+
+실행하면 다음 내용을 확인할 수 있다.
+
+- 안쪽 블록의 `currentHp`는 바깥 객체와 다른 객체다.
+- 안쪽 블록이 끝나면 다시 바깥 `currentHp`가 보인다.
+- 나눗셈 전에 `double`로 변환하면 실수 비율을 얻는다.
+- 좁은 정수 타입으로 변환하기 전에 표현 범위를 검사할 수 있다.
+- `-1`을 부호 없는 정수로 변환하면 해당 타입의 최댓값이 된다.
+- 실수를 정수로 변환하면 소수 부분을 0 방향으로 버린다.
+
+## 다음 학습: 조건에 따라 실행 경로 나누기
+
+스코프는 현재 위치에서 사용할 수 있는 이름을 결정하고, 타입 변환은 값을 다른 타입의 표현 범위로 옮긴다. 두 규칙 모두 컴파일되는 코드가 실제 의도까지 보장하지는 않으므로 이름의 출처와 변환 전후의 값 범위를 직접 확인해야 한다.
+
+다음 글에서는 비교와 논리 연산으로 만든 조건을 `if`, `else`, `switch`에 연결해 프로그램의 실행 경로를 나눈다.

@@ -1,182 +1,438 @@
 ---
 layout: post
-title: "[Algorithm 09] 그래프(Graph)의 개념과 표현 방식 (Adjacency Matrix vs List)"
+title: '[Algorithm 09] 그래프 표현: 인접 리스트와 인접 행렬'
 date: 2026-02-15
 categories: [Dev, Algorithm]
-tags: [C++, Graph, AdjacencyMatrix, AdjacencyList, DataStructure]
+tags: [C++, Graph, Adjacency List, Adjacency Matrix, Data Structure]
 use_math: true
 ---
 
-# [Algorithm] 그래프(Graph)의 정의와 표현 방식
+그래프(Graph)는 여러 대상과 그 사이의 연결 관계를 표현하는 자료구조다. 지도에서는 장소와 도로, 소셜 네트워크에서는 사용자와 관계, 게임에서는 지역과 이동 경로를 그래프로 나타낼 수 있다.
 
-## 1. 소스 코드 (Source Code)
+```text
+0 ⇄ 1 → 2
+│   │
+└→  3 → 4
+        ↑
+        5
+```
 
-### 1.1 그래프의 개념과 구현
-그래프는 정점(Vertex)과 간선(Edge)으로 이루어진 자료구조로, 현실 세계의 연결 관계(지도, 소셜 네트워크 등)를 표현하는 데 사용
-주로 **인접 리스트(Adjacency List)**와 **인접 행렬(Adjacency Matrix)** 두 가지 방식으로 구현
+같은 연결 관계도 메모리에 저장하는 방식에 따라 간선 확인, 이웃 순회와 메모리 사용량이 달라진다. 이번 글에서는 인접 리스트(Adjacency List)와 인접 행렬(Adjacency Matrix)을 비교한다.
+
+## 그래프는 정점과 간선으로 구성된다
+
+```text
+정점(Vertex): 연결의 대상
+간선(Edge):   두 정점 사이의 관계
+```
+
+그래프는 보통 다음 기호로 표현한다.
+
+$$
+G = (V, E)
+$$
+
+여기서 $V$는 정점 집합, $E$는 간선 집합이다. 복잡도에서도 정점 수를 $V$, 간선 수를 $E$로 구분해 사용한다.
+
+```text
+V = {0, 1, 2, 3, 4, 5}
+E = {(0,1), (0,3), (1,0), (1,2), (1,3), (3,4), (5,4)}
+```
+
+위 예제에는 정점 6개와 방향 간선 7개가 있다.
+
+## 방향 그래프와 무방향 그래프
+
+방향 그래프(Directed Graph)의 간선은 출발점과 도착점이 구분된다.
+
+```text
+0 → 1이 있어도 1 → 0이 자동으로 존재하지는 않음
+```
+
+웹페이지 링크, 일방통행 도로와 작업 의존 관계처럼 관계의 방향이 중요할 때 사용한다.
+
+무방향 그래프(Undirected Graph)의 간선은 양쪽으로 이동할 수 있는 하나의 관계다.
+
+```text
+0 ─ 1
+
+인접 리스트에 저장할 때
+0의 이웃에 1 추가
+1의 이웃에 0 추가
+```
+
+코드에서는 같은 관계를 두 방향 항목으로 저장하는 경우가 많다. 무방향 간선 수가 $E$개라면 인접 리스트에는 총 $2E$개의 이웃 번호가 들어가지만 점근적 공간은 여전히 $O(V+E)$다.
+
+## 차수는 정점에 연결된 간선 수다
+
+무방향 그래프에서 정점의 차수(Degree)는 그 정점과 연결된 간선 수다.
+
+방향 그래프에서는 들어오는 간선과 나가는 간선을 구분한다.
+
+```text
+진입 차수(In-degree):  정점으로 들어오는 간선 수
+진출 차수(Out-degree): 정점에서 나가는 간선 수
+```
+
+위 예제에서 정점 1의 나가는 간선은 `1→0`, `1→2`, `1→3`이므로 진출 차수는 3이다. 인접 리스트에서 `adjacent[1].size()`가 이 값과 같다.
+
+## 가중치 그래프는 간선에 비용을 저장한다
+
+가중치 그래프(Weighted Graph)는 연결 여부뿐 아니라 거리, 시간이나 비용을 간선에 함께 기록한다.
+
+```text
+0 ──15──→ 1
+0 ──35──→ 3
+1 ──10──→ 3
+```
+
+인접 리스트에서는 도착 정점과 가중치를 한 쌍으로 저장할 수 있다.
 
 ```cpp
-#include <iostream>
-#include <vector>
+struct Edge
+{
+    int to;
+    int weight;
+};
+
+std::vector<std::vector<Edge>> graph(vertexCount);
+graph[0].push_back({1, 15});
+graph[0].push_back({3, 35});
+```
+
+인접 행렬에서는 `matrix[from][to]`에 가중치를 저장한다. 연결되지 않은 상태를 `-1`로 표현하려면 실제 가중치로 `-1`을 사용하지 않는다는 조건이 필요하다. 문제 조건에 따라 별도의 연결 행렬, `std::optional<int>` 또는 충분히 큰 INF 값을 선택한다.
+
+## 인접 리스트는 각 정점의 이웃만 저장한다
+
+인접 리스트는 정점마다 밖으로 나가는 간선의 도착점을 모아 둔다.
+
+```cpp
+std::vector<std::vector<int>> adjacent(6);
+adjacent[0] = {1, 3};
+adjacent[1] = {0, 2, 3};
+adjacent[3] = {4};
+adjacent[5] = {4};
+```
+
+텍스트로 펼치면 다음과 같다.
+
+```text
+0: 1, 3
+1: 0, 2, 3
+2: 없음
+3: 4
+4: 없음
+5: 4
+```
+
+간선이 없는 정점도 빈 목록을 가져야 하므로 정점 목록에 $O(V)$ 공간이 필요하다. 전체 이웃 번호는 방향 그래프에서 $E$개이므로 총 공간 복잡도는 다음과 같다.
+
+$$
+O(V + E)
+$$
+
+### 특정 간선이 있는지 확인한다
+
+`0 → 3` 간선을 찾으려면 0의 이웃 목록을 순회한다.
+
+```cpp
+bool HasEdge(const std::vector<std::vector<int>>& graph, int from, int to)
+{
+    const std::vector<int>& neighbors = graph[from];
+    return std::find(neighbors.begin(), neighbors.end(), to) != neighbors.end();
+}
+```
+
+정점 `from`의 진출 차수를 $\deg^+(from)$이라고 하면 확인 비용은 다음과 같다.
+
+$$
+O(\deg^+(from))
+$$
+
+`std::find`를 사용해 코드가 짧아져도 내부에서는 이웃을 앞에서부터 비교한다. 목록을 정렬해 이진 탐색을 사용하거나 정점별 hash set을 둘 수도 있지만, 삽입 비용과 메모리 사용량이 달라진다.
+
+### 한 정점의 모든 이웃을 순회한다
+
+```cpp
+for (int next : adjacent[here])
+{
+    Visit(next);
+}
+```
+
+실제로 존재하는 이웃만 확인하므로 비용은 $O(\deg^+(here))$다. 모든 정점의 이웃 목록을 한 번씩 순회하면 전체 간선을 한 번씩 보게 돼 $O(V+E)$가 된다.
+
+## 인접 행렬은 모든 정점 쌍의 칸을 만든다
+
+정점이 $V$개라면 $V \times V$ 크기의 2차원 표를 만든다.
+
+```text
+행: From
+열: To
+
+      0  1  2  3  4  5
+   ┌──────────────────
+0  │ 0  1  0  1  0  0
+1  │ 1  0  1  1  0  0
+2  │ 0  0  0  0  0  0
+3  │ 0  0  0  0  1  0
+4  │ 0  0  0  0  0  0
+5  │ 0  0  0  0  1  0
+```
+
+```cpp
+std::vector<std::vector<bool>> adjacent(6, std::vector<bool>(6, false));
+adjacent[0][1] = true;
+adjacent[0][3] = true;
+adjacent[1][0] = true;
+adjacent[1][2] = true;
+adjacent[1][3] = true;
+adjacent[3][4] = true;
+adjacent[5][4] = true;
+```
+
+`adjacent[from][to]`를 바로 읽을 수 있으므로 특정 간선 확인은 $O(1)$이다.
+
+```cpp
+bool connected = adjacent[0][3];
+```
+
+반면 정점 하나의 모든 이웃을 찾으려면 그 행의 $V$칸을 전부 확인해야 한다.
+
+```cpp
+for (int next = 0; next < vertexCount; ++next)
+{
+    if (adjacent[here][next])
+    {
+        Visit(next);
+    }
+}
+```
+
+이웃 수가 한 개뿐이어도 순회 비용은 $O(V)$다. 모든 정점에서 행 전체를 확인하는 탐색은 $O(V^2)$가 된다.
+
+행렬은 실제 간선 수와 관계없이 모든 정점 쌍의 칸을 만들기 때문에 공간도 $O(V^2)$다.
+
+## 행렬의 대칭으로 방향 여부를 읽을 수 있다
+
+무방향 그래프에서는 `u-v` 간선을 양쪽 칸에 기록한다.
+
+```cpp
+matrix[u][v] = true;
+matrix[v][u] = true;
+```
+
+그래서 주대각선을 기준으로 행렬이 대칭이다.
+
+$$
+matrix[u][v] = matrix[v][u]
+$$
+
+방향 그래프에서는 두 값이 서로 다를 수 있다.
+
+```text
+matrix[3][4] = 1
+matrix[4][3] = 0
+
+3 → 4는 존재
+4 → 3은 존재하지 않음
+```
+
+자기 자신으로 향하는 self-loop를 허용하면 주대각선 `matrix[v][v]`도 1이 될 수 있다. 중복 간선을 허용하는 multigraph에서는 bool 행렬만으로 간선 개수를 모두 표현할 수 없으므로 개수나 간선 목록을 따로 저장해야 한다.
+
+## 두 표현 방식의 연산 비용
+
+방향 그래프를 기준으로 대표 비용을 비교하면 다음과 같다.
+
+| 작업 | 인접 리스트 | 인접 행렬 |
+|---|---:|---:|
+| 저장 공간 | $O(V+E)$ | $O(V^2)$ |
+| `u → v` 존재 확인 | $O(\deg^+(u))$ | $O(1)$ |
+| `u`의 모든 이웃 순회 | $O(\deg^+(u))$ | $O(V)$ |
+| 간선 추가 | 보통 분할 상환 $O(1)$ | $O(1)$ |
+| 간선 삭제 | $O(\deg^+(u))$ | $O(1)$ |
+| 전체 DFS·BFS | $O(V+E)$ | $O(V^2)$ |
+
+인접 리스트의 간선 추가 비용은 이웃을 `vector` 뒤에 넣고 중복 확인이나 정렬을 하지 않는 경우다. 중복 간선을 막기 위해 먼저 탐색한다면 그 확인 비용이 추가된다.
+
+인접 행렬에서 간선 삭제는 해당 칸을 `false`로 바꾸면 된다. 인접 리스트에서는 이웃 목록에서 정점을 먼저 찾고 제거해야 한다.
+
+## 희소 그래프와 밀집 그래프
+
+가능한 방향 간선 수는 self-loop를 제외하면 최대 $V(V-1)$개다. 무방향 그래프는 최대 $V(V-1)/2$개다.
+
+```text
+희소 그래프(Sparse Graph)
+실제 E가 가능한 최대 간선 수보다 훨씬 적음
+→ 인접 리스트가 빈 관계를 저장하지 않아 유리
+
+밀집 그래프(Dense Graph)
+E가 V²에 가까움
+→ 행렬의 O(V²) 공간이 상대적으로 덜 낭비되고 간선 확인이 빠름
+```
+
+정점이 100,000개라면 행렬 칸은 $10^{10}$개다. 칸당 1바이트라고 단순 가정해도 약 10GB가 필요하고, 실제 표현과 컨테이너 오버헤드에 따라 달라진다. `std::vector<bool>`은 비트를 압축하는 특수화라 수치가 다르지만 공간 차수는 여전히 $O(V^2)$다.
+
+표현 방식을 고를 때 “어떤 종류의 현실 데이터인가”보다 실제 $V$, $E$와 수행할 연산을 본다. 간선 존재 여부를 매우 자주 묻는 작은 그래프라면 행렬이 편하고, 큰 희소 그래프에서 이웃을 순회한다면 리스트가 자연스럽다.
+
+## 정점 포인터로 이웃을 저장하는 방식
+
+정점 객체가 다른 정점의 주소를 직접 저장할 수도 있다.
+
+```cpp
+struct Vertex
+{
+    std::vector<Vertex*> edges;
+};
+```
+
+```text
+[Vertex 0] ──pointer──→ [Vertex 1]
+     └─────pointer──→ [Vertex 3]
+```
+
+정점 번호를 다시 조회하지 않고 객체로 이동할 수 있지만 주소 안정성을 고려해야 한다. 정점을 `std::vector<Vertex>`에 저장한 뒤 capacity가 증가하면 재할당으로 기존 정점 주소가 바뀔 수 있다.
+
+```cpp
+std::vector<Vertex> vertices;
+vertices.resize(6);
+vertices[0].edges.push_back(&vertices[1]);
+```
+
+이 상태에서 `vertices`가 재할당되면 저장해 둔 포인터가 무효가 될 수 있다. 정점 개수를 먼저 확정하거나 주소가 안정적인 소유 구조를 사용해야 한다.
+
+정점 번호를 저장하는 인접 리스트는 컨테이너가 이동해도 번호 자체는 바뀌지 않아 직렬화와 디버깅에도 편리하다.
+
+```cpp
+std::vector<std::vector<int>> adjacent;
+```
+
+포인터와 정점 번호 중 어느 하나가 항상 정답인 것은 아니다. 객체 수명, 정점 추가·삭제, ID 안정성과 데이터 접근 방식을 기준으로 고른다.
+
+## 전체 예제
+
+다음 코드는 같은 방향 그래프를 인접 리스트와 인접 행렬에 각각 저장한다. 두 표현이 같은 간선 수와 연결 관계를 나타내는지 확인한다.
+
+```cpp
 #include <algorithm>
-using namespace std;
+#include <cassert>
+#include <iostream>
+#include <utility>
+#include <vector>
 
-// 1. 포인터 기반 연결 (Pointer-based Implementation)
-// 트리 구조와 유사하게 노드가 직접 다음 노드의 주소를 가리키는 방식
-void CreateGraph_Pointer()
+using Edge = std::pair<int, int>;
+
+std::vector<std::vector<int>> BuildList(int vertexCount, const std::vector<Edge>& edges)
 {
-    struct Vertex
+    std::vector<std::vector<int>> graph(vertexCount);
+
+    for (auto [from, to] : edges)
     {
-        vector<Vertex*> Edges; // 간선 목록 (연결된 정점들의 포인터)
-    };
-
-    vector<Vertex> v;
-    v.resize(6);
-
-    // 정점 간 연결 (Edge 생성)
-    v[0].Edges.push_back(&v[1]);
-    v[0].Edges.push_back(&v[3]);
-    v[1].Edges.push_back(&v[0]);
-    v[1].Edges.push_back(&v[2]);
-    v[1].Edges.push_back(&v[3]);
-    v[3].Edges.push_back(&v[4]);
-    v[5].Edges.push_back(&v[4]);
-
-    // 연결 확인 (Connection Check): 0번 -> 3번 연결 여부
-    bool bConnected = false;
-    // 연결된 모든 간선을 순회해야 하므로 O(Edges) 시간 소요
-    for (Vertex* edge : v[0].Edges)
-    {
-        if (edge == &v[3])
-        {
-            bConnected = true;
-            break;
-        }
-    }
-}
-
-// 2. 인접 리스트 (Adjacency List)
-// 가장 일반적인 그래프 표현 방식
-// vector<vector<int>>를 사용하여 각 정점에 연결된 '상대 정점의 인덱스'를 저장
-void CreateGraph_AdjacencyList()
-{
-    // 정점의 개수 설정
-    const int VertexCount = 6;
-
-    // Adjacent[n] -> n번째 정점과 연결된 정점들의 목록
-    vector<vector<int>> Adjacent(VertexCount);
-
-    // 간선 정보 입력
-    Adjacent[0] = { 1, 3 };
-    Adjacent[1] = { 0, 2, 3 };
-    Adjacent[3] = { 4 };
-    Adjacent[5] = { 4 };
-
-    // [특징]
-    // 지하철 노선도처럼 희소 그래프(Sparse Graph) 표현에 유리함
-    // 메모리 사용량: O(V + E) (정점 + 간선 개수만큼만 사용)
-
-    // 연결 확인: 0번 -> 3번 연결 여부
-    bool bConnected = false;
-    for (int vertex : Adjacent[0])
-    {
-        if (vertex == 3)
-        {
-            bConnected = true;
-            break;
-        }
+        graph[from].push_back(to);
     }
 
-    // STL 활용 버전 (std::find)
-    vector<int>& adj = Adjacent[0];
-    bool bConnected2 = (std::find(adj.begin(), adj.end(), 3) != adj.end());
+    return graph;
 }
 
-// 3. 인접 행렬 (Adjacency Matrix)
-// 2차원 배열을 사용하여 정점 간의 연결 관계를 O(1)로 확인하는 방식
-void CreateGraph_AdjacencyMatrix()
+std::vector<std::vector<bool>> BuildMatrix(int vertexCount, const std::vector<Edge>& edges)
 {
-    // [Visualization]
-    // [X][O][X][O][X][X]  <- 0번 정점 연결 상태
-    // [O][X][O][O][X][X]  <- 1번 정점 연결 상태
-    // ...
+    std::vector<std::vector<bool>> graph(vertexCount, std::vector<bool>(vertexCount, false));
 
-    // 읽는 방법: Adjacent[From][To]
-    // 값이 true면 연결됨, false면 연결 안 됨
-    vector<vector<bool>> Adjacent(6, vector<bool>(6, false));
-
-    Adjacent[0][1] = true;
-    Adjacent[0][3] = true;
-    Adjacent[1][0] = true;
-    Adjacent[1][2] = true;
-    Adjacent[1][3] = true;
-    Adjacent[3][4] = true;
-    Adjacent[5][4] = true;
-
-    // [특징]
-    // 페이스북 친구 관계처럼 밀집 그래프(Dense Graph) 표현에 유리함.
-    // 메모리 소모가 큼 O(V^2), 하지만 접근 속도는 가장 빠름 O(1).
-
-    // 연결 확인: 0번 -> 3번 (즉시 확인 가능)
-    bool bConnected = Adjacent[0][3];
-
-    // [응용] 가중치 그래프 (Weighted Graph)
-    // 연결 여부(bool) 대신 가중치(int)를 저장.
-    // 연결되지 않은 경우 -1 혹은 무한대(INF)로 표현.
-    vector<vector<int>> WeightedAdj =
+    for (auto [from, to] : edges)
     {
-        // 0   1   2   3   4   5
-        { -1, 15, -1, 35, -1, -1 }, // Node 0
-        { 15, -1, +5, 10, -1, -1 }, // Node 1
-        { -1, -1, -1, -1, -1, -1 }, // Node 2
-        { -1, -1, -1, -1, +5, -1 }, // Node 3
-        { -1, -1, -1, -1, -1, -1 }, // Node 4
-        { -1, -1, -1, -1, +5, -1 }, // Node 5
-    };
+        graph[from][to] = true;
+    }
+
+    return graph;
+}
+
+bool HasEdge(const std::vector<std::vector<int>>& graph, int from, int to)
+{
+    const std::vector<int>& neighbors = graph[from];
+    return std::find(neighbors.begin(), neighbors.end(), to) != neighbors.end();
+}
+
+int CountListEdges(const std::vector<std::vector<int>>& graph)
+{
+    int count = 0;
+
+    for (const std::vector<int>& neighbors : graph)
+    {
+        count += static_cast<int>(neighbors.size());
+    }
+
+    return count;
+}
+
+int CountMatrixEdges(const std::vector<std::vector<bool>>& graph)
+{
+    int count = 0;
+
+    for (const std::vector<bool>& row : graph)
+    {
+        count += static_cast<int>(std::count(row.begin(), row.end(), true));
+    }
+
+    return count;
 }
 
 int main()
 {
-    CreateGraph_Pointer();
-    CreateGraph_AdjacencyList();
-    CreateGraph_AdjacencyMatrix();
+    const std::vector<Edge> edges{{0, 1}, {0, 3}, {1, 0}, {1, 2}, {1, 3}, {3, 4}, {5, 4}};
+    std::vector<std::vector<int>> list = BuildList(6, edges);
+    std::vector<std::vector<bool>> matrix = BuildMatrix(6, edges);
+
+    assert(HasEdge(list, 0, 3));
+    assert(matrix[0][3]);
+    assert(!HasEdge(list, 3, 0));
+    assert(!matrix[3][0]);
+    assert(CountListEdges(list) == CountMatrixEdges(matrix));
+
+    std::cout << std::boolalpha;
+    std::cout << "0 -> 3: " << HasEdge(list, 0, 3) << '\n';
+    std::cout << "3 -> 0: " << HasEdge(list, 3, 0) << '\n';
+    std::cout << "neighbors of 1:";
+
+    for (int next : list[1])
+    {
+        std::cout << ' ' << next;
+    }
+
+    std::cout << '\n';
+    std::cout << "list edges: " << CountListEdges(list) << '\n';
+    std::cout << "matrix edges: " << CountMatrixEdges(matrix) << '\n';
 }
 ```
----
-## 2. 이론 정리 (Study Notes)
 
-### 그래프(Graph)의 기본 요소
-* **정점 (Vertex/Node)**: 데이터를 담고 있는 객체임 (위치, 사람, 역 등)
-* **간선 (Edge/Link)**: 정점들을 연결하는 데 사용되는 선임 (관계, 경로 등)
-* **차수 (Degree)**: 한 정점에 연결된 간선의 개수를 의미함
+실행 결과는 다음과 같다.
 
+```text
+0 -> 3: true
+3 -> 0: false
+neighbors of 1: 0 2 3
+list edges: 7
+matrix edges: 7
+```
 
+`0→3`은 있지만 `3→0`은 없으므로 이 그래프가 방향 그래프라는 점을 확인할 수 있다. 정점 1의 진출 차수는 3이고, 두 표현 모두 방향 간선을 7개 저장한다.
 
-### 그래프의 종류
-* **무방향 그래프 (Undirected Graph)**: 간선에 방향이 없어 $A-B$가 $A \to B$이자 $B \to A$와 같음
-* **방향 그래프 (Directed Graph)**: 일방통행 도로망처럼 간선에 방향이 존재함
-* **가중치 그래프 (Weighted Graph)**: 지하철 노선도처럼 간선에 비용이나 거리 값이 할당됨
+## 그래프 표현을 선택할 때 확인할 기준
 
-### 표현 방식 비교: 인접 리스트 vs 인접 행렬
+1. 간선에 방향이 있는가?
+2. 무방향 간선을 두 방향에 모두 기록했는가?
+3. self-loop와 중복 간선을 허용하는가?
+4. 가중치가 있으며 어떤 값의 범위를 사용하는가?
+5. 정점 수 $V$와 간선 수 $E$는 최대 얼마인가?
+6. 그래프가 희소한가, 밀집한가?
+7. 특정 두 정점의 연결 여부를 자주 확인하는가?
+8. 한 정점의 모든 이웃을 자주 순회하는가?
+9. DFS·BFS에서 사용할 전체 탐색 비용은 얼마인가?
+10. 정점을 추가할 때 저장된 포인터가 무효화될 가능성이 있는가?
+11. 정점 번호와 객체 주소 중 어떤 식별자가 더 안정적인가?
+12. 메모리 차수뿐 아니라 컨테이너와 원소 하나의 실제 크기도 확인했는가?
 
-| 구분 | 인접 리스트 (Adjacency List)| 인접 행렬 (Adjacency Matrix)|
-| :--- | :--- | :--- |
-| **구조** | `vector<vector<int>>` | `bool Arr[N][N]` (2차원 배열) |
-| **공간 복잡도** | $O(V + E)$ (정점 + 간선 개수) | $O(V^2)$ (정점의 제곱) |
-| **접근 속도** | $O(Degree(V))$ (연결된 간선 수만큼 탐색)  | $O(1)$ (인덱스로 즉시 접근)  |
-| **적합한 상황** | **희소 그래프 (Sparse Graph)**<br>(예: 지하철 노선도, 도로망) | **밀집 그래프 (Dense Graph)**<br>(예: SNS 친구 관계, 격자 맵) |
-| **장점** | 메모리를 효율적으로 사용함  | 두 정점의 연결 여부를 가장 빠르게 확인함  |
-| **단점** | 연결 여부를 확인하려면 순회해야 함  | 간선이 적어도 무조건 $N \times N$ 메모리를 차지함  |
+인접 리스트와 인접 행렬은 서로 다른 그래프가 아니라 같은 연결 관계를 저장하는 두 방식이다. 표현 방식을 선택할 때는 자료구조 이름보다 자주 수행할 연산과 입력 규모를 먼저 본다.
 
----
+## 다음 학습: 깊이 우선 탐색
 
-## 3. 종합 의견 (Review)
-
-### 핵심 요약 및 주의사항
-* **메모리와 속도의 트레이드오프**: 인접 행렬은 접근 속도가 $O(1)$로 매우 빠르지만 메모리 소모가 심하고, 인접 리스트는 메모리는 절약되나 연결 확인 속도가 상대적으로 느림
-* **현업에서의 선택**: 실제 게임 서버나 알고리즘 문제에서는 정점($V$)에 비해 간선($E$)이 적은 경우가 많아 주로 **인접 리스트** 방식을 채택
-* **메모리 초과 주의**: 정점이 10만 개일 때 인접 행렬($100,000^2$)을 사용하면 메모리 초과가 발생하므로 설계 시 데이터 규모를 반드시 고려
-
-### Tip
-* **가중치 그래프 구현**: 인접 리스트 사용 시 `vector<vector<pair<int, int>>>` 형태를 활용하여 `{도착 정점, 가중치}`를 쌍으로 저장
-* **STL 활용 최적화**: `std::find`를 쓰면 코드는 간결해지지만 내부적으로는 여전히 $O(N)$ 반복문이 작동하므로 빈번한 호출 시 성능을 체크해야 함
+다음 글에서는 인접 행렬과 방문 배열을 사용해 DFS를 구현한다. 한 방향으로 최대한 깊게 들어간 뒤 되돌아오는 재귀 호출 흐름과, 연결되지 않은 모든 정점까지 탐색하는 방법을 살펴본다.

@@ -1,0 +1,469 @@
+---
+layout: post
+title: '[C++ 65] auto 타입 추론: 값과 참조, const를 의도대로 유지하기'
+date: 2026-05-21
+categories: [Dev, C++]
+tags: [C++, Modern C++, Auto, Type Deduction, Reference]
+---
+
+C++에서 `auto`는 오른쪽 초기화 식을 보고 변수 타입을 컴파일 시간에 추론하는 자리 표시자다. 긴 반복자 타입이나 템플릿 함수의 반환 타입을 직접 반복하지 않아도 돼 코드를 간결하게 만들 수 있다.
+
+하지만 `auto`가 초기화 식의 타입을 글자 그대로 복사하는 것은 아니다. 값으로 선언하면 최상위 `const`와 참조가 제거되고, 참조가 필요한 경우에는 `auto&`처럼 의도를 선언에 직접 남겨야 한다.
+
+이번 글의 핵심은 `auto`를 많이 쓰거나 적게 쓰는 기준보다 **추론된 변수가 원본과 같은 객체를 가리키는지, 별도 값을 복사하는지** 구분하는 것이다.
+
+## auto는 컴파일 시간에 타입을 결정한다
+
+기본 리터럴의 타입은 그대로 추론된다.
+
+```cpp
+auto count = 3;          // int
+auto ratio = 3.14f;      // float
+auto distance = 1.23;    // double
+auto message = "Rookies"; // const char*
+```
+
+컴파일러가 각 변수의 타입을 결정한 뒤에는 일반적인 정적 타입 변수와 똑같이 동작한다. 실행 중 값에 따라 타입이 바뀌는 동적 타입 기능이 아니다.
+
+```cpp
+count = 10;
+// count = "ten"; // int 변수에 문자열 포인터를 대입할 수 없음
+```
+
+`auto`는 선언할 때 추론할 정보가 필요하므로 일반 지역 변수에는 초기값이 있어야 한다.
+
+```cpp
+// auto value; // 타입을 추론할 초기화 식이 없음
+```
+
+## auto는 형변환을 수행하는 문법이 아니다
+
+원본에서는 `auto`가 컴파일 단계에서 추론된 타입으로 자동 형변환한다고 설명한다. 더 정확히는 초기화 식의 타입과 언어의 추론 규칙으로 **선언 타입을 결정**하는 것이다.
+
+```cpp
+short left = 10;
+short right = 20;
+auto sum = left + right;
+```
+
+`sum`은 `short`가 아니라 `int`다. `+` 연산을 수행할 때 정수 승격이 먼저 적용되어 식 `left + right`의 타입이 `int`가 되고, `auto`는 그 결과 타입을 추론한다.
+
+```cpp
+static_assert(std::is_same_v<decltype(sum), int>);
+```
+
+즉 `auto`가 임의로 `short`를 `int`로 바꾼 것이 아니다. 먼저 결정된 식의 타입을 변수 타입으로 사용한 것이다.
+
+## 기본 auto는 참조를 제거하고 값을 만든다
+
+초기화 식이 참조여도 plain `auto` 변수는 기본적으로 값 타입으로 추론된다.
+
+```cpp
+int original = 10;
+int& reference = original;
+
+auto copied = reference; // int
+copied = 100;
+
+assert(original == 10);
+```
+
+`copied`는 `original`의 별도 복사본이다. 원본을 수정하려면 선언에도 참조를 적는다.
+
+```cpp
+auto& alias = reference; // int&
+alias = 100;
+
+assert(original == 100);
+```
+
+컨테이너 요소 접근에서도 같은 차이가 발생한다.
+
+```cpp
+std::vector<int> values{1, 2, 3};
+
+auto value = values[0];
+value = 10;
+assert(values[0] == 1);
+
+auto& element = values[0];
+element = 10;
+assert(values[0] == 10);
+```
+
+`operator[]`가 `int&`를 반환해도 `auto value`는 참조를 제거해 `int` 복사본을 만든다.
+
+## 최상위 const는 제거되지만 대상의 const는 유지된다
+
+값 자체에 붙은 최상위(top-level) `const`는 plain `auto` 추론에서 제거된다.
+
+```cpp
+const int original = 10;
+auto copied = original; // int
+
+copied = 20;
+```
+
+원본의 상수성을 참조에 유지하려면 `const auto&` 또는 `auto&`를 사용한다.
+
+```cpp
+const auto& readOnly = original; // const int&
+auto& alsoReadOnly = original;   // const int&
+```
+
+`auto&`가 항상 수정 가능한 참조를 만드는 것은 아니다. 상수 객체에 바인딩하면 `const int&`로 추론된다.
+
+포인터에서는 포인터 자체의 const와 가리키는 대상의 const를 구분한다.
+
+```cpp
+int value = 10;
+int* const fixedPointer = &value;
+const int* pointerToConst = &value;
+
+auto first = fixedPointer;   // int*: 포인터 자체의 최상위 const 제거
+auto second = pointerToConst; // const int*: 대상의 const 유지
+```
+
+`second`를 통해 포인터가 가리키는 정수를 수정할 수 없다. `auto`가 타입 안쪽의 모든 `const`를 무조건 제거하는 것이 아니다.
+
+## const auto는 추론한 값 타입을 상수로 만든다
+
+추론된 변수 자체를 수정하지 못하게 하려면 `const auto`를 사용한다.
+
+```cpp
+const auto maxCount = 100; // const int
+const auto ratio = 0.5f;   // const float
+```
+
+참조와 함께 사용하면 읽기 전용 별칭이 된다.
+
+```cpp
+const auto& first = values.front(); // const int&
+```
+
+`const auto&`는 큰 객체를 복사하지 않고 읽을 때 자주 사용한다. 임시 객체의 수명을 참조 변수의 수명까지 연장할 수도 있다.
+
+```cpp
+const auto& text = std::string("temporary");
+```
+
+## 범위 기반 for에서 auto 선택은 복사 여부를 결정한다
+
+범위 기반 `for`문에서 `auto`만 사용하면 각 요소를 복사한다.
+
+```cpp
+for (auto item : items)
+{
+    item.value = 0; // 복사본 수정
+}
+```
+
+원본 요소를 수정하려면 `auto&`를 사용한다.
+
+```cpp
+for (auto& item : items)
+{
+    item.value = 0;
+}
+```
+
+복사 없이 읽기만 하려면 `const auto&`가 자연스럽다.
+
+```cpp
+for (const auto& item : items)
+{
+    std::cout << item.value << '\n';
+}
+```
+
+정수처럼 복사 비용이 작은 값은 `auto value`도 명확한 선택이다. 모든 반복문에 기계적으로 참조를 붙이지 않고 요소 타입, 수정 여부와 수명 요구를 확인한다.
+
+## 반복자와 복잡한 반환 타입에는 auto가 유용하다
+
+`map::insert`의 반환 타입을 직접 쓰면 길고 컨테이너 타입 변화에 민감하다.
+
+```cpp
+std::map<int, int> scores;
+std::pair<std::map<int, int>::iterator, bool> result = scores.insert({1, 100});
+```
+
+정확한 타입보다 “삽입 결과”라는 역할이 중요한 지역 변수에는 `auto`가 읽기 쉽다.
+
+```cpp
+auto result = scores.insert({1, 100});
+
+if (result.second)
+{
+    std::cout << result.first->second << '\n';
+}
+```
+
+C++17 구조적 바인딩을 함께 사용하면 반환 요소의 의미도 드러낼 수 있다.
+
+```cpp
+auto [it, inserted] = scores.insert({2, 200});
+```
+
+반복자도 컨테이너 타입에서 자연스럽게 따라오는 타입이라 `auto`가 유용하다.
+
+```cpp
+auto it = scores.find(1);
+```
+
+`auto`가 구체 타입을 숨겨도 변수 이름과 오른쪽 식에서 역할이 분명한 경우다.
+
+## 구조적 바인딩에서도 값과 참조를 구분한다
+
+map 요소를 값으로 구조 분해하면 요소가 복사된다.
+
+```cpp
+for (auto [key, value] : scores)
+{
+    value += 10; // 복사된 value만 변경
+}
+```
+
+원본 mapped value를 수정하려면 참조로 받는다.
+
+```cpp
+for (auto& [key, value] : scores)
+{
+    value += 10;
+}
+```
+
+읽기 전용 순회에는 다음 형태가 일반적이다.
+
+```cpp
+for (const auto& [key, value] : scores)
+{
+    std::cout << key << ' ' << value << '\n';
+}
+```
+
+`key`는 원래 `const Key`이므로 참조 구조 분해에서도 수정할 수 없다.
+
+## 함수 반환 타입의 auto는 본문에서 추론된다
+
+C++14부터 일반 함수의 반환 타입에도 `auto`를 사용할 수 있다.
+
+```cpp
+auto Add(int left, int right)
+{
+    return left + right;
+}
+```
+
+함수 본문이 필요한 타입 정보를 제공하므로 호출 지점에서 정의가 보이는 구조가 필요하다. 여러 `return`문이 있다면 추론 결과가 서로 맞아야 한다.
+
+```cpp
+// auto Choose(bool condition)
+// {
+//     if (condition) return 1;
+//     return 2.0; // int와 double로 추론 결과가 달라 오류
+// }
+```
+
+반환 표현식이 참조여도 plain `auto` 반환 타입은 참조를 제거한다.
+
+```cpp
+auto GetValue(std::vector<int>& values)
+{
+    return values.front(); // int 반환
+}
+```
+
+참조 반환이 목적이라면 명시적으로 `auto&`를 사용하거나 표현식의 타입과 값 범주를 그대로 보존하는 `decltype(auto)`를 검토한다.
+
+```cpp
+auto& GetElement(std::vector<int>& values)
+{
+    return values.front(); // int& 반환
+}
+```
+
+참조 반환에는 대상 객체가 호출 이후에도 살아 있어야 한다는 별도의 수명 조건이 있다. `auto&`를 붙이는 것만으로 안전해지는 것은 아니다.
+
+## auto와 중괄호 초기화는 별도 규칙을 가진다
+
+다음 두 선언은 겉보기와 달리 같은 타입이 아니다.
+
+```cpp
+auto first{1};    // int
+auto second = {1}; // std::initializer_list<int>
+```
+
+```cpp
+static_assert(std::is_same_v<decltype(first), int>);
+static_assert(std::is_same_v<decltype(second), std::initializer_list<int>>);
+```
+
+`auto values = {1, 2, 3}`은 공통 요소 타입의 `std::initializer_list<int>`로 추론된다. 타입이 섞여 하나의 요소 타입을 정할 수 없으면 오류다.
+
+```cpp
+// auto mixed = {1, 2.0}; // 공통 initializer_list 요소 타입을 추론할 수 없음
+```
+
+중괄호 초기화의 생성자 선택과 축소 변환 문제는 다음 글에서 자세히 다룬다.
+
+## auto가 오히려 의미를 숨기는 경우
+
+`auto`를 사용해도 오른쪽 식에서 타입과 역할을 쉽게 이해할 수 있어야 한다.
+
+```cpp
+auto player = FindPlayer(id);
+```
+
+`FindPlayer`가 객체 값, 포인터, 참조 래퍼, 스마트 포인터 중 무엇을 반환하는지에 따라 소유권과 null 가능성이 달라진다면 이 한 줄만으로 중요한 의미가 보이지 않을 수 있다. 변수 이름을 구체적으로 짓고 반환 계약을 확인하거나, 타입을 명시하는 편이 나을 수 있다.
+
+```cpp
+Player* foundPlayer = FindPlayer(id);
+```
+
+또한 `auto`가 논리 오류를 해결하지는 않는다.
+
+```cpp
+std::vector<int> values;
+auto size = values.size(); // std::size_t
+
+// size가 0이면 unsigned 언더플로가 발생할 수 있음
+// for (auto index = size - 1; index >= 0; --index) {}
+```
+
+타입을 자동으로 추론했더라도 부호, 범위, 복사와 수명은 개발자가 판단해야 한다.
+
+## 전체 구현
+
+타입 추론 결과를 컴파일 시간에 검사하고, 범위 기반 순회에서 값과 참조의 차이를 실행으로 확인한다.
+
+```cpp
+#include <cassert>
+#include <iostream>
+#include <map>
+#include <string>
+#include <type_traits>
+#include <vector>
+
+struct Item
+{
+    explicit Item(int value) : value(value) {}
+    Item(const Item& other) : value(other.value) { ++copyCount; }
+
+    inline static int copyCount = 0;
+    int value;
+};
+
+void VerifyDeduction()
+{
+    const int original = 10;
+    const int& reference = original;
+
+    auto copied = reference;
+    auto& alias = reference;
+    auto text = "Rookies";
+
+    static_assert(std::is_same_v<decltype(copied), int>);
+    static_assert(std::is_same_v<decltype(alias), const int&>);
+    static_assert(std::is_same_v<decltype(text), const char*>);
+
+    copied = 20;
+
+    assert(original == 10);
+    assert(alias == 10);
+
+    std::cout << "Original after copy update: " << original << '\n';
+}
+
+void VerifyRangeFor()
+{
+    std::vector<Item> items;
+    items.reserve(3);
+    items.emplace_back(1);
+    items.emplace_back(2);
+    items.emplace_back(3);
+
+    Item::copyCount = 0;
+
+    for (auto item : items)
+    {
+        item.value *= 10;
+    }
+
+    int copiesWithValue = Item::copyCount;
+    assert(copiesWithValue == 3);
+    assert(items[0].value == 1);
+
+    Item::copyCount = 0;
+
+    for (auto& item : items)
+    {
+        item.value *= 10;
+    }
+
+    assert(Item::copyCount == 0);
+    assert(items[0].value == 10);
+
+    std::cout << "Copies with auto: " << copiesWithValue << '\n';
+    std::cout << "Copies with auto&: " << Item::copyCount << '\n';
+    std::cout << "Updated values:";
+
+    for (const auto& item : items)
+    {
+        std::cout << ' ' << item.value;
+    }
+
+    std::cout << '\n';
+}
+
+void VerifyComplexReturnType()
+{
+    std::map<int, int> scores;
+    auto [it, inserted] = scores.emplace(1, 100);
+
+    assert(inserted);
+    assert(it->second == 100);
+
+    std::cout << std::boolalpha;
+    std::cout << "Inserted: " << inserted << '\n';
+}
+
+int main()
+{
+    VerifyDeduction();
+    VerifyRangeFor();
+    VerifyComplexReturnType();
+}
+```
+
+실행 결과는 다음과 같다.
+
+```text
+Original after copy update: 10
+Copies with auto: 3
+Copies with auto&: 0
+Updated values: 10 20 30
+Inserted: true
+```
+
+상수 참조에서 plain `auto`로 만든 `copied`는 별도 `int`이므로 값을 20으로 바꿔도 원본은 10이다. `auto& alias`는 원본의 상수성을 유지하는 `const int&`로 추론된다.
+
+첫 범위 순회에서는 `Item` 세 개가 각각 복사되고 복사본만 수정된다. 두 번째 순회는 `auto&`로 원본 요소를 직접 수정하므로 추가 복사가 없고 값이 10, 20, 30으로 바뀐다. `map::emplace`의 긴 반환 타입은 구조적 바인딩으로 반복자와 성공 여부를 바로 구분한다.
+
+## auto를 사용할 때 확인할 기준
+
+1. 오른쪽 초기화 식만 보고 변수 역할과 타입 범주를 이해할 수 있는가?
+2. plain `auto`가 참조를 제거해 복사본을 만든다는 점을 고려했는가?
+3. 원본 수정이 필요하면 `auto&`, 복사 없는 읽기라면 `const auto&`를 선택했는가?
+4. 최상위 const와 포인터가 가리키는 대상의 const를 구분하는가?
+5. 범위 기반 `for`에서 요소 복사가 의도된 것인가?
+6. 구조적 바인딩에서도 값과 참조 선택을 확인했는가?
+7. 함수의 plain `auto` 반환 타입이 참조를 제거한다는 점을 아는가?
+8. 중괄호 초기화에서 `initializer_list`로 추론될 가능성을 확인했는가?
+9. 포인터 소유권이나 null 가능성처럼 중요한 타입 의미를 `auto`가 숨기지 않는가?
+10. `auto`로 얻은 부호 없는 크기 타입의 연산 범위를 검토했는가?
+
+`auto`의 장점은 타입을 몰라도 코드를 작성하게 해 주는 것이 아니다. 초기화 식으로 타입이 명확하고 중복 표기만 긴 상황에서, 정확한 추론 규칙을 알고 선언 의도를 더 간결하게 표현하는 데 있다.
+
+## 다음 학습: 중괄호 초기화와 initializer_list
+
+다음 글에서는 `{}` 초기화가 기본 타입, 클래스 생성자와 컨테이너에서 어떤 함수를 선택하는지 살펴본다. 축소 변환 방지, `initializer_list` 생성자의 우선순위와 괄호 초기화와의 차이를 정리한다.

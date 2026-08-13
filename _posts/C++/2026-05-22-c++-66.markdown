@@ -1,0 +1,442 @@
+---
+layout: post
+title: '[C++ 66] 중괄호 초기화: 축소 변환 방지와 initializer_list 우선순위'
+date: 2026-05-22
+categories: [Dev, C++]
+tags: [C++, Modern C++, List Initialization, Initializer List, Constructor]
+---
+
+C++에서는 같은 객체를 여러 형태로 초기화할 수 있다.
+
+```cpp
+int first = 0;
+int second(0);
+int third{0};
+```
+
+C++11에 도입된 중괄호 초기화는 기본 타입, 클래스, 배열과 컨테이너에 공통으로 사용할 수 있고 축소 변환을 막아 준다. 하지만 클래스에 `std::initializer_list` 생성자가 있으면 일반 생성자보다 우선해서 검토되므로 괄호와 다른 생성자가 선택될 수 있다.
+
+이번 글의 핵심은 `{}`를 무조건 통일해서 사용하는 것이 아니라 **초기화 형태가 어떤 생성자와 데이터 의미를 선택하는지** 확인하는 것이다.
+
+## 초기화와 대입은 시점이 다르다
+
+객체를 선언하면서 값을 정하는 것은 초기화다.
+
+```cpp
+Knight first;
+Knight second = first;
+Knight third{first};
+```
+
+`second = first`처럼 보이는 선언도 이미 존재하는 `second`에 대입하는 코드가 아니다. `first`를 사용해 `second`를 만드는 복사 초기화이며 복사 생성자가 호출된다.
+
+`third{first}`도 기본 생성자가 아니라 `first`를 인자로 새 객체를 만드는 직접 리스트 초기화다. 일반적인 `Knight`라면 복사 생성자가 선택된다.
+
+객체를 만든 다음 별도 문장에서 값을 교체해야 대입 연산이다.
+
+```cpp
+Knight third{first}; // 복사 생성
+third = first;       // 복사 대입
+```
+
+생성자와 대입 연산자는 객체 수명에서 호출되는 시점과 책임이 다르므로 문장에 `=`가 있는지만 보고 구분하지 않는다.
+
+## 빈 중괄호는 값 초기화에 사용할 수 있다
+
+기본 타입을 빈 중괄호로 초기화하면 0에 해당하는 값으로 초기화된다.
+
+```cpp
+int count{};
+double ratio{};
+bool ready{};
+
+assert(count == 0);
+assert(ratio == 0.0);
+assert(!ready);
+```
+
+클래스에서는 기본 생성자를 호출한다.
+
+```cpp
+Knight knight{};
+```
+
+멤버 기본값에도 같은 문법을 사용할 수 있다.
+
+```cpp
+class Player
+{
+private:
+    int hp_{};
+    bool alive_{};
+};
+```
+
+기본값을 빠뜨린 내장 타입 지역 변수가 불확정 값을 갖는 상황을 줄일 수 있다.
+
+## 빈 괄호 선언의 함수 해석을 피한다
+
+다음 코드는 객체 선언처럼 보이지만 반환 타입이 `Knight`이고 인자가 없는 함수 선언으로 해석된다.
+
+```cpp
+Knight knight();
+```
+
+이를 most vexing parse라고 부른다. 빈 중괄호를 사용하면 객체 생성 의도가 명확하다.
+
+```cpp
+Knight knight{};
+```
+
+인자가 있는 복잡한 선언에서도 괄호가 함수 선언으로 해석될 수 있다. 중괄호는 이런 문법적 모호성을 피하는 장점이 있다.
+
+## 중괄호는 축소 변환을 막는다
+
+괄호나 대입 초기화에서는 값이 손실될 수 있는 변환이 허용될 수 있다.
+
+```cpp
+int first = 3.14;
+int second(3.14);
+
+assert(first == 3);
+assert(second == 3);
+```
+
+중괄호 초기화는 이러한 축소 변환(narrowing conversion)을 컴파일 오류로 막는다.
+
+```cpp
+// int value{3.14};            // double에서 int로 축소
+// unsigned char color{300};   // 표현 범위를 벗어남
+```
+
+명시적인 변환이 정말 의도라면 코드에 그 결정을 드러낸다.
+
+```cpp
+int value{static_cast<int>(3.14)};
+```
+
+중괄호가 모든 데이터 손실이나 범위 오류를 해결하는 것은 아니다. 이미 수행된 계산의 오버플로나 `static_cast`로 명시한 변환까지 자동으로 검증하지 않는다.
+
+## 배열과 집계체를 순서대로 초기화한다
+
+배열 요소를 나열할 수 있다.
+
+```cpp
+int values[]{1, 2, 3, 4};
+```
+
+사용자 선언 생성자가 없는 집계체(aggregate)도 멤버 순서에 맞춰 초기화한다.
+
+```cpp
+struct Position
+{
+    int x;
+    int y;
+};
+
+Position position{10, 20};
+```
+
+요소가 부족하면 남은 멤버는 빈 초기화 목록으로 초기화된다.
+
+```cpp
+Position origin{10};
+assert(origin.x == 10);
+assert(origin.y == 0);
+```
+
+C++20 지정 초기화 문법은 멤버 이름을 드러낼 수 있다.
+
+```cpp
+struct RenderConfig
+{
+    int width;
+    int height;
+    bool fullscreen;
+};
+
+RenderConfig config{.width = 1920, .height = 1080, .fullscreen = true};
+```
+
+C++의 지정자는 클래스 멤버 선언 순서를 따라야 하며 C 언어의 지정 초기화와 모든 규칙이 같지는 않다. 집계체 조건을 만족하는 타입에 사용한다.
+
+## vector의 괄호와 중괄호는 다른 데이터를 만든다
+
+컨테이너에서 차이가 가장 분명하게 드러난다.
+
+```cpp
+std::vector<int> repeated(3, 7);
+std::vector<int> listed{3, 7};
+```
+
+괄호는 요소 수와 반복할 값을 받는 생성자를 선택한다.
+
+```text
+repeated = [7, 7, 7]
+```
+
+중괄호는 `initializer_list<int>` 생성자를 선택해 중괄호 안의 값을 실제 요소로 저장한다.
+
+```text
+listed = [3, 7]
+```
+
+```cpp
+assert(repeated.size() == 3);
+assert(listed.size() == 2);
+```
+
+`vector<int>{10}`은 값 10 하나를 가진 벡터이고 `vector<int>(10)`은 값 초기화된 정수 요소 열 개를 가진 벡터다. 문법 취향의 차이가 아니라 컨테이너 내용이 달라진다.
+
+## initializer_list 생성자는 중괄호에서 먼저 검토된다
+
+다음 클래스에는 두 종류의 생성자가 있다.
+
+```cpp
+class Choice
+{
+public:
+    Choice(int count, double scale);
+    Choice(std::initializer_list<int> values);
+};
+```
+
+괄호에서는 인자 타입에 맞는 일반 생성자가 선택된다.
+
+```cpp
+Choice first(3, 2.0); // Choice(int, double)
+```
+
+중괄호에서는 `initializer_list` 생성자가 우선해서 검토된다.
+
+```cpp
+Choice second{3, 2}; // Choice(initializer_list<int>)
+```
+
+`Choice(int, double)`이 정확히 두 인자를 받을 수 있어도, 중괄호 요소를 `initializer_list<int>`로 만들 수 있다면 목록 생성자가 선택된다.
+
+## 목록 생성자의 우선순위가 컴파일 오류를 만들 수도 있다
+
+다음 코드는 일반 생성자 `Choice(int, double)`와 타입이 잘 맞아 보인다.
+
+```cpp
+// Choice choice{3, 2.5};
+```
+
+하지만 목록 생성자가 먼저 후보가 되고 `2.5`를 `int` 요소로 만드는 과정이 축소 변환이므로 오류가 발생할 수 있다. 컴파일러가 목록 생성자를 포기하고 일반 생성자로 자연스럽게 돌아간다고 기대하면 안 된다.
+
+일반 생성자를 명확히 선택하려면 괄호를 사용한다.
+
+```cpp
+Choice choice(3, 2.5);
+```
+
+따라서 “중괄호는 항상 더 안전하므로 모든 생성에 사용한다”는 규칙은 충분하지 않다. 축소 변환 방지는 장점이지만 `initializer_list` 오버로드가 있는 클래스에서는 생성자 선택까지 달라진다.
+
+## 빈 목록은 기본 생성자가 있으면 기본 생성자를 선택한다
+
+목록 생성자가 있어도 빈 중괄호는 기본 생성자가 존재하는 클래스에서 기본 생성자를 호출한다.
+
+```cpp
+class Choice
+{
+public:
+    Choice();
+    Choice(std::initializer_list<int> values);
+};
+
+Choice choice{}; // 기본 생성자
+```
+
+“중괄호면 언제나 initializer_list 생성자”라고 단정하지 않는다. 빈 목록과 기본 생성자 존재 여부 등 리스트 초기화 규칙을 함께 봐야 한다.
+
+## initializer_list 요소는 const다
+
+목록 생성자는 `std::initializer_list<T>`를 값으로 받는 것이 일반적이다.
+
+```cpp
+Choice(std::initializer_list<int> values)
+{
+    for (int value : values)
+    {
+        // 각 값을 내부 저장 공간으로 복사
+    }
+}
+```
+
+`initializer_list`는 컴파일러가 만든 임시 배열 범위를 가볍게 참조하며 그 요소 타입은 `const T`다. 생성자 안에서 요소를 수정할 수 없고, 이동 전용 객체를 목록으로 컨테이너에 넣는 작업에도 제약이 생길 수 있다.
+
+```cpp
+// std::vector<std::unique_ptr<int>> pointers{
+//     std::make_unique<int>(10),
+//     std::make_unique<int>(20)
+// }; // initializer_list 요소가 const라 복사가 필요한 문제가 생김
+```
+
+목록의 포인터를 객체 멤버에 그대로 보관해 생성자 호출이 끝난 뒤 사용하는 것도 안전하지 않다. 필요한 값은 자신이 소유하는 저장 공간으로 복사한다.
+
+## auto와 중괄호는 별도의 추론 규칙이 있다
+
+앞 글에서 살펴본 것처럼 `auto`와 중괄호를 조합할 때도 형태를 구분한다.
+
+```cpp
+auto first{1};     // int
+auto second = {1}; // std::initializer_list<int>
+auto third = {1, 2, 3}; // std::initializer_list<int>
+```
+
+직접 목록 초기화의 단일 요소와 `=`가 들어간 목록 초기화는 추론 결과가 다를 수 있다. 여러 타입이 섞여 하나의 목록 요소 타입을 추론할 수 없으면 오류다.
+
+```cpp
+// auto mixed = {1, 2.0};
+```
+
+짧다는 이유로 `{}`와 `auto`를 함께 쓰기보다 필요한 타입이 단일 값인지 initializer list인지 확인한다.
+
+## 생성자 선택은 인터페이스 설계에도 영향을 준다
+
+클래스에 `initializer_list` 생성자를 추가하면 기존 중괄호 호출이 선택하는 생성자가 달라질 수 있다.
+
+```cpp
+class Numbers
+{
+public:
+    Numbers(int count, int value);
+    Numbers(std::initializer_list<int> values);
+};
+```
+
+```cpp
+Numbers repeated(3, 7); // 값 7을 세 번
+Numbers listed{3, 7};   // 값 3과 7
+```
+
+컨테이너처럼 두 의미가 모두 유용할 수도 있지만 사용자는 괄호 차이만으로 전혀 다른 결과를 얻게 된다. 사용자 정의 타입에 목록 생성자를 추가할 때는 다음을 검토한다.
+
+- 목록 자체가 타입의 자연스러운 입력인가?
+- 기존 일반 생성자와 호출 형태가 충돌하지 않는가?
+- 축소 변환 때문에 의외의 컴파일 오류가 생기지 않는가?
+- 이동 전용 요소를 다뤄야 하는가?
+- 목록 데이터를 생성자 밖까지 보관하지 않고 복사하는가?
+
+문법 편의보다 호출 의미가 분명한 인터페이스를 우선한다.
+
+## 전체 구현
+
+값 초기화, 벡터 생성자 차이, 목록 생성자의 우선순위와 C++20 지정 초기화를 확인한다.
+
+```cpp
+#include <cassert>
+#include <initializer_list>
+#include <iostream>
+#include <string>
+#include <vector>
+
+enum class ConstructorKind
+{
+    Default,
+    Pair,
+    List
+};
+
+class Choice
+{
+public:
+    Choice() = default;
+
+    Choice(int count, double scale)
+        : kind(ConstructorKind::Pair), count(count), scale(scale)
+    {
+    }
+
+    Choice(std::initializer_list<int> values)
+        : kind(ConstructorKind::List), count(static_cast<int>(values.size()))
+    {
+    }
+
+    ConstructorKind kind = ConstructorKind::Default;
+    int count = 0;
+    double scale = 0.0;
+};
+
+struct RenderConfig
+{
+    int width;
+    int height;
+    bool fullscreen;
+};
+
+void PrintValues(const std::string& label, const std::vector<int>& values)
+{
+    std::cout << label << ':';
+
+    for (int value : values)
+    {
+        std::cout << ' ' << value;
+    }
+
+    std::cout << '\n';
+}
+
+int main()
+{
+    int zero{};
+    assert(zero == 0);
+
+    std::vector<int> repeated(3, 7);
+    std::vector<int> listed{3, 7};
+
+    assert((repeated == std::vector<int>{7, 7, 7}));
+    assert((listed == std::vector<int>{3, 7}));
+
+    Choice defaultChoice{};
+    Choice pairChoice(3, 2.5);
+    Choice listChoice{3, 2};
+
+    assert(defaultChoice.kind == ConstructorKind::Default);
+    assert(pairChoice.kind == ConstructorKind::Pair);
+    assert(listChoice.kind == ConstructorKind::List);
+    assert(listChoice.count == 2);
+
+    RenderConfig config{.width = 1920, .height = 1080, .fullscreen = true};
+
+    PrintValues("Parentheses vector", repeated);
+    PrintValues("Braces vector", listed);
+    std::cout << "Parentheses selected pair constructor: " << std::boolalpha << (pairChoice.kind == ConstructorKind::Pair) << '\n';
+    std::cout << "Braces selected initializer_list: " << (listChoice.kind == ConstructorKind::List) << '\n';
+    std::cout << "Render config: " << config.width << 'x' << config.height << ", fullscreen=" << config.fullscreen << '\n';
+}
+```
+
+실행 결과는 다음과 같다.
+
+```text
+Parentheses vector: 7 7 7
+Braces vector: 3 7
+Parentheses selected pair constructor: true
+Braces selected initializer_list: true
+Render config: 1920x1080, fullscreen=true
+```
+
+괄호 벡터는 값 7을 가진 요소 세 개, 중괄호 벡터는 값 3과 7을 가진 요소 두 개다. 같은 숫자를 전달해도 선택된 생성자와 결과 데이터가 다르다.
+
+`Choice(3, 2.5)`는 일반 생성자를 선택하고 `Choice{3, 2}`는 목록 생성자를 선택한다. `RenderConfig`는 C++20 지정 초기화로 각 숫자의 의미를 멤버 이름에 직접 나타낸다.
+
+## 중괄호 초기화를 사용할 때 확인할 기준
+
+1. 현재 문장이 객체 초기화인지 이미 생성된 객체의 대입인지 구분하는가?
+2. 빈 괄호가 함수 선언으로 해석될 가능성을 중괄호로 피했는가?
+3. 값 손실이 가능한 축소 변환을 컴파일 단계에서 막고 있는가?
+4. 집계체 멤버 순서와 지정 초기화 순서를 지키는가?
+5. 컨테이너에서 괄호와 중괄호가 같은 데이터를 만든다고 착각하지 않는가?
+6. 클래스에 `initializer_list` 생성자가 있는지 확인했는가?
+7. 목록 생성자의 우선순위 때문에 일반 생성자가 선택되지 않을 가능성을 고려했는가?
+8. 목록 요소의 축소 변환이 일반 생성자로의 대체가 아니라 오류를 만들 수 있음을 아는가?
+9. initializer list의 const 요소와 임시 저장 수명을 고려하는가?
+10. `auto`와 조합했을 때 단일 값인지 `initializer_list`인지 확인했는가?
+
+중괄호 초기화는 축소 변환을 막고 여러 종류의 객체를 일관된 표면 문법으로 만들 수 있다는 장점이 있다. 그러나 표면이 같다고 의미까지 같은 것은 아니다. 클래스의 생성자 집합, 특히 `initializer_list` 오버로드를 확인하고 의도한 생성자를 선택하는 문법을 사용해야 한다.
+
+## 다음 학습: using으로 타입 별칭 만들기
+
+다음 글에서는 긴 타입 이름을 역할 중심의 이름으로 바꾸는 `using` 별칭을 살펴본다. `typedef`와의 차이, 템플릿 별칭과 네임스페이스 별칭을 구분하고 별칭이 새로운 타입을 만드는 것은 아니라는 점을 정리한다.

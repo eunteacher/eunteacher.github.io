@@ -1,0 +1,445 @@
+---
+layout: post
+title: '[C++ 67] using 타입 별칭: 복잡한 타입에 역할 이름 붙이기'
+date: 2026-05-23
+categories: [Dev, C++]
+tags: [C++, Modern C++, Using, Type Alias, Alias Template]
+---
+
+C++ 타입은 템플릿 인자, 반복자와 함수 포인터가 결합되면 길어질 수 있다. 같은 구체 타입을 코드 여러 곳에 반복하면 선언의 핵심 역할보다 문법 구조를 읽는 데 더 많은 시간이 든다.
+
+타입 별칭(type alias)은 기존 타입에 문맥에 맞는 다른 이름을 붙인다. C++11부터는 `using Alias = Type` 문법을 사용할 수 있으며, `typedef`보다 읽는 방향이 자연스럽고 템플릿 별칭도 직접 만들 수 있다.
+
+다만 별칭은 새 타입을 정의하지 않는다. `PlayerId`와 `MonsterId`를 각각 `int`의 별칭으로 만들어도 컴파일러에는 모두 같은 `int`다.
+
+## using은 기존 타입에 다른 이름을 붙인다
+
+기본 문법은 다음과 같다.
+
+```cpp
+using PlayerId = int;
+using Score = int;
+```
+
+왼쪽에는 새 별칭 이름, 오른쪽에는 기존 타입을 쓴다.
+
+```cpp
+PlayerId playerId = 10;
+Score score = 100;
+```
+
+`PlayerId`는 메모리 표현이나 연산 규칙이 다른 새로운 타입이 아니다.
+
+```cpp
+static_assert(std::is_same_v<PlayerId, int>);
+```
+
+별칭의 장점은 타입의 물리적인 표현보다 코드 안의 역할을 이름으로 드러내는 데 있다.
+
+```cpp
+void SaveScore(PlayerId playerId, Score score);
+```
+
+두 인자가 모두 `int`인 선언보다 어떤 값을 받는지 읽기 쉽다.
+
+## typedef와 using은 같은 종류의 별칭을 만든다
+
+기존 `typedef` 문법으로도 타입 별칭을 만들 수 있다.
+
+```cpp
+typedef int PlayerId;
+using PlayerId2 = int;
+```
+
+두 선언 모두 기존 `int`의 별칭을 만든다. `using`이 더 강한 타입을 만드는 것은 아니다.
+
+단순 타입에서는 차이가 작지만 복잡한 타입에서는 읽는 방향이 달라진다.
+
+```cpp
+typedef std::vector<int>::iterator VectorIterator;
+using VectorIterator2 = std::vector<int>::iterator;
+```
+
+`using`은 일반적인 대입문처럼 “별칭 이름은 오른쪽 타입이다”라는 순서로 읽을 수 있다.
+
+새 코드에서는 `using`이 보통 더 일관된 선택이지만, 기존 코드의 `typedef`가 잘못된 문법이라는 뜻은 아니다.
+
+## 함수 포인터 별칭은 선언을 읽기 쉽게 만든다
+
+함수 포인터의 원래 선언은 이름이 타입 문법 가운데 들어간다.
+
+```cpp
+typedef void (*MessageHandler)(const std::string&);
+```
+
+`using`에서는 별칭 이름과 함수 포인터 타입을 분리한다.
+
+```cpp
+using MessageHandler = void (*)(const std::string&);
+```
+
+사용할 때는 일반 타입처럼 보인다.
+
+```cpp
+void PrintMessage(const std::string& message)
+{
+    std::cout << message << '\n';
+}
+
+MessageHandler handler = &PrintMessage;
+handler("Ready");
+```
+
+콜백 시그니처가 바뀌면 별칭 정의에서 요구 타입을 한눈에 확인할 수 있다. 다만 함수 포인터 자체는 호출 대상의 수명이나 캡처 상태를 관리하지 않는다.
+
+## 템플릿 별칭을 직접 정의할 수 있다
+
+`using`의 큰 장점은 별칭 자체에 템플릿 매개변수를 둘 수 있다는 것이다.
+
+```cpp
+template<typename T>
+using List = std::list<T>;
+```
+
+```cpp
+List<int> numbers;
+List<std::string> names;
+```
+
+`typedef`는 다음과 같은 별칭 템플릿 문법을 직접 지원하지 않는다.
+
+```cpp
+// template<typename T>
+// typedef std::list<T> List; // 허용되지 않음
+```
+
+기존 방식에서는 클래스 템플릿 안에 `type` 멤버를 두는 우회 구조가 필요했다.
+
+```cpp
+template<typename T>
+struct ListType
+{
+    typedef std::list<T> type;
+};
+
+ListType<int>::type numbers;
+```
+
+별칭 템플릿은 같은 목적을 더 직접적으로 표현한다.
+
+## 일부 템플릿 인자를 고정할 수 있다
+
+템플릿 별칭은 자주 사용하는 정책이나 템플릿 인자를 미리 고정할 수 있다.
+
+```cpp
+template<typename Value>
+using PlayerTable = std::map<int, Value>;
+```
+
+```cpp
+PlayerTable<int> scores;
+PlayerTable<std::string> names;
+```
+
+키 타입이 항상 플레이어 ID라면 매 선언에서 `std::map<int, ...>`를 반복하지 않아도 된다.
+
+반복자 같은 종속 타입을 꺼내는 별칭도 만들 수 있다.
+
+```cpp
+template<typename Container>
+using IteratorOf = typename Container::iterator;
+```
+
+```cpp
+IteratorOf<std::vector<int>> it = values.begin();
+```
+
+별칭 정의 안에서도 `Container::iterator`가 타입이라는 사실을 알려 주는 `typename`은 필요하다.
+
+## 별칭 템플릿은 직접 특수화할 수 없다
+
+별칭 템플릿은 간결하지만 자체적으로 명시적 특수화나 부분 특수화를 정의할 수 없다.
+
+```cpp
+template<typename T>
+using Storage = std::vector<T>;
+
+// template<>
+// using Storage<bool> = std::deque<bool>; // 별칭 템플릿 직접 특수화 불가
+```
+
+타입에 따라 서로 다른 결과 타입을 선택해야 한다면 특수화 가능한 클래스 템플릿을 만들고 그 안의 `type`을 별칭으로 노출하는 방식을 사용할 수 있다.
+
+```cpp
+template<typename T>
+struct StorageType
+{
+    using type = std::vector<T>;
+};
+
+template<>
+struct StorageType<bool>
+{
+    using type = std::deque<bool>;
+};
+
+template<typename T>
+using Storage = typename StorageType<T>::type;
+```
+
+단순 이름 축약과 타입별 선택 로직이 필요한 상황을 구분한다.
+
+## 별칭은 강한 타입 구분을 제공하지 않는다
+
+두 별칭의 기반 타입이 같으면 서로 완전히 호환된다.
+
+```cpp
+using PlayerId = int;
+using MonsterId = int;
+
+PlayerId playerId = 10;
+MonsterId monsterId = playerId;
+```
+
+잘못된 ID를 다른 함수에 전달해도 컴파일러가 구분하지 못한다.
+
+```cpp
+void LoadPlayer(PlayerId id);
+
+LoadPlayer(monsterId); // int끼리이므로 컴파일 가능
+```
+
+같은 기반 타입의 별칭으로 오버로드를 만들 수도 없다.
+
+```cpp
+// void Load(PlayerId id);
+// void Load(MonsterId id); // 둘 다 void Load(int)이므로 재정의
+```
+
+컴파일 단계에서 두 ID를 구분해야 한다면 별칭이 아니라 별도 래퍼 타입을 만든다.
+
+```cpp
+struct PlayerId
+{
+    int value;
+};
+
+struct MonsterId
+{
+    int value;
+};
+```
+
+타입 별칭은 역할을 설명하는 이름이고, strong type은 잘못된 값 교환을 막는 별도 타입이다.
+
+## 기반 타입을 바꿀 수 있어도 자동 호환이 보장되지는 않는다
+
+별칭 정의 한 곳을 바꾸면 사용하는 선언들이 새 타입을 따라간다.
+
+```cpp
+using PlayerId = std::uint32_t;
+```
+
+나중에 더 큰 범위가 필요해 다음처럼 바꿀 수 있다.
+
+```cpp
+using PlayerId = std::uint64_t;
+```
+
+하지만 “한 줄만 바꾸면 프로그램 전체가 안전하게 동작한다”는 보장은 없다. 다음 항목도 함께 확인해야 한다.
+
+- 파일과 네트워크 직렬화 크기
+- 데이터베이스 컬럼 범위
+- 출력 서식과 해시 함수
+- 다른 정수 타입과의 비교 및 변환
+- 구조체 크기와 외부 ABI
+- 오버로드 선택 변화
+
+별칭은 변경 지점을 모으는 데 도움을 주지만 의미와 호환성 검토를 대신하지 않는다.
+
+## const는 별칭 전체에 적용된다
+
+포인터 별칭에 `const`를 붙일 때는 무엇이 상수가 되는지 주의한다.
+
+```cpp
+using IntPointer = int*;
+
+int value = 10;
+const IntPointer pointer = &value;
+```
+
+`const IntPointer`는 `const int*`가 아니라 `int* const`다. 별칭이 나타내는 타입 전체인 포인터 자체가 상수가 된다.
+
+```cpp
+*pointer = 20;      // 가리키는 int 수정 가능
+// pointer = nullptr; // 포인터 자체 변경 불가
+```
+
+상수 정수를 가리키는 포인터가 필요하다면 의도를 별도 별칭에 직접 적는다.
+
+```cpp
+using PointerToConstInt = const int*;
+```
+
+별칭 이름에 포인터, 참조와 const 관계가 드러나지 않으면 선언을 짧게 만드는 대신 중요한 정보를 숨길 수 있다.
+
+## using 선언과 using 지시문은 타입 별칭과 다르다
+
+`using` 키워드는 다른 문법에도 사용된다.
+
+특정 이름 하나를 현재 범위에 가져오는 것은 using 선언이다.
+
+```cpp
+using std::cout;
+using std::string;
+```
+
+기반 클래스의 생성자나 숨겨진 오버로드를 파생 클래스에 노출할 때도 사용한다.
+
+```cpp
+class Base
+{
+public:
+    explicit Base(int value);
+};
+
+class Derived : public Base
+{
+public:
+    using Base::Base;
+};
+```
+
+네임스페이스 전체를 가져오는 다음 문장은 using 지시문이다.
+
+```cpp
+using namespace std;
+```
+
+타입 별칭인 `using Name = Type`과 목적이 다르다. 특히 헤더나 넓은 전역 범위에서 `using namespace`를 사용하면 이름 충돌과 예상하지 못한 오버로드 후보가 늘어날 수 있으므로 필요한 이름만 한정하거나 `std::`를 명시한다.
+
+네임스페이스 이름 자체를 줄이는 문법은 네임스페이스 별칭이다.
+
+```cpp
+namespace fs = std::filesystem;
+```
+
+이 역시 타입 별칭은 아니다.
+
+## 별칭 이름은 구현보다 역할을 설명해야 한다
+
+단순히 글자 수만 줄이는 이름은 정보가 거의 없다.
+
+```cpp
+using V = std::vector<int>;
+using M = std::map<int, int>;
+```
+
+도메인 역할을 나타내는 이름은 기반 타입을 이해하는 데 도움을 준다.
+
+```cpp
+using PlayerId = std::uint32_t;
+using ScoreByPlayer = std::map<PlayerId, int>;
+using MessageHandler = void (*)(const std::string&);
+```
+
+반대로 한 번만 사용하는 단순 타입에 별칭을 추가하면 이름을 따라가야 하는 단계만 늘 수 있다. 다음 상황에서 별칭이 특히 유용하다.
+
+- 타입이 길고 여러 곳에서 반복된다.
+- 구체 타입보다 도메인 역할이 중요하다.
+- 함수 포인터나 콜백 시그니처를 공유한다.
+- 템플릿 인자의 일부를 고정한다.
+- 공개 인터페이스에서 구현 타입 의존을 한 곳에 모은다.
+
+별칭을 통해 실제 비용, 소유권이나 참조 여부가 지나치게 숨겨지지 않는지도 함께 본다.
+
+## 전체 구현
+
+기본 타입 별칭, 함수 포인터, 템플릿 별칭과 복잡한 반복자 별칭을 확인한다.
+
+```cpp
+#include <cassert>
+#include <cstdint>
+#include <iostream>
+#include <list>
+#include <map>
+#include <string>
+#include <type_traits>
+#include <vector>
+
+using PlayerId = std::uint32_t;
+using MonsterId = std::uint32_t;
+using ScoreByPlayer = std::map<PlayerId, int>;
+using MessageHandler = void (*)(const std::string&);
+
+template<typename T>
+using List = std::list<T>;
+
+template<typename Container>
+using IteratorOf = typename Container::iterator;
+
+void PrintMessage(const std::string& message)
+{
+    std::cout << "Handler: " << message << '\n';
+}
+
+int main()
+{
+    static_assert(std::is_same_v<PlayerId, std::uint32_t>);
+    static_assert(std::is_same_v<PlayerId, MonsterId>);
+
+    ScoreByPlayer scores;
+    scores.emplace(PlayerId{7}, 150);
+
+    List<int> values{10, 20, 30};
+    IteratorOf<List<int>> it = values.begin();
+    assert(*it == 10);
+
+    MessageHandler handler = &PrintMessage;
+
+    std::cout << "Player 7 score: " << scores.at(PlayerId{7}) << '\n';
+    std::cout << "Values:";
+
+    for (int value : values)
+    {
+        std::cout << ' ' << value;
+    }
+
+    std::cout << '\n';
+    handler("Ready");
+    std::cout << std::boolalpha;
+    std::cout << "PlayerId and MonsterId are the same type: " << std::is_same_v<PlayerId, MonsterId> << '\n';
+}
+```
+
+실행 결과는 다음과 같다.
+
+```text
+Player 7 score: 150
+Values: 10 20 30
+Handler: Ready
+PlayerId and MonsterId are the same type: true
+```
+
+`ScoreByPlayer`는 플레이어 ID와 점수의 대응 관계를 이름에 드러낸다. `List<T>`와 `IteratorOf<Container>`는 템플릿 별칭으로 실제 리스트 타입과 반복자 타입을 만든다. 함수 포인터 별칭을 통해 `PrintMessage`를 콜백처럼 호출한다.
+
+마지막 검사는 `PlayerId`와 `MonsterId`가 서로 다른 역할 이름을 가졌어도 실제로는 같은 `std::uint32_t`라는 사실을 보여 준다. 두 ID를 컴파일 단계에서 구분해야 한다면 별도 구조체가 필요하다.
+
+## using 별칭을 사용할 때 확인할 기준
+
+1. 별칭이 단순 축약보다 타입의 역할을 더 잘 설명하는가?
+2. `using Alias = Type`의 오른쪽에서 실제 타입을 쉽게 확인할 수 있는가?
+3. 반복되는 함수 포인터 시그니처를 별칭으로 명확하게 표현했는가?
+4. 반복되는 템플릿 조합에는 별칭 템플릿이 도움이 되는가?
+5. 타입별 특수화가 필요하다면 클래스 템플릿을 함께 사용해야 하는가?
+6. 별칭이 새로운 타입이나 강한 타입 구분을 만들지 않는다는 점을 아는가?
+7. 기반 타입 변경 뒤 직렬화, ABI와 변환 코드도 검토했는가?
+8. 포인터 별칭에 붙은 `const`가 포인터 전체에 적용된다는 점을 확인했는가?
+9. 타입 별칭, using 선언, using 지시문과 네임스페이스 별칭을 구분하는가?
+10. 넓은 범위의 `using namespace`로 이름 충돌 가능성을 높이지 않는가?
+
+`using` 별칭의 가치는 긴 타입을 몇 글자 줄이는 데만 있지 않다. 구체적인 저장 타입에 도메인 역할을 부여하고 반복되는 타입 관계를 한 곳에 표현하는 데 있다. 다만 별칭은 어디까지나 같은 타입의 다른 이름이므로, 타입 안전성이나 호환성까지 자동으로 얻는다고 생각해서는 안 된다.
+
+## 다음 학습: delete로 원하지 않는 함수를 금지하기
+
+다음 글에서는 `= delete`를 사용해 복사, 특정 오버로드와 잘못된 암시적 변환을 컴파일 단계에서 막는 방법을 살펴본다. 접근 제한이나 함수 미정의 방식보다 삭제된 함수가 의도를 어떻게 명확하게 드러내는지 정리한다.

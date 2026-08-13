@@ -1,0 +1,588 @@
+---
+layout: post
+title: '[C++ 29] 이중 포인터와 포인터 참조: 호출자의 포인터를 변경하는 방법'
+date: 2026-04-15
+categories: [Dev, C++]
+tags: [C++, Pointer, Reference, Const, Function]
+---
+
+앞에서는 포인터로 객체를 수정하는 방법과 값·포인터·참조 매개변수의 차이를 살펴봤다. 그런데 포인터를 함수에 전달했다고 해서 함수가 호출자의 포인터 변수까지 바꿀 수 있는 것은 아니다.
+
+포인터도 하나의 객체이며 기본적으로 값으로 전달된다. 따라서 이번 글에서는 다음 두 동작을 먼저 구분한다.
+
+- 포인터가 가리키는 객체를 변경한다.
+- 포인터 자체가 다른 객체를 가리키게 한다.
+
+이 차이를 이해하면 이중 포인터 `T**`와 포인터 참조 `T*&`가 필요한 이유를 자연스럽게 설명할 수 있다.
+
+## 먼저 무엇을 변경하려는지 구분한다
+
+다음 변수에는 정수 객체와 그 객체를 가리키는 포인터가 있다.
+
+```cpp
+int number = 0;
+int* pointer = &number;
+```
+
+메모리 관계를 단순화하면 다음과 같다.
+
+```text
+pointer                    number
+┌──────────────┐           ┌─────┐
+│ &number ─────┼──────────>│  0  │
+└──────────────┘           └─────┘
+ 포인터 객체                 대상 객체
+```
+
+`*pointer = 1`은 화살표 끝에 있는 `number`를 변경한다.
+
+```cpp
+*pointer = 1;
+```
+
+반면 `pointer = nullptr`은 포인터 객체에 저장된 주소를 바꾼다. `number`의 값은 그대로다.
+
+```cpp
+pointer = nullptr;
+```
+
+두 표현은 모두 포인터를 사용하지만 변경 대상이 다르다.
+
+| 표현 | 변경되는 대상 |
+| :--- | :--- |
+| `*pointer = 1` | 포인터가 가리키는 정수 객체 |
+| `pointer = nullptr` | 포인터 객체에 저장된 주소 |
+
+함수 매개변수를 선택하려면 이 둘 중 무엇을 호출자에게 반영할 것인지 먼저 정해야 한다.
+
+## 포인터 매개변수도 값으로 전달된다
+
+`int*` 매개변수는 주소값을 복사해서 받는다.
+
+```cpp
+void SetNumber(int* value)
+{
+    if (value != nullptr)
+    {
+        *value = 1;
+    }
+}
+```
+
+호출자는 정수 객체의 주소를 전달한다.
+
+```cpp
+int number = 0;
+SetNumber(&number);
+```
+
+호출 과정을 단순화하면 다음과 같다.
+
+```text
+호출자                         SetNumber
+
+&number ────────────────> value에 주소값 복사
+                              │
+number <──────────────────── *value = 1
+```
+
+`value`와 `&number`는 같은 정수 객체를 가리킨다. 함수는 복사된 포인터를 역참조해 호출자의 `number`를 변경할 수 있다.
+
+중요한 점은 포인터 자체가 공유된 것이 아니라 주소값이 복사됐다는 사실이다. 함수 안의 포인터 매개변수는 호출자의 포인터 변수와 별개의 객체다.
+
+## 지역 포인터를 재지정해도 호출자의 포인터는 바뀌지 않는다
+
+원본 코드의 핵심은 다음 함수다.
+
+```cpp
+void SetMessage(const char* message)
+{
+    message = "Bye";
+}
+```
+
+호출자는 문자열 리터럴 `"Hello"`를 가리키는 포인터를 전달한다.
+
+```cpp
+const char* message = "Hello";
+SetMessage(message);
+```
+
+함수를 호출할 때 `message`에 저장된 주소값이 매개변수로 복사된다.
+
+```text
+호출 직후
+
+호출자의 message ───────> "Hello\0"
+함수의 message   ───────> "Hello\0"
+```
+
+함수 안에서 `message = "Bye"`를 실행하면 매개변수만 다른 문자열을 가리킨다.
+
+```text
+대입 후
+
+호출자의 message ───────> "Hello\0"
+함수의 message   ───────> "Bye\0"
+```
+
+함수가 끝나면 매개변수는 사라지고 호출자의 포인터는 여전히 `"Hello"`를 가리킨다. 따라서 다음 출력은 `Bye`가 아니라 `Hello`다.
+
+```cpp
+std::cout << message << '\n';
+```
+
+이것은 `const` 때문에 발생한 결과가 아니다. 포인터 매개변수를 값으로 전달했기 때문에 포인터 재지정이 호출자에게 반영되지 않은 것이다.
+
+## `const char*`가 제한하는 것은 문자 변경이다
+
+`const char*`는 가리키는 문자를 해당 포인터를 통해 수정하지 않겠다는 타입이다.
+
+```cpp
+const char* message = "Hello";
+```
+
+다음 두 대입은 서로 다른 대상을 변경한다.
+
+```cpp
+message = "Bye";  // 가능: 포인터가 저장한 주소를 변경
+// *message = 'B'; // 오류: const char를 해당 포인터로 변경하려고 함
+```
+
+문자열 리터럴은 수정하면 안 되므로 `const char*`로 가리키는 것이 맞다. 그러나 포인터 객체 자체는 `const`가 아니므로 다른 문자열을 가리키게 할 수 있다.
+
+포인터 자체의 재지정까지 막고 싶다면 `const`의 위치가 하나 더 필요하다.
+
+```cpp
+const char* const message = "Hello";
+```
+
+이 선언에서는 다음 두 변경을 모두 할 수 없다.
+
+- 첫 번째 `const`: 가리키는 문자를 변경하지 않는다.
+- 두 번째 `const`: 포인터가 다른 주소를 저장하지 못한다.
+
+이번 글의 목표는 호출자의 포인터를 재지정하는 것이므로 호출자 포인터 자체를 `const`로 만들지는 않는다.
+
+## 이중 포인터는 포인터 객체의 주소를 전달한다
+
+호출자의 포인터를 변경하려면 그 포인터 객체에 접근할 방법이 필요하다. 포인터 객체도 주소를 가진 객체이므로 해당 주소를 다른 포인터에 저장할 수 있다.
+
+```cpp
+const char* message = "Hello";
+const char** messageAddress = &message;
+```
+
+관계는 한 단계 더 늘어난다.
+
+```text
+messageAddress             message                  문자열 리터럴
+┌──────────────┐           ┌──────────────┐         ┌──────────┐
+│ &message ────┼──────────>│ &"Hello" ────┼────────>│ Hello\0  │
+└──────────────┘           └──────────────┘         └──────────┘
+ const char**               const char*              const char[]
+```
+
+`messageAddress`를 한 번 역참조하면 호출자의 `message` 객체에 접근한다.
+
+```cpp
+*messageAddress = "Bye";
+```
+
+이제 변경 대상은 문자열의 첫 문자가 아니라 `message`에 저장된 주소다.
+
+```text
+messageAddress             message                  문자열 리터럴
+┌──────────────┐           ┌──────────────┐         ┌──────────┐
+│ &message ────┼──────────>│ &"Bye" ──────┼────────>│ Bye\0    │
+└──────────────┘           └──────────────┘         └──────────┘
+```
+
+이를 함수로 옮기면 다음과 같다.
+
+```cpp
+void SetMessageByDoublePointer(const char** message)
+{
+    if (message != nullptr)
+    {
+        *message = "Bye";
+    }
+}
+```
+
+호출할 때는 포인터 객체의 주소를 전달한다.
+
+```cpp
+const char* message = "Hello";
+SetMessageByDoublePointer(&message);
+```
+
+함수가 `*message`에 새 주소를 대입하므로 호출자의 포인터가 `"Bye"`를 가리키게 된다.
+
+## 이중 포인터에는 두 단계의 유효성이 있다
+
+`const char**` 매개변수에는 서로 다른 두 상태가 존재한다.
+
+```cpp
+const char** message
+```
+
+- 바깥 포인터 `message`가 포인터 객체를 가리키는가?
+- `*message`에 저장된 안쪽 포인터가 문자열을 가리키는가?
+
+호출자의 포인터를 새 문자열로 설정하는 함수는 바깥 포인터를 먼저 검사해야 한다.
+
+```cpp
+void SetMessageByDoublePointer(const char** message)
+{
+    if (message == nullptr)
+    {
+        return;
+    }
+
+    *message = "Bye";
+}
+```
+
+기존 안쪽 포인터 값이 `nullptr`이어도 새 주소를 대입하는 것 자체는 가능하다.
+
+```cpp
+const char* message = nullptr;
+SetMessageByDoublePointer(&message);
+```
+
+반면 바깥 포인터가 `nullptr`이면 `*message`를 평가할 수 없다.
+
+```cpp
+SetMessageByDoublePointer(nullptr);
+```
+
+함수의 null 검사는 이 호출에서 잘못된 역참조가 발생하지 않도록 한다.
+
+## 포인터 참조는 포인터 객체에 별명을 붙인다
+
+C++에서는 이중 포인터 대신 포인터에 대한 참조를 받을 수도 있다.
+
+```cpp
+void SetMessageByReference(const char*& message)
+{
+    message = "Wow";
+}
+```
+
+`const char*&`는 `const char*` 객체에 대한 참조다. 매개변수 `message`는 호출자가 가진 포인터 객체의 별명이 된다.
+
+```cpp
+const char* message = "Hello";
+SetMessageByReference(message);
+```
+
+함수 안에서 `message = "Wow"`를 실행하면 호출자의 포인터에 새 주소가 저장된다.
+
+```text
+호출 전: 호출자의 message ─────> "Hello\0"
+호출 후: 호출자의 message ─────> "Wow\0"
+```
+
+참조 매개변수에는 `&message`처럼 주소 연산자를 직접 적지 않는다. 함수 선언이 포인터 객체를 참조로 받는다는 관계를 표현한다.
+
+## `T**`와 `T*&`는 호출 방식과 계약이 다르다
+
+두 방식 모두 호출자의 포인터를 재지정할 수 있지만 인터페이스의 의미가 다르다.
+
+| 기준 | `T**` | `T*&` |
+| :--- | :--- | :--- |
+| 호출 형태 | `Function(&pointer)` | `Function(pointer)` |
+| 바깥 대상 없음 표현 | `nullptr` 전달 가능 | 정상적인 호출에서는 포인터 객체가 필요 |
+| 함수 내부 접근 | `*pointer` | `pointer` |
+| 주로 드러나는 의미 | 포인터 객체가 없을 수도 있음 | 반드시 존재하는 포인터 객체를 수정 |
+| C와의 인터페이스 | 사용 가능 | C에는 참조가 없음 |
+
+여기서 `T*&`를 사용한다고 해서 안쪽 포인터 값까지 항상 유효한 것은 아니다.
+
+```cpp
+const char* message = nullptr;
+SetMessageByReference(message);
+```
+
+참조는 `message`라는 포인터 객체에 바인딩된다. 하지만 그 포인터 객체에 저장된 값은 `nullptr`일 수 있다.
+
+따라서 다음 두 조건을 구분해야 한다.
+
+- 참조가 바인딩되는 포인터 객체는 존재한다.
+- 그 포인터가 실제 대상을 가리키는지는 별개의 문제다.
+
+## 타입은 이름에서 바깥쪽으로 읽는다
+
+비슷해 보이는 선언을 나란히 비교하면 의미가 선명해진다.
+
+```cpp
+const char* value;
+const char** pointerToPointer;
+const char*& referenceToPointer;
+```
+
+각 선언은 다음 관계를 표현한다.
+
+```text
+const char*   : const char를 가리키는 포인터
+const char**  : const char를 가리키는 포인터를 가리키는 포인터
+const char*&  : const char를 가리키는 포인터에 대한 참조
+```
+
+`const char**`에서 `const`는 최종 문자에 적용된다. 바깥 포인터와 안쪽 포인터 자체가 모두 상수라는 뜻이 아니다.
+
+예를 들어 다음 함수는 호출자의 안쪽 포인터를 재지정한다.
+
+```cpp
+void ClearMessage(const char** message)
+{
+    if (message != nullptr)
+    {
+        *message = nullptr;
+    }
+}
+```
+
+포인터 선언은 별표 개수만 세지 말고 각 단계에서 무엇을 가리키며 어느 대상이 `const`인지 확인해야 한다.
+
+## `char**`를 `const char**`로 바꿀 수는 없다
+
+`char*`는 `const char*`로 변환할 수 있다.
+
+```cpp
+char text[] = "Hello";
+char* writable = text;
+const char* readable = writable;
+```
+
+하지만 포인터 단계를 하나 더 추가한 다음 변환은 허용되지 않는다.
+
+```cpp
+char* writable = nullptr;
+// const char** target = &writable; // 오류
+```
+
+만약 `char**`를 `const char**`로 바꿀 수 있다면 다음과 같은 문제가 생길 수 있다.
+
+```cpp
+void StoreLiteral(const char** target)
+{
+    *target = "Read only";
+}
+
+char* writable = nullptr;
+// StoreLiteral(&writable); // 허용되지 않음
+```
+
+이 호출이 허용된다고 가정하면 `writable`은 수정할 수 없는 문자열 리터럴을 가리키면서도 타입은 `char*`로 남는다. 이후 문자를 수정하려는 코드가 타입 검사를 통과할 수 있으므로 C++는 이 변환을 막는다.
+
+포인터 단계가 늘어나면 단순히 `const`를 추가할 수 있다고 가정하지 말고 전체 타입 변환이 안전한지 확인해야 한다.
+
+## 하나의 결과라면 반환값이 더 단순할 수 있다
+
+호출자의 포인터를 반드시 출력 매개변수로 변경해야 하는 것은 아니다. 함수가 새 메시지 하나를 결정하는 역할이라면 반환값으로 표현할 수 있다.
+
+```cpp
+const char* SelectMessage(bool success)
+{
+    return success ? "Success" : "Failure";
+}
+```
+
+호출자는 반환값을 명시적으로 저장한다.
+
+```cpp
+const char* message = SelectMessage(true);
+```
+
+이 인터페이스에서는 이중 포인터, 바깥 null 검사와 포인터 참조가 필요하지 않다.
+
+| 요구사항 | 적합한 형태 |
+| :--- | :--- |
+| 가리키는 객체를 수정 | `T*` 또는 `T&` |
+| 호출자의 포인터를 재지정하고 포인터 객체가 없을 수도 있음 | `T**` |
+| 반드시 존재하는 호출자의 포인터 객체를 재지정 | `T*&` |
+| 새 포인터 값 하나를 계산 | 반환값 |
+
+출력 매개변수는 여러 결과를 동시에 변경해야 하거나 기존 API와 맞춰야 할 때 필요할 수 있다. 그렇지 않다면 반환값이 데이터 흐름을 더 직접적으로 보여준다.
+
+## 문자열을 읽기만 한다면 포인터 재지정이 필요하지 않다
+
+출력 함수는 메시지가 가리키는 문자를 읽을 뿐 호출자의 포인터를 바꿀 이유가 없다.
+
+```cpp
+#include <iostream>
+
+void PrintMessage(const char* message)
+{
+    if (message != nullptr)
+    {
+        std::cout << message << '\n';
+    }
+}
+```
+
+이 경우 `const char*` 값 매개변수로 충분하다. 함수 내부에서 매개변수를 다른 곳으로 이동시켜도 호출자에게 영향을 주지 않는다는 점이 오히려 적절한 계약이다.
+
+C 스타일 null 종료 문자열이 반드시 필요한 것이 아니라 단순한 문자 범위를 읽는다면 `std::string_view`도 선택할 수 있다.
+
+```cpp
+#include <iostream>
+#include <string_view>
+
+void PrintMessage(std::string_view message)
+{
+    std::cout << message << '\n';
+}
+```
+
+다만 이번 실습의 목적은 포인터 객체의 재지정 과정을 이해하는 것이므로 핵심 예제에서는 `const char*`를 유지한다.
+
+## 각 함수가 변경하는 대상을 검증한다
+
+난수나 사용자 입력 없이 고정된 조건으로 포인터 변화를 확인할 수 있다.
+
+```cpp
+#include <cassert>
+#include <string_view>
+
+void VerifyPointerChanges()
+{
+    int number = 0;
+    SetNumber(&number);
+    assert(number == 1);
+
+    const char* message = "Hello";
+
+    SetMessage(message);
+    assert(std::string_view(message) == "Hello");
+
+    SetMessageByDoublePointer(&message);
+    assert(std::string_view(message) == "Bye");
+
+    SetMessageByReference(message);
+    assert(std::string_view(message) == "Wow");
+}
+```
+
+문자열 포인터의 주소가 특정 값인지 비교하지 않고 각 포인터가 가리키는 문자열 내용을 확인한다. 문자열 리터럴의 주소 배치는 구현 환경에 따라 달라질 수 있으며 주소가 같다는 사실만으로 문자열 내용 계약을 검증할 수는 없다.
+
+`assert`는 `NDEBUG`가 정의된 빌드에서 제거될 수 있다. 이 예제에서는 학습 중 조건을 확인하기 위해 사용하며 반드시 실행돼야 하는 사용자 입력 검증 수단으로 사용하지 않는다.
+
+## 전체 예제로 세 가지 전달 방식을 비교한다
+
+핵심 동작을 하나의 파일로 구성하면 다음과 같다.
+
+```cpp
+#include <cassert>
+#include <iostream>
+#include <string_view>
+
+void SetNumber(int* value)
+{
+    if (value != nullptr)
+    {
+        *value = 1;
+    }
+}
+
+void SetMessage(const char* message)
+{
+    message = "Bye";
+}
+
+void SetMessageByDoublePointer(const char** message)
+{
+    if (message != nullptr)
+    {
+        *message = "Bye";
+    }
+}
+
+void SetMessageByReference(const char*& message)
+{
+    message = "Wow";
+}
+
+void VerifyPointerChanges()
+{
+    int number = 0;
+    SetNumber(&number);
+    assert(number == 1);
+
+    const char* message = "Hello";
+
+    SetMessage(message);
+    assert(std::string_view(message) == "Hello");
+
+    SetMessageByDoublePointer(&message);
+    assert(std::string_view(message) == "Bye");
+
+    SetMessageByReference(message);
+    assert(std::string_view(message) == "Wow");
+}
+
+int main()
+{
+    VerifyPointerChanges();
+
+    int number = 0;
+    SetNumber(&number);
+
+    const char* message = "Hello";
+    std::cout << "initial: " << message << '\n';
+
+    SetMessage(message);
+    std::cout << "after value parameter: " << message << '\n';
+
+    SetMessageByDoublePointer(&message);
+    std::cout << "after double pointer: " << message << '\n';
+
+    SetMessageByReference(message);
+    std::cout << "after pointer reference: " << message << '\n';
+}
+```
+
+코드의 상태 변화는 다음 순서로 추적할 수 있다.
+
+```text
+초기                              Hello
+SetMessage(message) 이후          Hello
+SetMessageByDoublePointer 이후    Bye
+SetMessageByReference 이후        Wow
+```
+
+첫 번째 함수는 복사된 포인터만 재지정한다. 나머지 두 함수는 서로 다른 문법으로 호출자의 포인터 객체에 접근한다.
+
+## 다중 포인터가 보이면 단계별 대상을 그린다
+
+다중 포인터를 단순히 주소의 주소라고 외우면 `const`와 null 상태가 추가될 때 빠르게 헷갈린다. 각 단계의 객체를 분리해 확인하는 편이 낫다.
+
+```text
+const char** outer
+      │
+      ▼
+const char* inner
+      │
+      ▼
+const char character
+```
+
+코드를 검토할 때는 다음 질문을 순서대로 확인한다.
+
+1. 최종적으로 변경하려는 것은 값인가, 포인터인가?
+2. 포인터 매개변수는 값으로 복사된다는 점을 반영했는가?
+3. 바깥 포인터가 `nullptr`일 수 있는가?
+4. 안쪽 포인터가 `nullptr`일 수 있는가?
+5. 각 단계의 `const`는 어느 객체의 변경을 제한하는가?
+6. 이중 포인터 대신 포인터 참조가 계약을 더 분명하게 표현하는가?
+7. 출력 매개변수 대신 반환값으로 단순화할 수 있는가?
+
+포인터 단계가 늘어날수록 중요한 것은 별표 개수가 아니라 각 포인터가 가리키는 객체와 그 객체의 유효 기간이다.
+
+## 다음 학습: 다차원 배열은 이중 포인터가 아니다
+
+다음 글에서는 다차원 배열의 행과 열이 메모리에 어떻게 배치되는지 살펴본다. `int[2][5]`에서 배열 이름이 변환될 때 만들어지는 타입은 `int**`가 아니라 한 행 전체를 가리키는 포인터다.
+
+이번 글에서 포인터가 한 단계 늘어날 때마다 가리키는 대상의 타입도 정확히 맞아야 한다는 점을 확인했다. 이 기준을 적용하면 2차원 배열을 무리하게 `int**`로 형 변환했을 때 왜 올바른 접근이 되지 않는지도 설명할 수 있다.

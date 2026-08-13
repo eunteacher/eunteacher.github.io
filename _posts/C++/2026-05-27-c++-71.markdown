@@ -1,0 +1,522 @@
+---
+layout: post
+title: '[C++ 71] 람다 표현식: 캡처 방식과 클로저 객체의 수명 이해하기'
+date: 2026-05-27
+categories: [Dev, C++]
+tags: [C++, Modern C++, Lambda, Capture, Closure]
+---
+
+표준 알고리즘에 조건을 전달하거나 짧은 콜백을 만들 때마다 별도의 함수 객체 클래스를 선언하면 조건과 사용 위치가 멀어진다. 람다 표현식(lambda expression)은 호출 가능한 함수 객체를 필요한 위치에서 직접 만드는 문법이다.
+
+```cpp
+auto isUnique = [](const Item& item)
+{
+    return item.rarity == Rarity::Unique;
+};
+```
+
+람다의 핵심은 코드를 짧게 쓰는 데만 있지 않다. 주변 지역 변수를 클로저 객체 안에 값이나 참조로 저장할 수 있다는 데 있다. 이 캡처 방식은 복사 비용, 수정 가능 여부와 콜백의 안전한 수명을 결정한다.
+
+## 람다 표현식은 함수 객체를 만든다
+
+다음 함수 객체는 아이템 희귀도가 `Unique`인지 검사한다.
+
+```cpp
+struct IsUnique
+{
+    bool operator()(const Item& item) const
+    {
+        return item.rarity == Rarity::Unique;
+    }
+};
+```
+
+같은 조건을 람다로 작성할 수 있다.
+
+```cpp
+auto isUnique = [](const Item& item)
+{
+    return item.rarity == Rarity::Unique;
+};
+```
+
+람다 표현식을 평가하면 컴파일러가 생성한 이름 없는 클래스 타입의 객체가 만들어진다. 그 타입을 클로저 타입(closure type), 생성된 객체를 클로저 객체(closure object)라고 한다.
+
+개념적으로는 다음과 비슷하다.
+
+```cpp
+class CompilerGeneratedClosure
+{
+public:
+    bool operator()(const Item& item) const
+    {
+        return item.rarity == Rarity::Unique;
+    }
+};
+```
+
+람다가 C++에 호출 가능한 객체라는 완전히 새로운 실행 모델을 추가한 것은 아니다. 함수 객체를 간결하게 생성하는 언어 문법이며 캡처와 타입 추론을 컴파일러가 구성해 준다.
+
+## 기본 구조는 캡처, 매개변수와 본문이다
+
+람다 표현식의 대표적인 형태는 다음과 같다.
+
+```cpp
+[captures](parameters) -> return_type
+{
+    body
+}
+```
+
+- `[]`: 바깥 지역 변수를 클로저에 저장하는 캡처 목록
+- `()`: 호출할 때 전달받는 매개변수
+- `-> return_type`: 필요할 때 명시하는 반환 타입
+- `{}`: 실행할 본문
+
+캡처와 매개변수가 없다면 가장 짧은 형태로 쓸 수 있다.
+
+```cpp
+auto answer = [] { return 42; };
+assert(answer() == 42);
+```
+
+반환 타입은 일반적으로 `return` 표현식에서 추론된다.
+
+```cpp
+auto square = [](int value) { return value * value; };
+```
+
+여러 반환 경로의 타입을 하나로 추론할 수 없거나 공개 의도를 명확하게 해야 한다면 반환 타입을 적는다.
+
+```cpp
+auto divide = [](int left, int right) -> double
+{
+    return static_cast<double>(left) / right;
+};
+```
+
+## 값 캡처는 클로저 안에 값을 저장한다
+
+특정 ID를 찾으려면 지역 변수를 값으로 캡처할 수 있다.
+
+```cpp
+int targetId = 4;
+
+auto hasId = [targetId](const Item& item)
+{
+    return item.id == targetId;
+};
+```
+
+람다 객체를 만드는 시점의 `targetId` 값이 클로저 내부 멤버처럼 저장된다. 이후 바깥 변수를 바꿔도 캡처된 값은 바뀌지 않는다.
+
+```cpp
+targetId = 1;
+
+assert(hasId(items[3])); // 캡처된 값은 여전히 4
+```
+
+값 캡처는 바깥 지역 변수의 수명과 분리되어 콜백을 나중에 실행할 때 비교적 안전하다. 대신 큰 객체를 캡처하면 복사 비용과 클로저 크기가 증가할 수 있다.
+
+## 참조 캡처는 바깥 객체의 현재 값을 본다
+
+변수 이름 앞에 `&`를 붙이면 참조로 캡처한다.
+
+```cpp
+int targetId = 4;
+
+auto hasCurrentId = [&targetId](const Item& item)
+{
+    return item.id == targetId;
+};
+
+targetId = 1;
+assert(hasCurrentId(items[0]));
+```
+
+클로저가 바깥 `targetId`를 참조하므로 호출 시점의 값 1을 사용한다. 결과를 바깥 변수에 누적할 때도 참조 캡처가 필요할 수 있다.
+
+```cpp
+int total = 0;
+
+std::for_each(values.begin(), values.end(), [&total](int value)
+{
+    total += value;
+});
+```
+
+참조 캡처는 참조 대상보다 오래 살아서는 안 된다.
+
+```cpp
+auto MakeDanglingCallback()
+{
+    int local = 10;
+    return [&local] { return local; };
+}
+
+// auto callback = MakeDanglingCallback();
+// callback(); // local의 수명이 끝난 뒤 참조하므로 정의되지 않은 동작
+```
+
+비동기 작업, 이벤트 큐나 저장되는 콜백에서는 실행 시점이 현재 범위를 넘어갈 수 있으므로 참조 캡처를 특히 신중하게 사용한다.
+
+## 기본 캡처보다 필요한 변수를 명시한다
+
+`[=]`는 사용한 자동 저장 기간 지역 변수를 기본적으로 값 캡처하고 `[&]`는 기본적으로 참조 캡처한다.
+
+```cpp
+auto byValue = [=](const Item& item) { return item.id == targetId; };
+auto byReference = [&](const Item& item) { return item.id == targetId; };
+```
+
+짧은 즉시 실행 코드에서는 편리하지만, 캡처 목록만 보고 어떤 상태에 의존하는지 알기 어렵다. 나중에 본문에서 새 변수를 사용하면 클로저의 저장 상태나 수명 위험이 조용히 달라질 수도 있다.
+
+```cpp
+auto matches = [targetId, targetRarity](const Item& item)
+{
+    return item.id == targetId && item.rarity == targetRarity;
+};
+```
+
+저장되거나 비동기로 실행되는 콜백일수록 필요한 변수를 개별적으로 명시하면 의존성과 소유 방식을 검토하기 쉽다.
+
+혼합 캡처도 가능하다.
+
+```cpp
+[=, &total] // 기본은 값, total만 참조
+[&, targetId] // 기본은 참조, targetId만 값
+```
+
+같은 변수를 중복해서 캡처하거나 기본 캡처와 모순되는 형태는 사용할 수 없다.
+
+## 값 캡처 멤버는 기본적으로 수정할 수 없다
+
+람다의 함수 호출 연산자는 기본적으로 `const`다. 따라서 값으로 캡처한 멤버를 일반 람다 본문에서 수정할 수 없다.
+
+```cpp
+int count = 0;
+
+auto counter = [count]()
+{
+    // ++count; // 캡처된 멤버를 수정할 수 없음
+};
+```
+
+클로저 내부 복사본을 수정하려면 `mutable`을 붙인다.
+
+```cpp
+auto counter = [count]() mutable
+{
+    return ++count;
+};
+
+assert(counter() == 1);
+assert(counter() == 2);
+assert(count == 0);
+```
+
+바깥 `count`가 아니라 클로저가 가진 복사본만 바뀐다. `mutable`이 캡처 방식을 참조로 바꾸는 것은 아니다.
+
+참조 캡처를 통해 원본을 수정하는 데는 `mutable`이 필요하지 않다.
+
+```cpp
+auto incrementOriginal = [&count] { ++count; };
+```
+
+## 초기화 캡처는 이름과 생성 방식을 직접 정한다
+
+C++14의 초기화 캡처(init-capture)는 캡처 멤버의 이름과 초기값을 지정한다.
+
+```cpp
+int value = 10;
+auto doubled = [captured = value * 2] { return captured; };
+```
+
+이동 전용 객체를 클로저로 옮길 때 특히 유용하다.
+
+```cpp
+auto resource = std::make_unique<int>(10);
+
+auto job = [owned = std::move(resource)]() mutable
+{
+    return ++*owned;
+};
+
+assert(resource == nullptr);
+assert(job() == 11);
+```
+
+클로저가 `unique_ptr`의 소유권을 가지므로 이 람다 객체도 기본적으로 복사할 수 없고 이동만 가능하다. 람다를 저장할 컨테이너나 콜백 래퍼가 복사 가능한 호출 객체를 요구하는지 확인해야 한다.
+
+## this 캡처는 객체 자체가 아니라 포인터를 저장한다
+
+멤버 함수에서 `[this]`를 사용하면 현재 객체를 가리키는 포인터를 캡처한다.
+
+```cpp
+class Knight
+{
+public:
+    auto MakeResetJob()
+    {
+        return [this] { hp_ = 200; };
+    }
+
+private:
+    int hp_ = 100;
+};
+```
+
+클로저가 `Knight`의 수명을 연장하지 않는다. 원본 코드처럼 객체를 삭제한 뒤 람다를 호출하면 이미 끝난 객체를 `this` 포인터로 접근한다.
+
+```cpp
+Knight* knight = new Knight;
+auto job = knight->MakeResetJob();
+delete knight;
+
+// job(); // dangling this 접근: 정의되지 않은 동작
+```
+
+이는 단순히 쓰레기 값이 들어오는 현상이 아니다. 프로그램 동작을 보장할 수 없는 undefined behavior다.
+
+C++17의 `[*this]`는 현재 객체를 값으로 복사해 캡처한다.
+
+```cpp
+auto MakeSnapshotJob() const
+{
+    return [*this] { return hp_; };
+}
+```
+
+원본 객체의 수명과 분리된 스냅샷이 필요할 때 사용할 수 있지만 객체 전체의 복사 비용과 복사 의미를 고려해야 한다. 원본 객체를 수정하는 작업과도 의미가 다르다.
+
+공유 소유 객체의 비동기 콜백에서는 `shared_ptr` 또는 `weak_ptr` 캡처를 설계할 수 있으며, 소유권 순환과 만료 처리는 73편에서 다룬다.
+
+## 제네릭 람다는 매개변수 타입을 추론한다
+
+C++14부터 람다 매개변수에 `auto`를 사용할 수 있다.
+
+```cpp
+auto add = [](auto left, auto right)
+{
+    return left + right;
+};
+
+assert(add(1, 2) == 3);
+assert(add(1.5, 2.0) == 3.5);
+```
+
+컴파일러가 함수 호출 연산자를 템플릿처럼 생성한다. 참조와 값 범주를 보존해야 한다면 매개변수도 그 의도에 맞게 작성한다.
+
+```cpp
+auto relay = [](auto&& value)
+{
+    Consume(std::forward<decltype(value)>(value));
+};
+```
+
+`auto&&`가 전달 참조처럼 동작하고 `decltype(value)`가 추론된 참조 타입을 제공한다.
+
+C++20에서는 템플릿 매개변수 목록을 직접 적는 람다도 사용할 수 있다.
+
+```cpp
+auto first = []<typename T>(const std::vector<T>& values) -> const T&
+{
+    return values.front();
+};
+```
+
+타입 간 관계나 제약을 표현할 때 일반 제네릭 람다보다 명확할 수 있다.
+
+## 캡처 없는 람다는 함수 포인터로 변환될 수 있다
+
+캡처가 없는 람다는 호환되는 함수 포인터 타입으로 변환할 수 있다.
+
+```cpp
+using Operation = int (*)(int, int);
+
+Operation add = [](int left, int right)
+{
+    return left + right;
+};
+```
+
+캡처가 있는 람다는 상태를 보관해야 하므로 일반 함수 포인터 하나로 표현할 수 없다.
+
+```cpp
+int offset = 10;
+auto addOffset = [offset](int value) { return value + offset; };
+
+// Operation operation = addOffset; // 캡처 상태 때문에 변환 불가
+```
+
+C 스타일 콜백 API가 함수 포인터와 별도 사용자 데이터 포인터를 받는다면 상태 전달 방식을 그 API에 맞게 설계해야 한다.
+
+## 각 람다 표현식은 서로 다른 타입이다
+
+본문이 완전히 같아 보여도 별도의 람다 표현식은 서로 다른 클로저 타입을 만든다.
+
+```cpp
+auto first = [] { return 1; };
+auto second = [] { return 1; };
+
+static_assert(!std::is_same_v<decltype(first), decltype(second)>);
+```
+
+구체 타입 이름을 직접 쓸 수 없으므로 지역 변수에는 `auto`가 자연스럽다. 서로 다른 람다를 같은 컨테이너나 멤버에 저장하려면 공통 인터페이스가 필요하다.
+
+```cpp
+std::function<int()> callback = first;
+callback = second;
+```
+
+`std::function`은 호출 가능한 객체를 타입 소거(type erasure)해 같은 타입으로 보관한다. 편리하지만 객체 저장, 간접 호출과 경우에 따른 동적 할당 비용이 있을 수 있으며 대상이 복사 가능해야 하는 제약도 있다. 하나의 구체 람다만 사용할 수 있다면 템플릿이나 `auto`가 더 직접적이다.
+
+## 표준 알고리즘에서는 조건을 사용 위치에 둔다
+
+람다는 알고리즘이 요구하는 술어를 가까운 위치에서 표현한다.
+
+```cpp
+Rarity targetRarity = Rarity::Unique;
+ItemType targetType = ItemType::Weapon;
+
+auto found = std::find_if(items.begin(), items.end(), [targetRarity, targetType](const Item& item)
+{
+    return item.rarity == targetRarity && item.type == targetType;
+});
+```
+
+조건이 한 번만 사용되고 짧다면 별도 클래스보다 검색 의도를 따라가기 쉽다. 반대로 조건이 길거나 여러 곳에서 재사용되거나 독립적인 테스트가 필요하다면 이름 있는 함수 객체나 함수로 분리하는 편이 낫다.
+
+람다를 사용한다는 이유로 모든 로직을 한 식에 넣지 않는다. 캡처와 조건이 많아지면 역할 이름을 붙여 별도 단위로 분리한다.
+
+## 전체 구현
+
+아이템 검색에서 명시적 캡처, 값·참조 차이, `mutable`, 이동 캡처와 제네릭 람다를 확인한다.
+
+```cpp
+#include <algorithm>
+#include <cassert>
+#include <iostream>
+#include <memory>
+#include <string>
+#include <type_traits>
+#include <vector>
+
+enum class ItemType
+{
+    Armor,
+    Weapon,
+    Jewelry
+};
+
+enum class Rarity
+{
+    Common,
+    Rare,
+    Unique
+};
+
+struct Item
+{
+    int id;
+    Rarity rarity;
+    ItemType type;
+};
+
+int main()
+{
+    std::vector<Item> items{
+        {1, Rarity::Common, ItemType::Weapon},
+        {2, Rarity::Common, ItemType::Armor},
+        {3, Rarity::Rare, ItemType::Jewelry},
+        {4, Rarity::Unique, ItemType::Weapon}
+    };
+
+    Rarity targetRarity = Rarity::Unique;
+    ItemType targetType = ItemType::Weapon;
+
+    auto uniqueWeapon = std::find_if(items.begin(), items.end(), [targetRarity, targetType](const Item& item)
+    {
+        return item.rarity == targetRarity && item.type == targetType;
+    });
+
+    assert(uniqueWeapon != items.end());
+    assert(uniqueWeapon->id == 4);
+
+    int targetId = 4;
+    auto byValue = [targetId](const Item& item) { return item.id == targetId; };
+    auto byReference = [&targetId](const Item& item) { return item.id == targetId; };
+
+    targetId = 1;
+
+    auto valueResult = std::find_if(items.begin(), items.end(), byValue);
+    auto referenceResult = std::find_if(items.begin(), items.end(), byReference);
+
+    assert(valueResult->id == 4);
+    assert(referenceResult->id == 1);
+
+    int externalCount = 0;
+    auto counter = [externalCount]() mutable { return ++externalCount; };
+
+    assert(counter() == 1);
+    assert(counter() == 2);
+    assert(externalCount == 0);
+
+    auto resource = std::make_unique<int>(10);
+    auto job = [owned = std::move(resource)]() mutable { return ++*owned; };
+
+    assert(resource == nullptr);
+    assert(job() == 11);
+
+    auto add = [](auto left, auto right) { return left + right; };
+    assert(add(2, 3) == 5);
+    assert(add(1.5, 2.0) == 3.5);
+
+    auto firstLambda = [] { return 1; };
+    auto secondLambda = [] { return 1; };
+    static_assert(!std::is_same_v<decltype(firstLambda), decltype(secondLambda)>);
+
+    std::cout << "Unique weapon id: " << uniqueWeapon->id << '\n';
+    std::cout << "Value capture id: " << valueResult->id << '\n';
+    std::cout << "Reference capture id: " << referenceResult->id << '\n';
+    std::cout << "Mutable counter next value: " << counter() << '\n';
+    std::cout << "Moved capture next value: " << job() << '\n';
+    std::cout << "Generic lambda sum: " << add(10, 20) << '\n';
+}
+```
+
+실행 결과는 다음과 같다.
+
+```text
+Unique weapon id: 4
+Value capture id: 4
+Reference capture id: 1
+Mutable counter next value: 3
+Moved capture next value: 12
+Generic lambda sum: 30
+```
+
+검색 조건에 희귀도와 타입을 값으로 명시해 ID 4의 무기를 찾는다. `targetId`를 4에서 1로 바꾼 뒤 값 캡처는 저장된 4를 사용하고 참조 캡처는 현재 값 1을 사용한다.
+
+`mutable` 람다는 바깥 `externalCount`를 바꾸지 않고 내부 복사본만 1, 2, 3으로 증가시킨다. 초기화 캡처는 `unique_ptr` 소유권을 클로저로 옮기며 호출할 때 내부 값을 증가시킨다. 제네릭 람다는 정수와 실수 덧셈 모두에 사용할 수 있다.
+
+## 람다를 사용할 때 확인할 기준
+
+1. 람다 표현식, 클로저 타입과 클로저 객체를 구분하는가?
+2. 값 캡처가 람다 생성 시점의 값을 저장한다는 점을 아는가?
+3. 참조 캡처 대상이 람다 호출 시점까지 살아 있는가?
+4. 기본 캡처보다 필요한 의존성을 개별적으로 드러내는 편이 나은가?
+5. `mutable`이 바깥 변수가 아니라 캡처 복사본을 수정한다는 점을 아는가?
+6. 이동 전용 자원의 소유권을 초기화 캡처로 명확히 이전했는가?
+7. `[this]`가 객체 수명을 연장하지 않는다는 점을 고려했는가?
+8. 비동기 콜백이 실행될 때 캡처한 객체와 참조가 여전히 유효한가?
+9. 제네릭 람다에서 전달이 필요하면 `auto&&`와 `std::forward`를 올바르게 사용하는가?
+10. 캡처 없는 람다만 일반 함수 포인터로 변환할 수 있음을 아는가?
+11. 서로 다른 람다 표현식이 서로 다른 타입을 만든다는 점을 고려하는가?
+12. `std::function`의 타입 소거가 정말 필요한지와 그 비용·복사 제약을 검토했는가?
+
+람다의 편리함은 함수를 이름 없이 짧게 만드는 데서 끝나지 않는다. 필요한 상태를 호출 객체에 함께 담아 알고리즘과 콜백에 전달할 수 있다는 데 있다. 그 상태를 값으로 소유할지 외부 객체를 참조할지 결정하는 순간 람다의 안전한 수명도 함께 결정된다.
+
+## 다음 학습: unique_ptr와 단독 소유권
+
+다음 글에서는 `std::unique_ptr`로 하나의 소유자만 갖는 동적 객체를 관리한다. `make_unique`, 소유권 이동, `release`와 `reset`의 차이, 사용자 정의 deleter와 배열 관리에서 원시 포인터를 직접 삭제하지 않는 방법을 정리한다.

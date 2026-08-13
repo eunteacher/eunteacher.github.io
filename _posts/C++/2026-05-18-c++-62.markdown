@@ -1,0 +1,370 @@
+---
+layout: post
+title: '[C++ 62] deque의 분할 저장 구조: 양쪽 끝 연산과 임의 접근 함께 사용하기'
+date: 2026-05-18
+categories: [Dev, C++]
+tags: [C++, STL, Deque, Sequence Container, Iterator]
+---
+
+`std::vector`는 연속 저장과 빠른 임의 접근이 강점이지만 앞에 요소를 추가하면 기존 요소를 뒤로 이동해야 한다. `std::list`는 양쪽 끝과 알고 있는 위치에서 노드를 빠르게 연결할 수 있지만 인덱스 접근을 지원하지 않는다.
+
+`std::deque`는 double-ended queue라는 이름처럼 앞과 뒤에서 요소를 추가하고 제거하는 연산을 지원하면서 `operator[]`를 통한 임의 접근도 제공한다.
+
+이 특성은 deque가 하나의 연속 배열이 아니라 여러 저장 블록을 관리하는 구조에서 나온다. 다만 구체적인 블록 크기와 내부 인덱스 구조는 표준이 공개하는 계약이 아니라 라이브러리 구현 세부 사항이다.
+
+## deque는 시퀀스 컨테이너다
+
+`vector`, `list`, `deque`는 모두 요소의 순서를 유지하는 시퀀스 컨테이너(sequence container)다.
+
+```cpp
+std::deque<int> values;
+
+values.push_back(20);
+values.push_front(10);
+values.push_back(30);
+```
+
+```text
+values = [10, 20, 30]
+```
+
+앞에서 넣은 값은 첫 요소가 되고 뒤에서 넣은 값은 마지막 요소가 된다. `front()`와 `back()`으로 양쪽 끝 요소에 접근할 수 있다.
+
+```cpp
+assert(values.front() == 10);
+assert(values.back() == 30);
+```
+
+`pop_front()`와 `pop_back()`은 양쪽 끝 요소를 제거한다. 네 함수 모두 비어 있는 deque에서는 사용할 수 없다.
+
+## 일반적인 구현은 저장 블록과 블록 목록을 사용한다
+
+deque는 개념적으로 고정 크기의 여러 저장 블록과 그 블록들을 찾기 위한 관리 구조를 사용한다.
+
+```text
+관리 구조
+  │
+  ├──→ [ ][ ][10][20]
+  ├──→ [30][40][50][60]
+  └──→ [70][80][ ][ ]
+```
+
+뒤에 공간이 필요하면 마지막 쪽 블록을 사용하거나 새 블록을 연결하고, 앞에 공간이 필요하면 첫 블록 앞쪽을 사용하거나 새 블록을 마련한다. 따라서 벡터처럼 앞 삽입 때 모든 요소를 이동할 필요가 없다.
+
+이 그림은 동작을 이해하기 위한 전형적인 모델이다. 다음 세부 사항을 프로그램에서 가정하면 안 된다.
+
+- 블록 하나에 정확히 몇 개의 요소가 들어가는지
+- 블록 크기가 어떤 수열로 증가하는지
+- 관리 구조가 실제로 어떤 포인터 배열로 구현되는지
+- 인접한 두 요소가 같은 블록에 들어가는지
+
+표준이 보장하는 것은 양쪽 끝 연산과 임의 접근의 복잡도, 요소가 하나의 연속 배열을 이루지 않는다는 컨테이너 특성이다.
+
+## 임의 접근은 가능하지만 메모리는 연속되지 않는다
+
+deque 반복자는 임의 접근 반복자다. 인덱스와 반복자 덧셈을 사용할 수 있다.
+
+```cpp
+std::deque<int> values{10, 20, 30, 40};
+
+assert(values[2] == 30);
+assert(*(values.begin() + 3) == 40);
+assert(values.end() - values.begin() == 4);
+```
+
+접근 복잡도는 O(1)이지만 벡터처럼 모든 요소가 하나의 연속 메모리 구간에 있다는 뜻은 아니다.
+
+```cpp
+std::vector<int> vectorValues{10, 20, 30};
+int* contiguous = vectorValues.data();
+
+// std::deque에는 전체 요소를 가리키는 data()가 없음
+// int* segmented = values.data();
+```
+
+deque의 개별 요소 주소는 얻을 수 있지만 그 주소를 C 배열의 시작처럼 사용해 다음 요소로 포인터 연산하면 안 된다.
+
+```cpp
+int* first = &values[0];
+assert(*first == 10);
+
+// first + 1이 반드시 values[1]을 가리킨다고 가정할 수 없음
+```
+
+C API에 연속된 버퍼를 전달하거나 `std::span`으로 전체 요소를 감싸야 한다면 `vector`가 더 적합하다.
+
+## operator[]는 범위를 검사하지 않는다
+
+원본 예제는 두 요소만 추가한 뒤 네 번째 위치에 접근한다.
+
+```cpp
+std::deque<int> values;
+values.push_back(1);
+values.push_front(2);
+
+// values[3] = 10; // 유효한 인덱스는 0과 1뿐임
+```
+
+`operator[]`는 인덱스가 범위 안에 있는지 검사하지 않는다. 범위를 벗어나면 정의되지 않은 동작이 발생한다.
+
+유효한 인덱스는 벡터와 마찬가지로 다음 범위다.
+
+```text
+0 <= index < size()
+```
+
+범위 검사가 필요하면 `at()`을 사용한다.
+
+```cpp
+try
+{
+    values.at(3) = 10;
+}
+catch (const std::out_of_range&)
+{
+    std::cout << "Index is out of range\n";
+}
+```
+
+`at()`은 잘못된 인덱스에서 `std::out_of_range` 예외를 던진다. 인덱스가 항상 검증돼 있는 내부 경로에서는 `operator[]`, 외부 입력처럼 확인이 필요한 경로에서는 `at()`을 고려할 수 있다.
+
+## 양쪽 끝 삽입과 삭제는 O(1)이다
+
+deque의 `push_front`, `push_back`, `pop_front`, `pop_back`은 O(1) 복잡도를 가진다.
+
+```cpp
+std::deque<int> queue;
+
+queue.push_back(20);
+queue.push_front(10);
+queue.push_back(30);
+
+queue.pop_front();
+queue.pop_back();
+
+assert(queue.front() == 20);
+```
+
+새 블록 할당 같은 개별 비용은 발생할 수 있다. O(1)은 요소 수에 비례해 기존 요소 전체를 이동하지 않는다는 복잡도 표현이지, 모든 호출의 기계 명령 수나 메모리 할당 비용이 동일하다는 뜻은 아니다.
+
+deque에는 `vector`의 `capacity()`나 `reserve()`에 대응하는 API가 없다. 내부 블록 확보 방식을 호출자가 하나의 용량 값으로 관리하는 구조가 아니기 때문이다.
+
+## 중간 삽입과 삭제는 요소 이동이 필요하다
+
+deque 중간에 요소를 넣거나 지우면 삽입·삭제 위치에 가까운 한쪽 끝 방향으로 요소를 이동할 수 있다.
+
+```cpp
+std::deque<int> values{10, 20, 40, 50};
+auto inserted = values.insert(values.begin() + 2, 30);
+
+assert(*inserted == 30);
+```
+
+중간 삽입과 삭제의 복잡도는 O(n)이다. 양쪽 끝 삽입이 빠르다는 특징을 중간 위치까지 확대해서 이해하면 안 된다.
+
+```cpp
+auto next = values.erase(values.begin() + 2);
+assert(*next == 40);
+```
+
+`erase`는 삭제된 요소 다음 위치를 반환한다. 순회 중 삭제할 때는 반환값으로 반복자를 갱신한다.
+
+## 끝에 삽입해도 기존 반복자는 무효가 된다
+
+deque의 반복자 무효화는 벡터와 다르다. `push_front`, `push_back`, `emplace_front`, `emplace_back`으로 양쪽 끝에 요소를 삽입하면 **모든 기존 반복자가 무효**가 된다.
+
+```cpp
+std::deque<int> values{10, 20, 30};
+auto oldIterator = values.begin();
+int& remembered = values[1];
+
+values.push_front(5);
+
+// oldIterator는 다시 사용하지 않음
+assert(remembered == 20);
+```
+
+양쪽 끝 삽입은 기존 요소의 참조와 포인터를 무효로 만들지 않는다. 요소 노드는 유지되더라도 반복자가 사용하는 내부 블록 관리 정보가 바뀔 수 있기 때문에 반복자와 참조의 규칙이 서로 다르다.
+
+벡터는 재할당이 없으면 기존 요소 반복자가 유지되지만, deque의 끝 삽입에서는 기존 반복자를 보관해 계속 사용하면 안 된다.
+
+## 삭제 위치에 따라 무효화 범위가 달라진다
+
+deque의 삭제 규칙은 위치에 따라 나뉜다.
+
+- 첫 요소만 삭제하고 다른 요소가 남으면 삭제된 요소의 반복자와 참조만 무효가 된다.
+- 마지막 요소만 삭제하고 다른 요소가 남으면 삭제된 요소의 위치 정보와 기존 `end()`가 무효가 된다.
+- 중간 요소를 삭제하면 모든 반복자와 참조가 무효가 된다.
+- 모든 요소를 지우는 `clear()`는 모든 요소의 반복자와 참조를 무효로 만든다.
+
+```cpp
+std::deque<int> values{10, 20, 30, 40};
+int& twenty = values[1];
+
+values.pop_front();
+assert(twenty == 20); // 삭제되지 않은 기존 요소의 참조는 유지
+```
+
+중간 삭제 뒤에는 삭제 위치와 무관해 보이던 참조도 다시 사용하지 않는다.
+
+```cpp
+int& remembered = values.front();
+values.erase(values.begin() + 1);
+
+// remembered를 포함한 기존 반복자와 참조를 다시 사용하지 않음
+```
+
+컨테이너를 수정한 뒤 위치 정보를 오래 유지해야 한다면 연산별 규칙을 외워서 버티기보다, 필요한 위치를 다시 얻거나 더 적합한 컨테이너를 선택하는 편이 안전하다.
+
+## deque가 자연스러운 사용 사례
+
+deque는 최근 일정 개수만 유지하는 슬라이딩 윈도우처럼 앞에서 제거하고 뒤에서 추가하는 작업에 잘 맞는다.
+
+```cpp
+std::deque<int> recent;
+
+for (int value = 1; value <= 5; ++value)
+{
+    recent.push_back(value);
+
+    if (recent.size() > 3)
+    {
+        recent.pop_front();
+    }
+}
+```
+
+```text
+recent = [3, 4, 5]
+```
+
+`std::queue`의 기본 내부 컨테이너도 `std::deque`다. 뒤에서 넣고 앞에서 빼는 FIFO 동작을 효율적으로 지원하기 때문이다.
+
+다음 조건에서는 deque를 고려할 수 있다.
+
+- 앞과 뒤에서 요소를 자주 추가하거나 제거한다.
+- 동시에 인덱스 기반 임의 접근도 필요하다.
+- 전체 요소가 하나의 연속 메모리 버퍼일 필요가 없다.
+- 중간 삽입·삭제가 핵심 작업은 아니다.
+
+앞쪽 연산이 없고 순회와 연속 메모리가 중요하면 `vector`, 임의 접근보다 노드 반복자 안정성과 알려진 위치의 삽입·삭제가 중요하면 `list`가 더 자연스럽다.
+
+## 전체 구현
+
+양쪽 끝 삽입, 참조 안정성, 중간 삭제와 슬라이딩 윈도우를 확인한다.
+
+```cpp
+#include <cassert>
+#include <deque>
+#include <iostream>
+#include <iterator>
+
+static_assert(std::random_access_iterator<std::deque<int>::iterator>);
+static_assert(!std::contiguous_iterator<std::deque<int>::iterator>);
+
+void VerifyEndOperations()
+{
+    std::deque<int> values{20, 30};
+    values.push_front(10);
+    values.push_back(40);
+
+    int& remembered = values[1];
+    int* address = &values[1];
+
+    values.push_front(0);
+    values.push_back(50);
+
+    assert(remembered == 20);
+    assert(&remembered == address);
+    assert(values[0] == 0);
+    assert(values.at(5) == 50);
+
+    std::cout << "Values after end operations:";
+
+    for (int value : values)
+    {
+        std::cout << ' ' << value;
+    }
+
+    std::cout << '\n';
+
+    auto next = values.erase(values.begin() + 3);
+
+    // 중간 삭제 뒤에는 기존 remembered와 address를 사용하지 않는다.
+    assert(*next == 40);
+
+    std::cout << "Values after middle erase:";
+
+    for (int value : values)
+    {
+        std::cout << ' ' << value;
+    }
+
+    std::cout << '\n';
+}
+
+void VerifySlidingWindow()
+{
+    std::deque<int> recent;
+
+    for (int value = 1; value <= 5; ++value)
+    {
+        recent.push_back(value);
+
+        if (recent.size() > 3)
+        {
+            recent.pop_front();
+        }
+    }
+
+    assert(recent.size() == 3);
+    assert(recent.front() == 3);
+    assert(recent.back() == 5);
+
+    std::cout << "Sliding window:";
+
+    for (int value : recent)
+    {
+        std::cout << ' ' << value;
+    }
+
+    std::cout << '\n';
+}
+
+int main()
+{
+    VerifyEndOperations();
+    VerifySlidingWindow();
+}
+```
+
+실행 결과는 다음과 같다.
+
+```text
+Values after end operations: 0 10 20 30 40 50
+Values after middle erase: 0 10 20 40 50
+Sliding window: 3 4 5
+```
+
+양쪽 끝에 값을 추가한 뒤에도 기존 값 20의 참조와 주소가 유지된다. 다만 삽입 전에 얻은 반복자는 모두 무효이므로 예제에서는 저장하지 않는다.
+
+중간의 값 30을 삭제한 뒤에는 기존 참조와 포인터를 다시 사용하지 않고 `erase`가 반환한 반복자로 다음 값 40을 확인한다. 슬라이딩 윈도우는 새 값을 뒤에 넣고 크기가 3을 넘으면 앞 값을 제거해 최근 세 값만 유지한다.
+
+## deque를 사용할 때 확인할 기준
+
+1. 앞과 뒤 양쪽에서 삽입·삭제가 실제로 필요한가?
+2. 임의 접근 O(1)이 필요하지만 연속 메모리는 필요하지 않은가?
+3. deque 요소를 C 배열이나 `span`처럼 연속 버퍼로 다루지 않는가?
+4. 유효한 인덱스를 `0`부터 `size() - 1`로 제한하는가?
+5. 외부 인덱스에 범위 검사가 필요하면 `at()`을 고려했는가?
+6. 끝 삽입 뒤 기존 반복자를 다시 사용하지 않는가?
+7. 끝 삽입 뒤 기존 요소의 참조는 유지된다는 차이를 구분하는가?
+8. 중간 삭제 뒤 모든 기존 반복자와 참조를 버리는가?
+9. 중간 삽입·삭제가 O(n)이라는 점을 고려하는가?
+10. 앞쪽 연산이 없다면 `vector`가 더 단순하고 효율적인 선택인지 검토했는가?
+
+deque의 핵심은 “vector와 list의 중간”이라는 표현보다 분할된 저장을 통해 양쪽 끝 연산과 임의 접근을 함께 제공한다는 데 있다. 대신 연속 메모리를 포기하고, 반복자 무효화 규칙도 vector나 list와 다르게 적용된다.
+
+## 다음 학습: map과 set의 정렬된 키 관리
+
+다음 글에서는 키를 기준으로 요소를 정렬해 관리하는 `std::map`, `std::set`과 중복 키를 허용하는 `multimap`, `multiset`을 살펴본다. 시퀀스 컨테이너와 달리 키로 탐색하는 연관 컨테이너의 인터페이스와 복잡도를 정리한다.

@@ -1,0 +1,676 @@
+---
+layout: post
+title: '[C++ 61] 이중 연결 리스트 직접 구현하기: 센티널과 노드 연결 관리'
+date: 2026-05-17
+categories: [Dev, C++]
+tags: [C++, Data Structure, Doubly Linked List, Iterator, RAII]
+---
+
+앞에서 `std::list`는 노드의 앞뒤 연결을 변경해 삽입과 삭제를 수행한다고 살펴봤다. 이번에는 센티널(sentinel)을 가진 간단한 이중 연결 리스트를 직접 구현하며 그 연결이 실제로 어떻게 바뀌는지 확인한다.
+
+구현의 핵심은 함수 개수가 아니다. 빈 리스트와 요소가 있는 리스트를 같은 연결 규칙으로 다루고, 삽입·삭제 과정에서도 끊어진 연결이나 잘못된 크기가 잠시라도 외부에 노출되지 않도록 불변식을 유지하는 것이다.
+
+이번 `SimpleList`도 자료구조 학습을 위한 축소 구현이다. 실제 `std::list`가 제공하는 allocator 지원, 모든 삽입 오버로드, `splice`, `merge`, `sort`와 세부 예외 보장까지 대체하지 않는다.
+
+## 센티널을 포함한 원형 연결을 사용한다
+
+센티널은 실제 값을 담지 않고 리스트의 경계만 나타내는 노드다. 빈 리스트에서는 센티널의 다음과 이전이 모두 자기 자신을 가리킨다.
+
+```text
+빈 리스트
+
+       ┌──────────────┐
+       ↓              │
+   [sentinel] ────────┘
+       ↑              │
+       └──────────────┘
+```
+
+요소가 들어오면 센티널은 첫 노드의 이전이자 마지막 노드의 다음이 된다.
+
+```text
+            begin()                         end()
+               ↓                              ↓
+[sentinel] ↔ [10] ↔ [20] ↔ [30] ↔ [sentinel]
+     ↑                              ↓
+     └──────────────────────────────┘
+```
+
+항상 다음 관계를 유지한다.
+
+```text
+sentinel.next->prev == &sentinel
+sentinel.prev->next == &sentinel
+각 node에서 node.next->prev == node
+각 node에서 node.prev->next == node
+size는 실제 값 노드의 개수와 같음
+```
+
+첫 노드나 마지막 노드를 별도의 `nullptr` 조건으로 처리하지 않아도 센티널 앞에 삽입하고 센티널 이전 노드를 삭제하는 동일한 연결 규칙을 사용할 수 있다.
+
+## 센티널과 값 노드를 분리한다
+
+원본 구현은 센티널에도 `T _data`를 넣는다.
+
+```cpp
+template<typename T>
+class Node
+{
+public:
+    Node* prev;
+    Node* next;
+    T data;
+};
+```
+
+센티널은 값을 사용하지 않는데도 `T()`를 생성해야 한다. 이 구조에서는 기본 생성자가 없는 타입을 리스트에 담기 어렵고 불필요한 객체 하나가 더 생긴다.
+
+연결 정보만 가진 기반 노드와 실제 값을 가진 노드를 분리한다.
+
+```cpp
+struct ListNodeBase
+{
+    ListNodeBase* prev = this;
+    ListNodeBase* next = this;
+};
+
+template<typename T>
+struct ListNode : ListNodeBase
+{
+    explicit ListNode(T value) : value(std::move(value)) {}
+
+    T value;
+};
+```
+
+센티널은 `ListNodeBase`로 만들고 실제 요소에만 `ListNode<T>`를 사용한다.
+
+```text
+센티널 : prev + next
+값 노드: prev + next + T
+```
+
+이제 `T`는 실제 요소를 추가할 때만 생성된다. 센티널 때문에 `T`의 기본 생성자가 요구되지 않는다.
+
+## 반복자는 현재 노드의 위치를 보관한다
+
+리스트 반복자는 현재 `ListNodeBase`의 주소를 저장한다. 증가와 감소는 노드의 `next`, `prev` 연결을 따라간다.
+
+```cpp
+ListIterator& operator++()
+{
+    node_ = node_->next;
+    return *this;
+}
+
+ListIterator& operator--()
+{
+    node_ = node_->prev;
+    return *this;
+}
+```
+
+역참조할 때는 현재 노드가 실제 값 노드라는 전제 아래 `ListNode<T>`로 변환한다.
+
+```cpp
+reference operator*() const
+{
+    return static_cast<Node*>(node_)->value;
+}
+```
+
+`end()`는 센티널을 가리키므로 역참조하면 안 된다. 반복자 자체가 센티널 여부를 확인해 예외를 던지는 구조는 아니며, 표준 컨테이너 반복자와 마찬가지로 호출자가 유효한 요소 범위에서 사용해야 한다.
+
+`const_iterator`는 같은 노드를 가리키되 역참조 결과를 `const T&`로 만든다.
+
+```cpp
+using iterator = ListIterator<T, false>;
+using const_iterator = ListIterator<T, true>;
+```
+
+일반 반복자에서 상수 반복자로는 변환할 수 있지만 반대 방향은 허용하지 않는다.
+
+## insert는 position 앞에 노드를 연결한다
+
+`insert(position, value)`는 `position`이 가리키는 노드 앞에 새 노드를 넣는다.
+
+삽입 전 상태가 다음과 같다고 하자.
+
+```text
+previous ←→ position
+```
+
+새 노드를 사이에 연결하려면 네 연결을 설정해야 한다.
+
+```text
+previous.next = newNode
+newNode.prev  = previous
+newNode.next  = position
+position.prev = newNode
+```
+
+코드는 다음과 같다.
+
+```cpp
+iterator insert(iterator position, T value)
+{
+    Node* node = new Node(std::move(value));
+    NodeBase* before = position.node_;
+    NodeBase* previous = before->prev;
+
+    node->prev = previous;
+    node->next = before;
+    previous->next = node;
+    before->prev = node;
+    ++size_;
+
+    return iterator(node);
+}
+```
+
+노드 할당과 `T` 생성이 먼저 끝난 뒤 기존 연결을 수정한다. `new Node`에서 예외가 발생하면 리스트 연결은 아직 바뀌지 않았다.
+
+`end()`는 센티널이므로 `insert(end(), value)`는 센티널 앞, 즉 리스트의 마지막에 삽입한다. `push_back`은 이 동작을 재사용한다.
+
+```cpp
+void push_back(T value)
+{
+    insert(end(), std::move(value));
+}
+```
+
+`begin()` 앞에 삽입하면 첫 요소가 되므로 `push_front`도 같은 함수로 구현할 수 있다.
+
+## erase는 삭제 노드의 양옆을 직접 연결한다
+
+삭제할 노드를 `removed`, 앞뒤 노드를 `previous`, `next`라고 하자.
+
+```text
+삭제 전: previous ←→ removed ←→ next
+삭제 후: previous ←──────────→ next
+```
+
+핵심 연결은 두 개다.
+
+```cpp
+previous->next = next;
+next->prev = previous;
+```
+
+연결에서 분리한 노드를 삭제하고 크기를 줄인 뒤 다음 노드의 반복자를 반환한다.
+
+```cpp
+iterator erase(iterator position)
+{
+    assert(position.node_ != sentinel_);
+
+    NodeBase* removed = position.node_;
+    NodeBase* previous = removed->prev;
+    NodeBase* next = removed->next;
+
+    previous->next = next;
+    next->prev = previous;
+    delete static_cast<Node*>(removed);
+    --size_;
+
+    return iterator(next);
+}
+```
+
+센티널은 리스트가 소유한 경계 노드이므로 `erase(end())`로 삭제할 수 없다. `assert`는 학습 중 전제 조건 위반을 발견하기 위한 장치이며, 릴리스 빌드에서 잘못된 호출을 안전하게 바꾸는 기능은 아니다.
+
+## 빈 리스트에서 pop 연산을 호출하지 않는다
+
+마지막 요소는 `sentinel_->prev`가 가리킨다.
+
+```cpp
+void pop_back()
+{
+    assert(!empty());
+    erase(iterator(sentinel_->prev));
+}
+```
+
+빈 리스트에서는 `sentinel_->prev`가 센티널 자신이다. 빈 상태 검사가 없다면 센티널을 값 노드로 변환해 삭제하면서 리스트 전체가 손상된다.
+
+`pop_front`, `front`, `back`도 비어 있지 않다는 전제 조건이 필요하다.
+
+```cpp
+void pop_front()
+{
+    assert(!empty());
+    erase(begin());
+}
+```
+
+표준 `std::list`에서도 빈 컨테이너에 이 연산들을 호출할 수 없다. 직접 구현할 때도 유효한 호출 범위를 API의 일부로 봐야 한다.
+
+## clear는 값 노드만 모두 삭제한다
+
+센티널의 다음 노드부터 센티널로 돌아올 때까지 값 노드를 삭제한다.
+
+```cpp
+void clear() noexcept
+{
+    NodeBase* current = sentinel_->next;
+
+    while (current != sentinel_)
+    {
+        NodeBase* next = current->next;
+        delete static_cast<Node*>(current);
+        current = next;
+    }
+
+    sentinel_->next = sentinel_;
+    sentinel_->prev = sentinel_;
+    size_ = 0;
+}
+```
+
+노드를 삭제하기 전에 `next`를 저장해야 한다. `delete current` 이후에는 제거된 노드에서 다음 주소를 읽을 수 없기 때문이다.
+
+소멸자는 `clear()`로 값 노드를 정리한 다음 센티널을 삭제한다.
+
+```cpp
+~SimpleList()
+{
+    clear();
+    delete sentinel_;
+}
+```
+
+## 복사는 노드까지 독립적으로 만들어야 한다
+
+센티널 포인터와 노드 연결을 얕게 복사하면 두 리스트가 같은 노드들을 소유하게 된다. 한쪽에서 삭제한 순간 다른 리스트의 반복자와 연결은 모두 망가지고, 소멸 시 이중 해제가 발생한다.
+
+복사 생성자는 빈 리스트를 만든 뒤 원본 요소를 순서대로 추가한다.
+
+```cpp
+SimpleList(const SimpleList& other) : SimpleList()
+{
+    try
+    {
+        for (const T& value : other)
+        {
+            push_back(value);
+        }
+    }
+    catch (...)
+    {
+        clear();
+        delete sentinel_;
+        throw;
+    }
+}
+```
+
+생성 도중 예외가 발생하면 완성된 객체의 소멸자는 호출되지 않으므로 그때까지 만든 노드와 센티널을 직접 정리한다.
+
+이동 생성자는 먼저 빈 센티널을 만든 다음 원본과 내부 상태를 교환한다.
+
+```cpp
+SimpleList(SimpleList&& other) : SimpleList()
+{
+    swap(other);
+}
+```
+
+이동된 원본은 새로 만든 빈 센티널을 가지므로 정상적으로 비어 있는 리스트가 된다. 복사·이동 대입은 값을 매개변수로 받는 copy-and-swap으로 구현한다.
+
+## 반복자 안정성은 노드 주소에서 나온다
+
+새 노드를 삽입해도 기존 노드는 이동하지 않는다. 따라서 기존 요소의 반복자, 포인터와 참조는 유지된다.
+
+```cpp
+auto remembered = values.begin();
+int* address = &*remembered;
+
+values.push_front(-1);
+values.push_back(100);
+
+assert(&*remembered == address);
+```
+
+`erase`는 제거한 노드만 삭제하므로 해당 노드를 가리키던 위치 정보만 무효가 된다. 다른 노드의 반복자는 유지된다.
+
+다만 리스트 객체 전체를 `swap`하면 반복자는 요소 노드를 계속 가리키지만 그 노드가 속한 리스트가 바뀐다. 센티널을 가리키는 `end()` 반복자의 관계는 별도로 생각해야 한다.
+
+## 연산별 복잡도
+
+| 연산 | 복잡도 | 조건 |
+|---|---:|---|
+| `begin`, `end`, `front`, `back` | O(1) | 경계 노드 직접 접근 |
+| `push_front`, `push_back` | O(1) | 노드 한 개 생성 및 연결 |
+| `insert` | O(1) | 삽입 위치 반복자가 이미 있음 |
+| `erase` | O(1) | 삭제 위치 반복자가 이미 있음 |
+| n번째 요소 탐색 | O(n) | 노드를 차례로 이동 |
+| `clear` | O(n) | 모든 노드 삭제 |
+| 복사 | O(n) | 각 요소의 새 노드 생성 |
+
+O(1) 삽입과 삭제에도 노드 메모리 할당·해제와 `T` 생성·소멸 비용은 포함된다. 복잡도가 같다고 실제 비용까지 같은 것은 아니다.
+
+## 전체 구현
+
+다음 구현은 센티널, 양방향 반복자, 삽입·삭제, 깊은 복사와 객체 수명 관리를 포함한다.
+
+```cpp
+#include <cassert>
+#include <cstddef>
+#include <iostream>
+#include <iterator>
+#include <type_traits>
+#include <utility>
+
+struct ListNodeBase
+{
+    ListNodeBase* prev = this;
+    ListNodeBase* next = this;
+};
+
+template<typename T>
+struct ListNode : ListNodeBase
+{
+    explicit ListNode(T value) : value(std::move(value)) {}
+
+    T value;
+};
+
+template<typename T, bool IsConst>
+class ListIterator
+{
+private:
+    using NodeBase = ListNodeBase;
+    using Node = ListNode<T>;
+
+public:
+    using difference_type = std::ptrdiff_t;
+    using value_type = T;
+    using pointer = std::conditional_t<IsConst, const T*, T*>;
+    using reference = std::conditional_t<IsConst, const T&, T&>;
+    using iterator_category = std::bidirectional_iterator_tag;
+    using iterator_concept = std::bidirectional_iterator_tag;
+
+    ListIterator() = default;
+
+    template<bool Enabled = IsConst>
+    requires Enabled
+    ListIterator(const ListIterator<T, false>& other) : node_(other.node_) {}
+
+    reference operator*() const { return static_cast<Node*>(node_)->value; }
+    pointer operator->() const { return &static_cast<Node*>(node_)->value; }
+    ListIterator& operator++() { node_ = node_->next; return *this; }
+    ListIterator operator++(int) { ListIterator old = *this; ++(*this); return old; }
+    ListIterator& operator--() { node_ = node_->prev; return *this; }
+    ListIterator operator--(int) { ListIterator old = *this; --(*this); return old; }
+    friend bool operator==(const ListIterator&, const ListIterator&) = default;
+
+private:
+    explicit ListIterator(NodeBase* node) : node_(node) {}
+
+    NodeBase* node_ = nullptr;
+
+    template<typename>
+    friend class SimpleList;
+
+    template<typename, bool>
+    friend class ListIterator;
+};
+
+template<typename T>
+class SimpleList
+{
+private:
+    using NodeBase = ListNodeBase;
+    using Node = ListNode<T>;
+
+public:
+    using iterator = ListIterator<T, false>;
+    using const_iterator = ListIterator<T, true>;
+
+    SimpleList() : sentinel_(new NodeBase) {}
+
+    SimpleList(const SimpleList& other) : SimpleList()
+    {
+        try
+        {
+            for (const T& value : other)
+            {
+                push_back(value);
+            }
+        }
+        catch (...)
+        {
+            clear();
+            delete sentinel_;
+            throw;
+        }
+    }
+
+    SimpleList(SimpleList&& other) : SimpleList()
+    {
+        swap(other);
+    }
+
+    ~SimpleList()
+    {
+        clear();
+        delete sentinel_;
+    }
+
+    SimpleList& operator=(SimpleList other) noexcept
+    {
+        swap(other);
+        return *this;
+    }
+
+    void swap(SimpleList& other) noexcept
+    {
+        using std::swap;
+        swap(sentinel_, other.sentinel_);
+        swap(size_, other.size_);
+    }
+
+    iterator insert(iterator position, T value)
+    {
+        Node* node = new Node(std::move(value));
+        NodeBase* before = position.node_;
+        NodeBase* previous = before->prev;
+
+        node->prev = previous;
+        node->next = before;
+        previous->next = node;
+        before->prev = node;
+        ++size_;
+
+        return iterator(node);
+    }
+
+    iterator erase(iterator position)
+    {
+        assert(position.node_ != sentinel_);
+
+        NodeBase* removed = position.node_;
+        NodeBase* previous = removed->prev;
+        NodeBase* next = removed->next;
+
+        previous->next = next;
+        next->prev = previous;
+        delete static_cast<Node*>(removed);
+        --size_;
+
+        return iterator(next);
+    }
+
+    void push_back(T value) { insert(end(), std::move(value)); }
+    void push_front(T value) { insert(begin(), std::move(value)); }
+
+    void pop_back()
+    {
+        assert(!empty());
+        erase(iterator(sentinel_->prev));
+    }
+
+    void pop_front()
+    {
+        assert(!empty());
+        erase(begin());
+    }
+
+    void clear() noexcept
+    {
+        NodeBase* current = sentinel_->next;
+
+        while (current != sentinel_)
+        {
+            NodeBase* next = current->next;
+            delete static_cast<Node*>(current);
+            current = next;
+        }
+
+        sentinel_->next = sentinel_;
+        sentinel_->prev = sentinel_;
+        size_ = 0;
+    }
+
+    T& front() { assert(!empty()); return *begin(); }
+    const T& front() const { assert(!empty()); return *begin(); }
+    T& back() { assert(!empty()); return *iterator(sentinel_->prev); }
+    const T& back() const { assert(!empty()); return *const_iterator(sentinel_->prev); }
+    std::size_t size() const noexcept { return size_; }
+    bool empty() const noexcept { return size_ == 0; }
+
+    iterator begin() { return iterator(sentinel_->next); }
+    iterator end() { return iterator(sentinel_); }
+    const_iterator begin() const { return const_iterator(sentinel_->next); }
+    const_iterator end() const { return const_iterator(sentinel_); }
+
+private:
+    NodeBase* sentinel_ = nullptr;
+    std::size_t size_ = 0;
+};
+
+struct Tracked
+{
+    explicit Tracked(int value) : value(value) { ++alive; }
+    Tracked(const Tracked& other) : value(other.value) { ++alive; }
+    Tracked(Tracked&& other) noexcept : value(other.value) { ++alive; }
+    ~Tracked() { --alive; }
+
+    inline static int alive = 0;
+    int value;
+};
+
+static_assert(std::bidirectional_iterator<ListIterator<int, false>>);
+static_assert(!std::is_default_constructible_v<Tracked>);
+
+void VerifyInsertAndErase()
+{
+    SimpleList<int> values;
+    SimpleList<int>::iterator remembered;
+
+    for (int value = 0; value < 10; ++value)
+    {
+        auto inserted = values.insert(values.end(), value);
+
+        if (value == 5)
+        {
+            remembered = inserted;
+        }
+    }
+
+    int* address = &*remembered;
+    values.push_front(-1);
+    values.pop_back();
+
+    assert(*remembered == 5);
+    assert(&*remembered == address);
+
+    auto next = values.erase(remembered);
+    assert(*next == 6);
+
+    std::cout << "Values:";
+
+    for (int value : values)
+    {
+        std::cout << ' ' << value;
+    }
+
+    std::cout << '\n';
+}
+
+void VerifyCopyAndLifetime()
+{
+    SimpleList<int> original;
+    original.push_back(10);
+    original.push_back(20);
+
+    SimpleList<int> copied = original;
+    copied.front() = 100;
+
+    assert(original.front() == 10);
+    assert(copied.front() == 100);
+
+    SimpleList<Tracked> objects;
+    objects.push_back(Tracked(10));
+    objects.push_back(Tracked(20));
+
+    assert(Tracked::alive == 2);
+    objects.clear();
+    assert(Tracked::alive == 0);
+
+    std::cout << "Original first: " << original.front() << '\n';
+    std::cout << "Copied first: " << copied.front() << '\n';
+    std::cout << "Alive after clear: " << Tracked::alive << '\n';
+}
+
+int main()
+{
+    VerifyInsertAndErase();
+    VerifyCopyAndLifetime();
+}
+```
+
+실행 결과는 다음과 같다.
+
+```text
+Values: -1 0 1 2 3 4 6 7 8
+Original first: 10
+Copied first: 100
+Alive after clear: 0
+```
+
+값 5를 가리키는 반복자를 보관한 뒤 앞에 `-1`을 삽입하고 마지막 값 9를 삭제해도 반복자의 값과 주소는 유지된다. 해당 노드를 삭제한 뒤에는 `erase`가 반환한 반복자로 다음 값 6을 확인한다.
+
+복사본의 첫 값을 바꿔도 원본 값은 10으로 유지되므로 노드가 깊게 복사됐다. 기본 생성자가 없는 `Tracked`도 센티널과 무관하게 저장할 수 있고, `clear()`를 호출하면 실제 값 노드 두 개가 소멸해 생존 객체 수가 0이 된다.
+
+## 직접 구현한 리스트의 남은 한계
+
+이 구현은 연결 원리를 확인하는 데 필요한 범위만 다룬다.
+
+- 반복자가 어느 리스트에서 왔는지 검사하지 않는다.
+- `erase(end())` 같은 전제 조건 위반은 디버그 `assert`로만 확인한다.
+- `const_iterator`와 `iterator`의 혼합 비교를 지원하지 않는다.
+- 사용자 지정 allocator와 allocator 전파 규칙을 지원하지 않는다.
+- `splice`, 범위 삽입·삭제, 역방향 반복자 등을 구현하지 않았다.
+- 표준 컨테이너가 제공하는 세부 예외 보장과 최대 크기 검사를 제공하지 않는다.
+
+실제 프로그램에서는 `std::list`를 사용한다. 직접 구현은 센티널과 노드 소유권, 반복자 안정성의 근거를 이해하기 위한 학습 도구로 한정한다.
+
+## 연결 리스트 구현을 검토할 때 확인할 기준
+
+1. 빈 상태에서 센티널의 앞뒤가 자기 자신을 가리키는가?
+2. 센티널이 불필요한 `T` 객체를 생성하지 않는가?
+3. 삽입 후 새 노드와 양옆 노드의 네 연결이 모두 일치하는가?
+4. 삭제 전에 앞뒤 노드를 저장하고 서로 직접 연결하는가?
+5. `erase`가 삭제된 노드 다음 위치를 반환하는가?
+6. 빈 리스트의 `pop_front`, `pop_back`, `front`, `back`을 막는가?
+7. `erase(end())`로 센티널을 삭제하지 않는가?
+8. `clear()`가 다음 주소를 저장한 뒤 현재 노드를 삭제하는가?
+9. 복사본이 원본과 노드를 공유하지 않는가?
+10. 삽입·삭제 뒤 기존 노드의 반복자가 유지되는 이유를 노드 주소로 설명할 수 있는가?
+
+이중 연결 리스트의 핵심은 새 노드를 만드는 코드보다 연결 불변식에 있다. 센티널을 경계로 사용하면 처음과 끝을 같은 규칙으로 처리할 수 있고, 각 연산에서 양방향 연결을 모두 갱신해야 리스트가 어느 방향으로 순회해도 일관된 상태를 유지한다.
+
+## 다음 학습: deque의 분할된 저장 구조
+
+다음 글에서는 양쪽 끝 삽입·삭제와 임의 접근을 함께 지원하는 `std::deque`를 살펴본다. 연속 배열인 `vector`, 노드 연결인 `list`와 비교해 deque가 어떤 저장 구조와 무효화 규칙을 가지는지 정리한다.
