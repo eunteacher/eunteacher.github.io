@@ -5,6 +5,7 @@ date: 2026-02-23
 categories: [Dev, Algorithm]
 tags: [C++, BFS, Grid, Maze, Pathfinding]
 use_math: true
+render_with_liquid: false
 ---
 
 격자 미로에서 입구부터 출구까지 가장 적은 칸을 이동하는 경로를 찾고 싶다. 모든 상하좌우 이동 비용이 같다면 BFS로 최단 이동 횟수를 구할 수 있다.

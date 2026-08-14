@@ -4,6 +4,7 @@ title: '[C++ 53] 함수 포인터: 실행할 함수를 값처럼 선택하고 �
 date: 2026-05-09
 categories: [Dev, C++]
 tags: [C++, Function Pointer, Callback, Member Function Pointer, Using]
+render_with_liquid: false
 ---
 
 함수를 호출하려면 보통 소스 코드에 함수 이름을 직접 작성한다. 하지만 실행 중 연산을 선택하거나 검색 조건을 호출자에게 맡기려면 “어떤 함수를 실행할지” 자체를 값으로 전달할 방법이 필요하다.

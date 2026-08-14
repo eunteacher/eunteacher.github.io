@@ -5,6 +5,7 @@ date: 2026-02-19
 categories: [Dev, Algorithm]
 tags: [C++, Graph, BFS, Queue, Shortest Path]
 use_math: true
+render_with_liquid: false
 ---
 
 너비 우선 탐색(Breadth First Search, BFS)은 시작점에서 가까운 정점부터 거리 순서대로 탐색한다.

@@ -5,6 +5,7 @@ date: 2026-02-15
 categories: [Dev, Algorithm]
 tags: [C++, Graph, Adjacency List, Adjacency Matrix, Data Structure]
 use_math: true
+render_with_liquid: false
 ---
 
 그래프(Graph)는 여러 대상과 그 사이의 연결 관계를 표현하는 자료구조다. 지도에서는 장소와 도로, 소셜 네트워크에서는 사용자와 관계, 게임에서는 지역과 이동 경로를 그래프로 나타낼 수 있다.

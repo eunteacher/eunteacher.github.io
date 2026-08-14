@@ -5,6 +5,7 @@ date: 2026-02-17
 categories: [Dev, Algorithm]
 tags: [C++, Graph, DFS, Recursion, Stack]
 use_math: true
+render_with_liquid: false
 ---
 
 깊이 우선 탐색(Depth First Search, DFS)은 현재 정점에서 갈 수 있는 한 방향을 끝까지 따라간 뒤, 더 이상 진행할 수 없으면 마지막 갈림길로 돌아와 다른 방향을 탐색한다.

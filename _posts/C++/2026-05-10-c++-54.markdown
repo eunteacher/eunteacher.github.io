@@ -4,6 +4,7 @@ title: '[C++ 54] 함수 객체: 호출할 동작과 상태를 하나의 객체�
 date: 2026-05-10
 categories: [Dev, C++]
 tags: [C++, Function Object, Functor, Callback, Operator Overloading]
+render_with_liquid: false
 ---
 
 함수 포인터를 사용하면 검색 함수에 조건을 전달할 수 있지만 함수 주소 자체에는 “희귀도 3 이상” 같은 실행 중 값을 저장할 공간이 없다. 값을 전역 변수에 두면 여러 검색이 하나의 공유 상태에 의존한다.

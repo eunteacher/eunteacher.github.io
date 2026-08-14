@@ -4,6 +4,7 @@ title: '[C++ 30] 다차원 배열: 행과 열의 메모리 구조, int**와의 �
 date: 2026-04-16
 categories: [Dev, C++]
 tags: [C++, Array, Pointer, Multidimensional Array, Memory]
+render_with_liquid: false
 ---
 
 앞에서는 포인터 단계가 늘어날 때마다 무엇을 가리키는지 정확히 확인해야 한다는 점을 살펴봤다. 이번에는 행과 열을 가진 데이터를 2차원 배열로 표현하고, 배열 이름이 포인터로 변환될 때 어떤 타입이 만들어지는지 확인한다.

@@ -5,6 +5,7 @@ date: 2026-02-25
 categories: [Dev, Algorithm]
 tags: [C++, Graph, Dijkstra, Priority Queue, Shortest Path]
 use_math: true
+render_with_liquid: false
 ---
 
 BFS는 모든 간선의 이동 비용이 같을 때 최소 간선 수 경로를 찾는다. 간선마다 비용이 다르면 가장 적은 간선을 지나는 경로와 전체 비용이 가장 작은 경로가 달라질 수 있다.

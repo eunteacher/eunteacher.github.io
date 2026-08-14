@@ -4,6 +4,7 @@ title: '[Algorithm 02] 미로 생성과 오른손 법칙: 격자 구조와 방�
 date: 2026-01-18
 categories: [Dev, Algorithm]
 tags: [C++, Maze Generation, Binary Tree Maze, Right-Hand Rule, Pathfinding]
+render_with_liquid: false
 ---
 
 이번 실습은 콘솔 격자에 미로를 만들고 플레이어가 입구에서 출구까지 이동할 경로를 미리 계산한다. 하나의 화면에서 동작하지만 실제 책임은 두 부분으로 나뉜다.
