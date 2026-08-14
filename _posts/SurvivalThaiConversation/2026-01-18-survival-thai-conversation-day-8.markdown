@@ -1,5 +1,6 @@
 ---
 layout: post
+published: false
 title:  "[태국어생존회화 8일차] 친절한 태국어: 시간, 도움, 사용 허락"
 date:   2026-01-18 22:00:00 +0900
 categories: [회화, 태국어생존회화]

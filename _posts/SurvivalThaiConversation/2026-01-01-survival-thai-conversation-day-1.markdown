@@ -1,5 +1,6 @@
 ---
 layout: post
+published: false
 title:  "[태국어생존회화 1일차] 문법 필요 없는 호텔 생존 태국어"
 date:   2026-01-01 23:15:00 +0900
 categories: [회화, 태국어생존회화]

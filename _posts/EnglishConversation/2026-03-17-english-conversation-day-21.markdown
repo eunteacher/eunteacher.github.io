@@ -1,5 +1,6 @@
 ---
 layout: post
+published: false
 title:  "[영어회화 21일차] 내 몸의 신호를 정확하게! 상태 표현하기"
 date:   2026-02-28 10:00:00 +0900
 categories: [회화, 영어회화]

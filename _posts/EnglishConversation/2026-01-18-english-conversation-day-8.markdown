@@ -1,5 +1,6 @@
 ---
 layout: post
+published: false
 title:  "[영어회화 8일차] 친절한 대화의 기술: 시간, 도움, 사용 허락"
 date:   2026-01-18 22:00:00 +0900
 categories: [회화, 영어회화]

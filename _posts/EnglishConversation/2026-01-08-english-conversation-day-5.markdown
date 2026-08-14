@@ -1,5 +1,6 @@
 ---
 layout: post
+published: false
 title:  "[영어회화 5일차] 쇼핑 필수 영어: 입어보고 할인받기"
 date:   2026-01-08 22:00:00 +0900
 categories: [회화, 영어회화]

@@ -1,5 +1,6 @@
 ---
 layout: post
+published: false
 title:  "[태국어생존회화 6일차] 쇼핑 필수 태국어 2: 카드 결제 & 포장하기"
 date:   2026-01-12 22:00:00 +0900
 categories: [회화, 태국어생존회화]

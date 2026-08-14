@@ -1,5 +1,6 @@
 ---
 layout: post
+published: false
 title:  "[태국어생존회화 9일차] 친구 만났을 때: 칭찬하고 산책 가기"
 date:   2026-01-20 08:00:00 +0900
 categories: [회화, 태국어생존회화]

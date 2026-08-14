@@ -1,5 +1,6 @@
 ---
 layout: post
+published: false
 title:  "[영어회화 24일차] 당황하지 않고 소통하기! 이해가 안 될 때 쓰는 필수 문장"
 date:   2026-03-31 23:00:00 +0900
 categories: [회화, 영어회화]

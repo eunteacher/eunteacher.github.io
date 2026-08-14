@@ -1,5 +1,6 @@
 ---
 layout: post
+published: false
 title:  "[태국어생존회화 16일차] 의사표현 3대장: 이해, 불확실, 첫 경험"
 date:   2026-02-16 00:00:00 +0900
 categories: [회화, 태국어생존회화]

@@ -1,5 +1,6 @@
 ---
 layout: post
+published: false
 title:  "[영어회화 9일차] 친근한 안부 인사와 산책 제안"
 date:   2026-01-20 08:00:00 +0900
 categories: [회화, 영어회화]

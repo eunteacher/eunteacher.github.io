@@ -1,5 +1,6 @@
 ---
 layout: post
+published: false
 title:  "[영어회화 4일차] 맛집 완전 정복: 자리 잡기부터 포장까지"
 date:   2026-01-06 22:40:00 +0900
 categories: [회화, 영어회화]

@@ -1,5 +1,6 @@
 ---
 layout: post
+published: false
 title:  "[태국어생존회화 22일차] 체감 온드와 기분 표현: 더위, 추위, 즐거움"
 date:   2026-03-24 00:00:00 +0900
 categories: [회화, 태국어생존회화]

@@ -1,5 +1,6 @@
 ---
 layout: post
+published: false
 title:  "[태국어생존회화 15일차] 여행 필수 3대장: 화장실, 예약, 소통 불가 상황"
 date:   2026-02-15 00:00:00 +0900
 categories: [회화, 태국어생존회화]

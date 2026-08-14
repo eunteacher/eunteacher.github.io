@@ -1,5 +1,6 @@
 ---
 layout: post
+published: false
 title:  "[영어회화 23일차] 감정 표현의 기초 - 좋고 싫음과 지루함 말하기"
 date:   2026-03-30 22:50:00 +0900
 categories: [회화, 영어회화]

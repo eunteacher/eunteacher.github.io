@@ -1,5 +1,6 @@
 ---
 layout: post
+published: false
 title:  "[영어회화 20일차] 식사 자리에서 당당하게 요구하는 필살 문장"
 date:   2026-02-27 10:00:00 +0900
 categories: [회화, 영어회화]

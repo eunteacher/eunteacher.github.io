@@ -1,5 +1,6 @@
 ---
 layout: post
+published: false
 title:  "[영어회화 14일차] 당황하지 않고 여유 있게! 소통의 기술"
 date:   2026-02-06 00:00:00 +0900
 categories: [회화, 영어회화]

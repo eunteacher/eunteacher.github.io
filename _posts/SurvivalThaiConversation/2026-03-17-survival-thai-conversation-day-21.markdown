@@ -1,5 +1,6 @@
 ---
 layout: post
+published: false
 title:  "[태국어생존회화 21일차] 신체 신호 표현: 배부름, 졸음, 피곤함"
 date:   2026-03-18 00:00:00 +0900
 categories: [회화, 태국어생존회화]

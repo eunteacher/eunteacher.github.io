@@ -1,5 +1,6 @@
 ---
 layout: post
+published: false
 title:  "[영어회화 2일차] 공항 가는 길 & 수하물 분실했을 때"
 date:   2026-01-03 13:00:00 +0900
 categories: [회화, 영어회화]

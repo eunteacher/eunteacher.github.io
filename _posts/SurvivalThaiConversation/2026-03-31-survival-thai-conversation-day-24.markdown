@@ -1,5 +1,6 @@
 ---
 layout: post
+published: false
 title:  "[태국어생존회화 24일차] 소통의 기술: 이해 부족과 천천히 말하기"
 date:   2026-04-01 00:00:00 +0900
 categories: [회화, 태국어생존회화]

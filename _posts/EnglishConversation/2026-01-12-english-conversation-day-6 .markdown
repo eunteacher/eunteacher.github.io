@@ -1,5 +1,6 @@
 ---
 layout: post
+published: false
 title:  "[영어회화 6일차] 쇼핑 필수 영어 2: 결제와 포장 완벽하게 하기"
 date:   2026-01-12 22:00:00 +0900
 categories: [회화, 영어회화]

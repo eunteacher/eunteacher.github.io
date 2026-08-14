@@ -1,5 +1,6 @@
 ---
 layout: post
+published: false
 title:  "[영어회화 27일차] 처음 만난 사람과 친해지는 필수 질문 3가지"
 date:   2026-04-14 23:00:00 +0900
 categories: [회화, 영어회화]

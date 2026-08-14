@@ -1,5 +1,6 @@
 ---
 layout: post
+published: false
 title:  "[태국어생존회화 11일차] 길을 잃었을 때 당황하지 않고 길 찾기"
 date:   2026-01-26 21:00:00 +0900
 categories: [회화, 태국어생존회화]

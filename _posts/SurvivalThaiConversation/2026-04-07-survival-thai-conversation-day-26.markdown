@@ -1,5 +1,6 @@
 ---
 layout: post
+published: false
 title:  "[태국어생존회화 26일차] 여행의 필수 소통: 기분 확인과 언어 도움 요청"
 date:   2026-04-07 00:00:00 +0900
 categories: [회화, 태국어생존회화]

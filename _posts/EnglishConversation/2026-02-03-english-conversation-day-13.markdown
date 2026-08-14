@@ -1,5 +1,6 @@
 ---
 layout: post
+published: false
 title:  "[영어회화 13일차] 카페 & 관광지 필수 요청 표현"
 date:   2026-02-03 10:00:00 +0900
 categories: [회화, 영어회화]

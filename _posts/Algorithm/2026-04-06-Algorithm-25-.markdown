@@ -1,0 +1,426 @@
+---
+layout: post
+title: '[Algorithm 25] 퀵 정렬: 피벗 분할과 최악의 경우'
+date: 2026-04-06
+categories: [Dev, Algorithm]
+tags: [C++, Quick Sort, Partition, Divide and Conquer, Sorting]
+use_math: true
+---
+
+병합 정렬은 배열을 위치 기준으로 절반씩 나눈 뒤 정렬된 두 구간을 합쳤다. 퀵 정렬(Quick Sort)은 피벗(Pivot) 값을 하나 선택하고, 값의 대소 관계에 따라 배열을 두 구간으로 나눈다.
+
+```text
+정렬 전
+[7, 2, 9, 4, 3, 8, 5]
+
+pivot = 5
+
+분할 후
+[2, 4, 3 | 5 | 8, 9, 7]
+ pivot보다 작음     pivot보다 크거나 같음
+```
+
+피벗은 분할 뒤 자신의 최종 정렬 위치에 놓인다. 왼쪽과 오른쪽 구간을 같은 방식으로 재귀 정렬하면 전체 배열이 정렬된다.
+
+퀵 정렬의 평균 시간 복잡도는 $O(N\log N)$이지만, 피벗이 계속 한쪽 끝에 가까운 위치를 만들면 $O(N^2)$까지 느려진다. 피벗 선택과 분할 결과의 균형이 핵심이다.
+
+## 분할 정복의 세 단계
+
+퀵 정렬도 분할 정복 구조를 가진다.
+
+```text
+분할(Divide)
+→ 피벗보다 작은 값과 크거나 같은 값으로 나눈다.
+
+정복(Conquer)
+→ 피벗 왼쪽과 오른쪽 구간을 각각 재귀 정렬한다.
+
+결합(Combine)
+→ 별도 병합 작업이 필요하지 않다.
+```
+
+병합 정렬은 재귀 호출 뒤 $O(N)$ 병합이 필요하지만, 퀵 정렬은 분할 과정에서 원소를 제자리로 옮긴다. 두 부분 배열이 정렬되면 피벗을 포함한 전체 구간도 정렬돼 있다.
+
+## 반열린 구간에서 마지막 원소를 피벗으로 선택한다
+
+먼저 이해하기 쉬운 Lomuto 분할 방식을 사용한다. 정렬 범위는 `[left, right)`이고 마지막 원소 `values[right - 1]`을 피벗으로 정한다.
+
+```cpp
+int pivot = values[right - 1];
+```
+
+분할 중에는 `boundary`와 `scan`으로 구간의 의미를 유지한다.
+
+```text
+[left, boundary)  → pivot보다 작은 값
+[boundary, scan)  → pivot보다 크거나 같은 값
+[scan, right-1)   → 아직 확인하지 않은 값
+[right-1]         → pivot
+```
+
+이 구간 관계가 반복문의 불변식이다.
+
+## 작은 값을 발견하면 왼쪽 경계로 보낸다
+
+`scan` 위치의 값이 피벗보다 작으면 `boundary` 위치와 교환하고 작은 값 구간을 한 칸 늘린다.
+
+```cpp
+std::size_t Partition(std::vector<int>& values, std::size_t left, std::size_t right)
+{
+    int pivot = values[right - 1];
+    std::size_t boundary = left;
+
+    for (std::size_t scan = left; scan + 1 < right; ++scan)
+    {
+        if (values[scan] < pivot)
+        {
+            std::swap(values[boundary], values[scan]);
+            ++boundary;
+        }
+    }
+
+    std::swap(values[boundary], values[right - 1]);
+    return boundary;
+}
+```
+
+피벗보다 크거나 같은 값을 만나면 교환하지 않고 `scan`만 이동한다. 반복이 끝나면 `boundary`가 피벗보다 크거나 같은 구간의 첫 위치다. 그 위치와 피벗을 교환하면 피벗의 최종 위치가 확정된다.
+
+## 분할 과정을 단계별로 따라간다
+
+다음 배열에서 피벗은 마지막 값 `5`다.
+
+```text
+[7, 2, 9, 4, 3, 8, 5]
+                         pivot
+boundary = 0
+```
+
+`7`은 피벗보다 크므로 유지한다.
+
+```text
+[7, 2, 9, 4, 3, 8, 5]
+ boundary
+```
+
+`2`는 피벗보다 작다. `boundary`의 `7`과 교환하고 경계를 증가시킨다.
+
+```text
+[2 | 7, 9, 4, 3, 8, 5]
+     boundary
+```
+
+`9`는 유지하고, `4`와 `3`을 발견할 때마다 왼쪽 경계로 보낸다.
+
+```text
+[2, 4, 3 | 7, 9, 8, 5]
+           boundary
+```
+
+마지막으로 `boundary`의 `7`과 피벗 `5`를 교환한다.
+
+```text
+[2, 4, 3 | 5 | 9, 8, 7]
+           ↑
+       pivot index
+```
+
+왼쪽의 모든 값은 `5`보다 작고 오른쪽의 모든 값은 `5`보다 크거나 같다. 왼쪽과 오른쪽 내부는 아직 정렬되지 않았지만 피벗의 위치는 더 이상 바뀌지 않는다.
+
+## 피벗을 제외한 두 구간을 재귀 정렬한다
+
+```cpp
+void QuickSort(std::vector<int>& values, std::size_t left, std::size_t right)
+{
+    if (right - left <= 1)
+    {
+        return;
+    }
+
+    std::size_t pivot = Partition(values, left, right);
+    QuickSort(values, left, pivot);
+    QuickSort(values, pivot + 1, right);
+}
+
+void QuickSort(std::vector<int>& values)
+{
+    QuickSort(values, 0, values.size());
+}
+```
+
+피벗 인덱스는 이미 정렬 위치가 확정됐으므로 두 재귀 구간에서 제외한다.
+
+```text
+[left, pivot)       → 재귀 정렬
+[pivot]             → 정렬 위치 확정
+[pivot+1, right)    → 재귀 정렬
+```
+
+원소가 0개나 1개인 구간은 이미 정렬돼 있으므로 종료한다.
+
+## 균형 있게 나뉘면 O(N log N)이다
+
+매번 피벗이 배열을 비슷한 크기의 두 구간으로 나눈다고 가정한다.
+
+```text
+N
+├─ N/2
+│  ├─ N/4
+│  └─ N/4
+└─ N/2
+   ├─ N/4
+   └─ N/4
+```
+
+재귀 깊이는 $O(\log N)$이고 각 깊이의 모든 분할 작업을 합하면 $O(N)$이다.
+
+$$
+T(N) = 2T(N/2) + O(N) = O(N\log N)
+$$
+
+퀵 정렬의 평균 시간 복잡도는 $O(N\log N)$이다. 연속된 배열 안에서 분할하므로 별도 병합 버퍼가 필요하지 않고, 데이터 접근의 지역성이 좋은 편이라 실용적인 정렬 구현의 구성 요소로 사용된다.
+
+## 한쪽으로만 나뉘면 O(N²)이다
+
+마지막 원소를 피벗으로 사용하면서 이미 오름차순인 배열을 정렬해 본다.
+
+```text
+[1, 2, 3, 4, 5]
+
+pivot 5 → 왼쪽 4개, 오른쪽 0개
+pivot 4 → 왼쪽 3개, 오른쪽 0개
+pivot 3 → 왼쪽 2개, 오른쪽 0개
+...
+```
+
+재귀 깊이가 $N$이 되고 각 단계에서 거의 전체 구간을 다시 확인한다.
+
+$$
+(N-1) + (N-2) + \cdots + 1 = \frac{N(N-1)}{2}
+$$
+
+최악 시간 복잡도는 $O(N^2)$이고 재귀 호출 스택도 $O(N)$까지 깊어질 수 있다.
+
+```text
+피벗이 항상 최솟값 또는 최댓값
+→ 분할 크기 0과 N-1
+→ 퀵 정렬의 가장 불균형한 형태
+```
+
+## 피벗 선택으로 나쁜 입력의 가능성을 줄인다
+
+### 무작위 피벗
+
+현재 구간에서 임의의 인덱스를 선택해 마지막 원소와 교환한 뒤 같은 분할 함수를 사용한다.
+
+```cpp
+std::size_t pivotIndex = distribution(engine);
+std::swap(values[pivotIndex], values[right - 1]);
+```
+
+입력의 기존 순서와 피벗 선택의 관계를 끊어 특정 정렬 입력에서 계속 나쁜 분할이 발생할 가능성을 낮춘다. 최악의 경우 자체가 사라지는 것은 아니지만 기대 시간은 $O(N\log N)$이다.
+
+난수 엔진을 매 재귀 호출마다 새로 만들기보다 상위에서 한 번 만들고 전달하는 편이 적절하다.
+
+### 세 값의 중앙값
+
+첫 원소, 가운데 원소와 마지막 원소 중 중앙값을 피벗으로 고르는 Median-of-Three 방법도 있다.
+
+```text
+first = 1, middle = 8, last = 5
+세 값의 중앙값 = 5
+```
+
+이미 정렬되거나 역순인 입력에서 끝값 하나만 선택하는 문제를 완화할 수 있다. 하지만 모든 입력에서 균형 분할을 보장하지는 않는다.
+
+## 중복 값이 많으면 2-way 분할이 불균형해진다
+
+앞선 Lomuto 분할은 피벗과 같은 값을 오른쪽 구간에 보낸다.
+
+```text
+[3, 3, 3, 3, 3]
+
+pivot = 3
+pivot보다 작은 값 없음
+→ 피벗 위치는 매번 구간의 첫 번째
+→ 0과 N-1로 분할
+```
+
+피벗 선택을 무작위로 바꿔도 모든 값이 같으면 결과는 같다. 중복이 많은 데이터에는 피벗보다 작은 값, 같은 값, 큰 값의 세 구간으로 나누는 3-way partition이 유용하다.
+
+## 3-way 분할은 같은 값을 한 번에 확정한다
+
+반복 중 다음 구간을 유지한다.
+
+```text
+[left, less)       → pivot보다 작음
+[less, scan)       → pivot과 같음
+[scan, greater)    → 아직 확인하지 않음
+[greater, right)   → pivot보다 큼
+```
+
+```cpp
+void QuickSortThreeWay(std::vector<int>& values, std::size_t left, std::size_t right)
+{
+    if (right - left <= 1)
+    {
+        return;
+    }
+
+    int pivot = values[left + (right - left) / 2];
+    std::size_t less = left;
+    std::size_t scan = left;
+    std::size_t greater = right;
+
+    while (scan < greater)
+    {
+        if (values[scan] < pivot)
+        {
+            std::swap(values[less], values[scan]);
+            ++less;
+            ++scan;
+        }
+        else if (values[scan] > pivot)
+        {
+            --greater;
+            std::swap(values[scan], values[greater]);
+        }
+        else
+        {
+            ++scan;
+        }
+    }
+
+    QuickSortThreeWay(values, left, less);
+    QuickSortThreeWay(values, greater, right);
+}
+```
+
+큰 값을 뒤쪽과 교환한 뒤에는 `scan`을 증가시키지 않는다. 뒤에서 새로 들어온 값은 아직 피벗과 비교하지 않았기 때문이다.
+
+반복이 끝나면 `[less, greater)`의 모든 값이 피벗과 같다. 이 구간은 이미 정렬 위치가 확정됐으므로 재귀 호출에서 제외한다.
+
+```text
+[pivot보다 작음 | pivot과 같음 | pivot보다 큼]
+       재귀           제외            재귀
+```
+
+모든 값이 같은 배열은 한 번의 선형 분할 뒤 두 재귀 구간이 모두 비어 종료한다.
+
+## 퀵 정렬은 일반적으로 안정적이지 않다
+
+멀리 떨어진 원소를 교환하는 분할 과정에서 같은 키의 상대 순서가 바뀔 수 있다.
+
+```text
+(A, 3) (B, 2) (C, 3) (D, 1)
+
+분할 교환 과정에서 A와 C의 순서가 바뀔 수 있음
+```
+
+추가 인덱스를 함께 비교하거나 별도 버퍼를 사용해 안정적인 변형을 만들 수는 있지만, 일반적인 제자리 퀵 정렬의 장점과 구현 방식이 달라진다. 안정성이 필수라면 병합 정렬이나 `std::stable_sort` 같은 선택을 먼저 고려한다.
+
+## 재귀 깊이는 작은 구간을 먼저 처리해 제한할 수 있다
+
+최악의 분할에서는 시간뿐 아니라 호출 스택도 $O(N)$이 된다. 두 구간 중 작은 쪽만 재귀 호출하고 큰 쪽은 반복문으로 이어가면 스택 깊이를 $O(\log N)$으로 제한할 수 있다.
+
+```cpp
+void QuickSortWithBoundedStack(std::vector<int>& values, std::size_t left, std::size_t right)
+{
+    while (right - left > 1)
+    {
+        std::size_t pivot = Partition(values, left, right);
+        std::size_t leftSize = pivot - left;
+        std::size_t rightSize = right - (pivot + 1);
+
+        if (leftSize < rightSize)
+        {
+            QuickSortWithBoundedStack(values, left, pivot);
+            left = pivot + 1;
+        }
+        else
+        {
+            QuickSortWithBoundedStack(values, pivot + 1, right);
+            right = pivot;
+        }
+    }
+}
+```
+
+이 방법은 호출 스택의 최악 공간을 줄이지만 분할 비교 횟수의 최악 $O(N^2)$을 $O(N\log N)$으로 바꾸지는 않는다. 시간과 스택 문제를 구분해야 한다.
+
+## 정렬 알고리즘과 비교한다
+
+| 비교 | Quick Sort | Merge Sort | Heap Sort |
+|---|---:|---:|---:|
+| 평균 시간 | $O(N\log N)$ | $O(N\log N)$ | $O(N\log N)$ |
+| 최악 시간 | $O(N^2)$ | $O(N\log N)$ | $O(N\log N)$ |
+| 추가 배열 | 필요 없음 | $O(N)$ 버퍼 | 필요 없음 |
+| 안정성 | 일반적으로 불안정 | 안정적으로 구현 가능 | 불안정 |
+| 핵심 작업 | 피벗 분할 | 정렬 구간 병합 | 힙 루트 추출 |
+
+퀵 정렬은 평균적인 분할과 배열 접근 특성 덕분에 실용적으로 강력하지만, 단순 구현에는 최악 시간과 재귀 깊이 문제가 있다.
+
+C++의 `std::sort`는 최악 $O(N\log N)$ 비교 복잡도를 제공해야 한다. 많은 구현은 퀵 정렬 계열로 시작하고 재귀가 지나치게 깊어지면 힙 정렬로 전환하며 작은 구간에 삽입 정렬을 사용하는 Introsort 계열을 사용하지만, 구체적인 내부 알고리즘은 표준이 강제하지 않는다.
+
+## 전체 검증 예제
+
+```cpp
+#include <algorithm>
+#include <cassert>
+#include <cstddef>
+#include <vector>
+
+// Partition과 두 QuickSort 구현은 앞의 코드와 같다.
+
+template<typename Sort>
+void VerifySort(Sort sort)
+{
+    const std::vector<std::vector<int>> inputs{
+        std::vector<int>{},
+        std::vector<int>{1},
+        std::vector<int>{1, 2, 3, 4, 5},
+        std::vector<int>{5, 4, 3, 2, 1},
+        std::vector<int>{7, 2, 9, 4, 3, 8, 5},
+        std::vector<int>{3, 3, 3, 3, 3},
+        std::vector<int>{3, 1, 3, 2, 1}
+    };
+
+    for (std::vector<int> values : inputs)
+    {
+        std::vector<int> expected = values;
+        std::sort(expected.begin(), expected.end());
+        sort(values);
+        assert(values == expected);
+    }
+}
+
+int main()
+{
+    VerifySort([](std::vector<int>& values) { QuickSort(values); });
+    VerifySort([](std::vector<int>& values) { QuickSortThreeWay(values, 0, values.size()); });
+}
+```
+
+정렬된 입력과 모든 값이 같은 입력은 단순 피벗 전략의 약점을 드러내는 중요한 테스트다. 작은 배열의 결과만 맞는지 확인하지 않고 분할 크기와 재귀 깊이도 함께 관찰해야 한다.
+
+## 구현할 때 확인할 기준
+
+1. 정렬 구간이 `[left, right)`인지 일관되게 사용하는가?
+2. 원소가 0개나 1개일 때 종료하는가?
+3. 분할 반복 중 각 구간의 의미를 설명할 수 있는가?
+4. 분할 뒤 피벗이 자신의 최종 위치에 있는가?
+5. 재귀 호출에서 피벗을 제외하는가?
+6. 매 호출에서 구간 크기가 반드시 줄어드는가?
+7. 이미 정렬된 입력에서 피벗 전략이 어떻게 동작하는가?
+8. 모든 값이 같은 입력에서 분할이 불균형해지지 않는가?
+9. 3-way 분할에서 뒤에서 교환해 온 값을 다시 검사하는가?
+10. 무작위 피벗이 최악의 경우를 제거하는 것이 아니라 가능성을 낮춘다는 점을 구분하는가?
+11. 재귀 깊이가 입력 크기까지 증가할 가능성을 처리하는가?
+12. 안정 정렬이 필요하다면 다른 알고리즘을 고려했는가?
+13. 실제 코드에서는 표준 라이브러리 정렬이 더 적합하지 않은가?
+
+퀵 정렬의 핵심은 피벗 값 자체보다 분할 뒤에 만들어지는 구간의 의미다. 피벗보다 작은 값과 큰 값을 올바르게 나누고 피벗을 재귀 범위에서 제외하면 정렬이 진행된다. 평균 성능을 유지하려면 피벗이 계속 한쪽 끝을 선택하지 않도록 하고, 중복 값이 많다면 같은 값 구간을 한 번에 제외해야 한다.
+
+## 다음 학습: 해시 테이블
+
+다음 글에서는 키를 해시 함수로 배열 인덱스에 대응시켜 평균 $O(1)$에 데이터를 찾는 해시 테이블을 다룬다. 충돌이 발생하는 이유와 체이닝·개방 주소법의 처리 방식, 버킷 수와 부하율의 관계를 살펴본다.

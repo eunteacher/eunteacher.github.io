@@ -1,5 +1,6 @@
 ---
 layout: post
+published: false
 title:  "[영어회화 16일차] 처음 마주하는 상황에서 당당하게 의사 표현하기"
 date:   2026-02-16 00:00:00 +0900
 categories: [회화, 영어회화]

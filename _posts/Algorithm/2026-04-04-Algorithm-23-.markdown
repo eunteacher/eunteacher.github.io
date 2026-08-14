@@ -1,0 +1,394 @@
+---
+layout: post
+title: '[Algorithm 23] 기본 정렬: 버블·선택·삽입 정렬 비교'
+date: 2026-04-04
+categories: [Dev, Algorithm]
+tags: [C++, Sorting, Bubble Sort, Selection Sort, Insertion Sort]
+use_math: true
+---
+
+정렬(Sorting)은 데이터를 정해진 비교 기준에 따라 순서대로 배치하는 작업이다. 숫자를 오름차순으로 정렬하면 검색과 중복 검사, 구간 처리처럼 이후 알고리즘을 단순하게 만들 수 있다.
+
+```text
+정렬 전: 5 1 4 2 8
+정렬 후: 1 2 4 5 8
+```
+
+버블 정렬, 선택 정렬과 삽입 정렬은 모두 구현이 비교적 단순하고 최악의 시간 복잡도가 $O(N^2)$이다. 하지만 원소를 움직이는 방식과 이미 정렬된 입력을 다루는 성질은 서로 다르다.
+
+이번 글에서는 같은 배열을 세 알고리즘으로 정렬하며 다음 기준을 비교한다.
+
+- 어떤 구간이 정렬 완료 상태인가?
+- 비교와 교환 또는 이동은 몇 번 일어나는가?
+- 같은 값을 가진 원소의 기존 순서가 유지되는가?
+- 입력이 거의 정렬돼 있을 때 유리한가?
+
+## 정렬 알고리즘을 비교하는 기준
+
+### 시간 복잡도
+
+입력 크기 $N$에 따라 비교와 이동 횟수가 어떻게 증가하는지 본다. 최악의 경우뿐 아니라 최선과 평균적인 입력도 구분할 수 있다.
+
+### 추가 공간
+
+입력 배열 안에서 원소를 교환하며 정렬하면 제자리 정렬(In-place Sort)이라고 한다. 보통 상수 크기의 임시 변수만 사용하는 경우 추가 공간을 $O(1)$로 본다.
+
+### 안정성
+
+같은 키를 가진 원소의 기존 상대 순서를 유지하면 안정 정렬(Stable Sort)이다.
+
+```text
+점수만 비교
+
+정렬 전: (A, 70) (B, 90) (C, 70)
+정렬 후: (A, 70) (C, 70) (B, 90)  → A와 C 순서 유지
+```
+
+숫자 하나만 정렬할 때는 차이가 보이지 않지만, 여러 필드를 가진 데이터를 일부 키로 정렬할 때 중요하다.
+
+### 적응성
+
+이미 정렬됐거나 거의 정렬된 입력에서 실제 작업량이 줄어드는 성질을 적응적(Adaptive)이라고 한다.
+
+## 버블 정렬은 큰 값을 끝으로 보낸다
+
+버블 정렬(Bubble Sort)은 이웃한 두 원소를 비교해 순서가 반대면 교환한다.
+
+```text
+5 1 4 2 8
+
+5와 1 교환 → 1 5 4 2 8
+5와 4 교환 → 1 4 5 2 8
+5와 2 교환 → 1 4 2 5 8
+5와 8 유지 → 1 4 2 5 8
+```
+
+한 번의 순회가 끝나면 현재 구간에서 가장 큰 값이 오른쪽 끝에 놓인다.
+
+```text
+첫 번째 순회 완료
+1 4 2 5 | 8
+          정렬 확정
+
+두 번째 순회 완료
+1 2 4 | 5 8
+        정렬 확정
+```
+
+정렬되지 않은 구간의 끝을 한 칸씩 줄인다.
+
+```cpp
+void BubbleSort(std::vector<int>& values)
+{
+    for (std::size_t end = values.size(); end > 1; --end)
+    {
+        bool swapped = false;
+
+        for (std::size_t i = 0; i + 1 < end; ++i)
+        {
+            if (values[i] > values[i + 1])
+            {
+                std::swap(values[i], values[i + 1]);
+                swapped = true;
+            }
+        }
+
+        if (!swapped)
+        {
+            break;
+        }
+    }
+}
+```
+
+한 번의 전체 순회에서 교환이 없었다면 현재 배열이 이미 정렬돼 있으므로 종료한다. 이 최적화가 있으면 정렬된 입력의 시간 복잡도는 $O(N)$이다.
+
+역순 입력에서는 거의 모든 이웃 쌍을 교환한다.
+
+$$
+(N-1) + (N-2) + \cdots + 1 = \frac{N(N-1)}{2}
+$$
+
+최악의 비교와 교환 횟수는 $O(N^2)$이다.
+
+비교 조건을 `>`로 사용하면 같은 값끼리는 교환하지 않으므로 안정 정렬이다. `>=`로 바꾸면 같은 키의 상대 순서까지 뒤집힐 수 있다.
+
+## 선택 정렬은 가장 작은 값을 앞으로 보낸다
+
+선택 정렬(Selection Sort)은 정렬되지 않은 구간에서 최솟값의 위치를 찾고 구간의 첫 원소와 한 번 교환한다.
+
+```text
+5 1 4 2 8
+
+전체 최솟값 1 선택
+1 | 5 4 2 8
+
+남은 최솟값 2 선택
+1 2 | 4 5 8
+
+남은 최솟값 4 선택
+1 2 4 | 5 8
+```
+
+왼쪽 구간이 한 칸씩 정렬 완료 상태가 된다.
+
+```cpp
+void SelectionSort(std::vector<int>& values)
+{
+    for (std::size_t i = 0; i < values.size(); ++i)
+    {
+        std::size_t minIndex = i;
+
+        for (std::size_t j = i + 1; j < values.size(); ++j)
+        {
+            if (values[j] < values[minIndex])
+            {
+                minIndex = j;
+            }
+        }
+
+        if (minIndex != i)
+        {
+            std::swap(values[i], values[minIndex]);
+        }
+    }
+}
+```
+
+입력이 이미 정렬돼 있어도 남은 구간의 최솟값인지 확인하기 위해 모든 비교를 수행한다. 비교 횟수는 입력 상태와 관계없이 약 $N(N-1)/2$로 $O(N^2)$이다.
+
+반면 실제 교환은 바깥 반복마다 최대 한 번이므로 최대 $N-1$번이다. 원소 이동 비용이 비교 비용보다 훨씬 큰 환경에서는 이 특징을 따로 고려할 수 있다.
+
+일반적인 교환 기반 선택 정렬은 안정 정렬이 아니다.
+
+```text
+키만 비교
+
+(A, 2) (B, 2) (C, 1)
+
+최솟값 C를 첫 위치와 교환
+(C, 1) (B, 2) (A, 2)
+
+A와 B의 기존 순서가 뒤집힘
+```
+
+값을 교환하지 않고 최솟값을 뽑아 앞에 삽입하며 중간 원소를 이동하면 안정적으로 만들 수 있지만, 이동 방식과 비용이 달라진다.
+
+## 삽입 정렬은 정렬된 구간에 값을 끼워 넣는다
+
+삽입 정렬(Insertion Sort)은 왼쪽 구간이 이미 정렬돼 있다고 보고 다음 원소가 들어갈 위치를 찾는다.
+
+```text
+5 | 1 4 2 8
+
+1을 [5]에 삽입
+1 5 | 4 2 8
+
+4를 [1 5]에 삽입
+1 4 5 | 2 8
+
+2를 [1 4 5]에 삽입
+1 2 4 5 | 8
+```
+
+삽입할 값을 임시로 보관하고 그보다 큰 원소를 오른쪽으로 한 칸씩 이동한다.
+
+```cpp
+void InsertionSort(std::vector<int>& values)
+{
+    for (std::size_t i = 1; i < values.size(); ++i)
+    {
+        int value = values[i];
+        std::size_t position = i;
+
+        while (position > 0 && value < values[position - 1])
+        {
+            values[position] = values[position - 1];
+            --position;
+        }
+
+        values[position] = value;
+    }
+}
+```
+
+이미 정렬된 입력에서는 `value < values[position - 1]`가 매번 처음부터 false이므로 각 원소당 한 번의 비교만 한다. 최선 시간은 $O(N)$이다.
+
+역순 입력에서는 새 값이 정렬된 구간의 처음까지 이동한다.
+
+$$
+1 + 2 + \cdots + (N-1) = \frac{N(N-1)}{2}
+$$
+
+최악 시간은 $O(N^2)$이다.
+
+거의 정렬된 배열에서는 각 원소가 이동하는 거리가 짧으므로 실제 작업량이 적다. 작은 구간이나 부분적으로 정렬된 데이터에 삽입 정렬이 유용한 이유다.
+
+비교 조건을 `value < previous`로 사용하면 같은 값 앞을 지나가지 않으므로 안정 정렬이다.
+
+## 교환과 이동은 같은 작업이 아니다
+
+버블 정렬은 역순 원소를 발견할 때마다 두 값을 교환한다. 일반적인 `swap`은 임시 값을 포함해 여러 대입을 수행한다.
+
+삽입 정렬은 삽입할 값 하나를 보관하고 중간 원소를 한 칸씩 이동한다.
+
+```text
+버블 정렬
+[5, 4] → swap → [4, 5]
+
+삽입 정렬
+value = 4
+5를 오른쪽으로 이동
+빈자리에 4 저장
+```
+
+시간 복잡도가 같더라도 실제 대입 횟수와 메모리 접근 형태가 다를 수 있다. 특히 원소 타입의 이동 비용이 클 때는 비교 횟수만으로 성능을 판단하기 어렵다.
+
+## 세 알고리즘을 비교한다
+
+| 비교 | Bubble Sort | Selection Sort | Insertion Sort |
+|---|---:|---:|---:|
+| 최선 시간 | $O(N)$ | $O(N^2)$ | $O(N)$ |
+| 평균 시간 | $O(N^2)$ | $O(N^2)$ | $O(N^2)$ |
+| 최악 시간 | $O(N^2)$ | $O(N^2)$ | $O(N^2)$ |
+| 추가 공간 | $O(1)$ | $O(1)$ | $O(1)$ |
+| 안정성 | 안정 | 일반 구현은 불안정 | 안정 |
+| 거의 정렬된 입력 | 교환 없음 감지 시 유리 | 비교 횟수 동일 | 이동 거리가 짧아 유리 |
+| 원소 교환·이동 | 교환이 많을 수 있음 | 교환 최대 $N-1$번 | 필요한 만큼 이동 |
+
+버블 정렬의 최선 $O(N)$은 `swapped`를 검사해 조기 종료하는 구현을 기준으로 한다. 이 검사가 없는 고정 반복 구현은 정렬된 입력에서도 $O(N^2)$ 비교를 수행한다.
+
+안정성도 알고리즘 이름만으로 결정되지 않을 수 있다. 비교 연산을 어떻게 작성하고 원소를 어떤 방식으로 이동하는지까지 확인해야 한다.
+
+## 전체 검증 예제
+
+```cpp
+#include <algorithm>
+#include <cassert>
+#include <cstddef>
+#include <vector>
+
+void BubbleSort(std::vector<int>& values)
+{
+    for (std::size_t end = values.size(); end > 1; --end)
+    {
+        bool swapped = false;
+
+        for (std::size_t i = 0; i + 1 < end; ++i)
+        {
+            if (values[i] > values[i + 1])
+            {
+                std::swap(values[i], values[i + 1]);
+                swapped = true;
+            }
+        }
+
+        if (!swapped)
+        {
+            break;
+        }
+    }
+}
+
+void SelectionSort(std::vector<int>& values)
+{
+    for (std::size_t i = 0; i < values.size(); ++i)
+    {
+        std::size_t minIndex = i;
+
+        for (std::size_t j = i + 1; j < values.size(); ++j)
+        {
+            if (values[j] < values[minIndex])
+            {
+                minIndex = j;
+            }
+        }
+
+        if (minIndex != i)
+        {
+            std::swap(values[i], values[minIndex]);
+        }
+    }
+}
+
+void InsertionSort(std::vector<int>& values)
+{
+    for (std::size_t i = 1; i < values.size(); ++i)
+    {
+        int value = values[i];
+        std::size_t position = i;
+
+        while (position > 0 && value < values[position - 1])
+        {
+            values[position] = values[position - 1];
+            --position;
+        }
+
+        values[position] = value;
+    }
+}
+
+template<typename Sort>
+void VerifySort(Sort sort)
+{
+    const std::vector<std::vector<int>> inputs{
+        std::vector<int>{},
+        std::vector<int>{1},
+        std::vector<int>{1, 2, 3, 4, 5},
+        std::vector<int>{5, 4, 3, 2, 1},
+        std::vector<int>{5, 1, 4, 2, 8},
+        std::vector<int>{3, 1, 3, 2, 1}
+    };
+
+    for (std::vector<int> values : inputs)
+    {
+        std::vector<int> expected = values;
+        std::sort(expected.begin(), expected.end());
+        sort(values);
+        assert(values == expected);
+    }
+}
+
+int main()
+{
+    VerifySort(BubbleSort);
+    VerifySort(SelectionSort);
+    VerifySort(InsertionSort);
+}
+```
+
+빈 배열, 원소 하나, 정렬된 배열, 역순 배열, 일반 배열과 중복 배열을 함께 검사한다. 결과만 비교하면 안정성은 확인할 수 없으므로 안정성이 필요하다면 키와 원래 순번을 가진 별도 타입으로 테스트해야 한다.
+
+## 실제 선택에서 생각할 점
+
+세 알고리즘은 대규모 일반 정렬의 기본 선택으로 사용하기에는 $O(N^2)$ 비용이 크다. C++에서는 보통 `std::sort`나 요구되는 안정성에 따라 `std::stable_sort`를 사용한다.
+
+```cpp
+std::sort(values.begin(), values.end());
+std::stable_sort(items.begin(), items.end(), compare);
+```
+
+직접 구현의 목적은 라이브러리 정렬을 대체하는 것이 아니라, 정렬된 구간이 어떻게 확장되고 비교·교환·이동 방식이 복잡도와 안정성에 어떤 차이를 만드는지 이해하는 데 있다.
+
+삽입 정렬은 작은 구간에서 구현 비용이 낮고 거의 정렬된 입력에 강해, 더 복잡한 정렬 알고리즘의 작은 부분 배열 처리에 결합되기도 한다. 구체적인 임계값과 성능은 구현과 데이터 타입에 따라 측정해야 한다.
+
+## 기본 정렬을 구현할 때 확인할 기준
+
+1. 어느 구간이 정렬 완료 상태인지 설명할 수 있는가?
+2. 반복할 때마다 미정렬 구간이 확실히 줄어드는가?
+3. 빈 배열과 원소 하나를 안전하게 처리하는가?
+4. 버블 정렬이 정렬 완료를 감지해 조기 종료하는가?
+5. 선택 정렬이 남은 구간에서 실제 최솟값 위치를 찾는가?
+6. 삽입 정렬이 값을 덮어쓰기 전에 임시로 보관하는가?
+7. `std::size_t`가 0 아래로 감소하지 않도록 조건을 먼저 검사하는가?
+8. 중복 원소에서 필요한 안정성을 유지하는가?
+9. 비교 횟수와 원소 이동 횟수를 구분하는가?
+10. 이미 정렬된 입력과 역순 입력을 모두 테스트하는가?
+11. $O(N^2)$ 정렬이 현재 입력 크기에 적합한가?
+12. 실제 코드에서는 표준 라이브러리 정렬이 더 적합하지 않은가?
+
+세 정렬의 핵심 차이는 어떤 값을 정렬 완료 구간으로 보내는가에 있다. 버블 정렬은 이웃 교환으로 큰 값을 끝에 보내고, 선택 정렬은 최솟값을 찾아 앞에 놓으며, 삽입 정렬은 다음 값을 이미 정렬된 왼쪽 구간의 알맞은 위치에 끼워 넣는다.
+
+## 다음 학습: 힙 정렬과 병합 정렬
+
+다음 글에서는 힙의 최댓값을 반복해서 꺼내는 힙 정렬과, 구간을 절반으로 나눈 뒤 정렬된 두 구간을 합치는 병합 정렬을 다룬다. 두 알고리즘이 $O(N\log N)$을 만드는 방식과 추가 메모리·안정성의 차이를 비교한다.

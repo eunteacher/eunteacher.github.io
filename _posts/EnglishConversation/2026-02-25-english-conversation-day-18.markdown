@@ -1,5 +1,6 @@
 ---
 layout: post
+published: false
 title:  "[영어회화 18일차] 시간, 날씨, 위치 - 일상 생존 필수 질문 3가지"
 date:   2026-02-25 23:30:00 +0900
 categories: [회화, 영어회화]

@@ -1,205 +1,433 @@
 ---
 layout: post
-title: '[Algorithm 17] A* (A-Star) 최단 경로 탐색 알고리즘 구현 및 분석'
+title: '[Algorithm 17] A* 길찾기: 실제 비용과 휴리스틱'
 date: 2026-03-23
 categories: [Dev, Algorithm]
-tags: [C++, Algorithm, Pathfinding, AStar, Heuristic]
+tags: [C++, A Star, Pathfinding, Heuristic, Priority Queue]
 use_math: true
 ---
 
-# [Algorithm] A* (A-Star) 기반 미로 최단 경로 알고리즘 구현
+다익스트라는 시작점에서 누적 비용이 가장 작은 후보를 먼저 탐색한다. 최단 경로는 보장하지만 목적지가 어느 방향에 있는지는 고려하지 않으므로 여러 방향으로 탐색이 퍼질 수 있다.
 
-휴리스틱(Heuristic) 추정치를 활용하여 다익스트라의 탐색 범위를 최적화한 A* 최단 경로 알고리즘의 원리 분석 및 구현체
+A*(A-Star)는 시작점부터 현재 위치까지의 실제 비용에 목적지까지 남은 비용의 추정치를 더한다. 목적지에 가까워 보이는 후보를 우선하면서도, 휴리스틱이 지켜야 할 조건을 만족하면 최단 경로를 찾을 수 있다.
 
-## 1. 소스 코드 (Source Code)
+```text
+S: 시작점
+G: 목적지
+#: 벽
+
+S . . . .
+. # # # .
+. . . . G
+
+다익스트라: 시작점에서 가까운 영역부터 확장
+A*: 목적지까지의 예상 거리도 고려해 후보 선택
+```
+
+이번 실습에서는 상하좌우와 대각선의 8방향 이동을 사용한다. 직선 이동 비용은 10, 대각선 이동 비용은 14로 두고 최소 우선순위 큐에서 다음 좌표를 선택한다.
+
+## F는 실제 비용 G와 예상 비용 H의 합이다
+
+A*는 각 후보 노드의 우선순위를 다음 값으로 계산한다.
+
+$$
+F(n) = G(n) + H(n)
+$$
+
+- $G(n)$: 시작점에서 현재 노드 $n$까지 실제로 이동한 누적 비용
+- $H(n)$: 현재 노드에서 목적지까지 남은 비용의 추정값
+- $F(n)$: 현재 노드를 거쳐 목적지까지 갈 때의 예상 총비용
+
+```text
+시작점 ───── 실제 이동 ─────> 현재 위치 ───── 예상 ─────> 목적지
+             G(n)                         H(n)
+
+                         F(n) = G(n) + H(n)
+```
+
+우선순위 큐에서는 $F$가 가장 작은 후보를 먼저 꺼낸다. $F$가 같다면 어느 후보를 먼저 처리해도 정확성 조건을 만족하는 범위에서는 결과 비용이 달라지지 않는다. 탐색 형태를 일정하게 만들기 위해 더 큰 $G$를 가진 후보를 먼저 고르는 등의 보조 기준을 둘 수 있다.
+
+## 휴리스틱은 실제 남은 비용을 넘지 않아야 한다
+
+휴리스틱 $H$가 실제 최단 잔여 비용보다 크지 않으면 허용적(Admissible)이라고 한다.
+
+$$
+0 \le H(n) \le H^*(n)
+$$
+
+$H^*(n)$은 노드 $n$에서 목적지까지의 실제 최단 비용이다. 휴리스틱이 실제 비용을 과대평가하면 최적 경로로 이어지는 후보를 너무 늦게 처리해 최단 경로 보장이 깨질 수 있다.
+
+휴리스틱이 모든 간선 $(u,v)$에 대해 다음 조건도 만족하면 일관적(Consistent)이라고 한다.
+
+$$
+H(u) \le cost(u,v) + H(v)
+$$
+
+일관적인 휴리스틱에서는 우선순위 큐에서 꺼내 확정한 노드를 다시 열 필요가 없다. 이번 구현은 이 성질을 전제로 `closed` 배열을 사용한다.
+
+`H(n)=0`으로 두면 모든 후보의 $F$가 $G$와 같아져 A*는 다익스트라와 같은 선택을 한다. 휴리스틱은 정답을 바꾸는 임의의 보너스가 아니라, 최단 경로 조건을 유지하며 탐색 순서를 안내하는 값이다.
+
+## 이동 규칙에 맞는 휴리스틱을 선택한다
+
+휴리스틱은 좌표계만 보고 고르는 것이 아니라 허용된 이동 방향과 이동 비용에 맞춰야 한다.
+
+### 4방향 이동
+
+상하좌우만 이동하고 한 칸 비용이 10이면 맨해튼 거리(Manhattan Distance)를 사용할 수 있다.
+
+$$
+H = 10(|x_g-x| + |y_g-y|)
+$$
+
+### 8방향 이동
+
+대각선 이동이 가능하고 직선 비용이 10, 대각선 비용이 14라면 대각선 거리(Octile Distance)를 사용한다.
 
 ```cpp
-struct PQNode
+int Heuristic(Pos from, Pos goal)
 {
-	bool operator<(const PQNode& other) const { return f < other.f; }
-	bool operator>(const PQNode& other) const { return f > other.f; }
-
-	int32	f; // f = g + h (총 예상 비용)
-	int32	g; // 시작점으로부터의 누적 이동 비용
-	Pos		pos;
-};
-
-void Player::AStar()
-{
-	// A* 알고리즘의 핵심 평가 지표 설정
-	// F = G + H (최종 점수, 낮을수록 우선순위 높음)
-	// G = 시작점에서 현재 좌표까지 이동하는 데 소요된 실제 누적 비용
-	// H = 현재 좌표에서 목적지까지의 예상 잔여 비용 (휴리스틱 추정치)
-
-	Pos start = Position;
-	Pos dest = MazeBoard->GetExitPos();
-
-	enum
-	{
-		DIR_COUNT = 8
-	};
-
-	// 8방향 탐색을 위한 방향 벡터 정의
-	Pos front[] =
-	{
-		Pos { -1, 0},	// UP
-		Pos { 0, -1},	// LEFT
-		Pos { 1, 0},	// DOWN
-		Pos { 0, 1},	// RIGHT
-		Pos {-1, -1},	// UP_LEFT
-		Pos {1, -1},	// DOWN_LEFT
-		Pos {1, 1},		// DOWN_RIGHT
-		Pos {-1, 1},	// UP_RIGHT
-	};
-
-	// 대각선 이동(14)과 직진 이동(10)의 가중치 분리 (피타고라스 비율 근사치 적용)
-	int32 cost[] =
-	{
-		10, 10, 10, 10,
-		14, 14, 14, 14
-	};
-
-	const int32 size = MazeBoard->GetSize();
-
-	// 탐색 완료 노드 기록용 Closed List (방문 여부 체크)
-	vector<vector<bool>> closed(size, vector<bool>(size, false));
-
-	// 각 좌표까지의 최소 비용(F)을 기록하는 배열
-	vector<vector<int32>> best(size, vector<int32>(size, INT32_MAX));
-
-	// 경로 역추적을 위한 부모 노드 기록 맵
-	map<Pos, Pos> parent;
-
-	// 탐색 대기열인 Open List (F값이 가장 작은 노드부터 추출하는 최소 힙 구성)
-	priority_queue<PQNode, vector<PQNode>, greater<PQNode>> pq;
-
-	// 시작 노드 초기화 및 Open List 삽입
-	{
-		int32 g = 0;
-		// 맨해튼 거리 기반 휴리스틱(H) 산출 근사식 적용
-		int32 h = 10 * (abs(dest.y - start.y) + abs(dest.x - start.x));
-		pq.push(PQNode{ g + h, g, start });
-		best[start.y][start.x] = g + h;
-		parent[start] = start;
-	}
-
-	while (pq.empty() == false)
-	{
-		// Open List에서 F값이 가장 작은 최적의 후보 노드 추출
-		PQNode node = pq.top();
-		pq.pop();
-
-		// 이미 방문 처리된 노드(Closed)라면 탐색 스킵
-		if (closed[node.pos.y][node.pos.x])
-		{
-			continue;
-		}
-
-		// 우선순위 큐 삽입 시점과 현재 시점의 최소 비용이 다를 수 있으므로 검증
-		if (best[node.pos.y][node.pos.x] < node.f)
-		{
-			continue;
-		}
-
-		// 현재 노드 방문 처리 (Closed List 편입)
-		closed[node.pos.y][node.pos.x] = true;
-
-		// 목적지 도달 시 탐색 조기 종료
-		if (node.pos == dest)
-		{
-			break;
-		}
-
-		// 인접한 8방향 노드 탐색 (Open List 확장)
-		for (int32 dir = 0; dir < DIR_COUNT; dir++)
-		{
-			Pos nextPos = node.pos + front[dir];
-
-			// 맵 경계 밖이거나 장애물인 경우 스킵
-			if (CanGo(nextPos) == false)
-			{
-				continue;
-			}
-
-			// 이미 탐색이 완료된 노드라면 스킵
-			if (closed[nextPos.y][nextPos.x])
-			{
-				continue;
-			}
-
-			// 다음 노드까지의 새로운 G비용과 휴리스틱 H비용 계산
-			int32 g = node.g + cost[dir];
-			int32 h = 10 * (abs(dest.y - nextPos.y) + abs(dest.x - nextPos.x));
-
-			// 기존에 발견된 경로 비용보다 크거나 같으면 갱신 불필요
-			if (best[nextPos.y][nextPos.x] <= g + h)
-			{
-				continue;
-			}
-
-			// 더 나은 경로를 발견했으므로 정보 갱신 및 Open List 삽입
-			best[nextPos.y][nextPos.x] = g + h;
-			pq.push(PQNode{ g + h, g, nextPos });
-			parent[nextPos] = node.pos;
-		}
-	}
-
-	// 목적지부터 시작점까지 부모 노드를 추적하며 경로 복원
-	Pos pos = dest;
-
-	Path.clear();
-	PathIndex = 0;
-
-	while (true)
-	{
-		Path.push_back(pos);
-
-		// 시작점에 도달하면 역추적 종료
-		if (pos == parent[pos])
-		{
-			break;
-		}
-
-		pos = parent[pos];
-	}
-
-	// 수집된 경로를 시작점 기준으로 뒤집음
-	std::reverse(Path.begin(), Path.end());
+    int dy = std::abs(goal.y - from.y);
+    int dx = std::abs(goal.x - from.x);
+    int diagonal = std::min(dy, dx);
+    int straight = std::max(dy, dx) - diagonal;
+    return diagonal * 14 + straight * 10;
 }
 ```
----
-## 2. 이론 정리 (Study Notes)
 
-A* (A-Star) 알고리즘은 다익스트라(Dijkstra) 알고리즘에 목적지까지의 예상 거리를 더하는 휴리스틱(Heuristic) 기법을 결합하여 탐색 효율을 극대화한 길찾기 알고리즘임
+예를 들어 목적지가 대각선으로 한 칸 떨어져 있다면 실제 이동 비용은 14다.
 
-### 핵심 평가 수식 (F = G + H)
+```text
+대각선 거리: 14
+맨해튼 거리: 10 × (1 + 1) = 20
+```
 
-각 노드의 평가 점수 $F(n)$은 다음과 같은 수식으로 계산되며, 이 값이 작을수록 우선순위 큐에서 먼저 추출됨
+이 이동 규칙에서 맨해튼 거리 20은 실제 최단 비용 14를 초과한다. 따라서 8방향 탐색에 그대로 사용하면 허용적 휴리스틱이 아니다. 이동 가능 방향을 바꾸면 휴리스틱도 함께 검토해야 한다.
 
-$$F(n) = G(n) + H(n)$$
+## 이동 방향과 비용을 하나로 묶는다
 
-* $G(n)$: 시작 노드에서 현재 노드 $n$까지 이동하는 데 소요된 실제 누적 비용임
-* $H(n)$: 현재 노드 $n$에서 목적지까지 남은 예상 비용(휴리스틱)을 의미함
-* $F(n)$: 현재 노드를 거쳐 목적지까지 가는 총 예상 비용임
+방향 배열과 비용 배열을 따로 관리하면 두 배열의 인덱스가 어긋날 수 있다. 하나의 구조체로 묶으면 각 이동과 비용의 관계가 명확해진다.
 
-### 주요 길찾기 알고리즘 비교
+```cpp
+struct Move
+{
+    Pos delta;
+    int cost;
+};
 
-| 알고리즘 | 탐색 기준 | 시간 복잡도 | 특징 및 장단점 |
-| :--- | :--- | :--- | :--- |
-| **BFS** | 간선 수 (가중치 동일) | $O(V + E)$ | 구현이 단순하나 간선 가중치가 다를 경우 최단 경로를 보장하지 못함 |
-| **Dijkstra** | 누적 비용 $G(n)$ | $O(E \log V)$ | 최단 경로를 완벽히 보장하나 모든 방향으로 탐색이 퍼져 연산량이 많음 |
-| **A*** | 총 예상 비용 $F(n)$ | $O(E \log V)$ | 휴리스틱을 통해 목적지 방향으로 탐색을 유도하므로 탐색 노드 수가 현저히 적음 |
+const std::array<Move, 8> Moves{
+    Move{Pos{-1, 0}, 10}, Move{Pos{0, -1}, 10}, Move{Pos{1, 0}, 10}, Move{Pos{0, 1}, 10},
+    Move{Pos{-1, -1}, 14}, Move{Pos{1, -1}, 14}, Move{Pos{1, 1}, 14}, Move{Pos{-1, 1}, 14}
+};
+```
 
-## 3. 종합 의견 (Review)
+10과 14는 실제 유클리드 거리의 비율을 정수로 근사한 값이다. 모든 비용을 같은 배율로 사용하므로 부동소수점 없이 직선과 대각선의 상대 비용을 표현할 수 있다.
 
-### 핵심 요약 및 주의사항
+## Open List는 아직 확인할 후보를 저장한다
 
-* **우선순위 큐를 통한 Open List 관리:** `std::priority_queue`를 활용하여 $F$값이 가장 낮은 노드를 우선적으로 탐색하는 최소 힙(Min-Heap) 구조를 유지해야 함
-* **방문 처리(Closed List) 분리:** 한 번 탐색이 완료되어 최소 비용이 확정된 노드는 중복 연산을 방지하기 위해 `closed` 배열로 관리하는 것이 필수적임
-* **지연된 갱신(Lazy Deletion) 처리:** C++ 우선순위 큐는 내부 요소 갱신이 불가능하므로, 더 짧은 경로 발견 시 큐에 새로 삽입하고 Pop하는 시점에 `best` 배열과 비교하여 기존의 낡은 데이터를 무시하는 기법을 사용함
+우선순위 큐에는 좌표와 해당 경로의 $G$, $F$를 함께 넣는다.
 
-### Tip
+```cpp
+struct SearchNode
+{
+    int f;
+    int g;
+    Pos pos;
+};
 
-* **휴리스틱 함수(H)의 선택:** 대각선 이동이 가능한 격자 환경에서는 단순 맨해튼 거리(Manhattan Distance)보다 대각선 거리(Diagonal Distance) 연산을 활용하는 것이 A* 알고리즘의 탐색 정확도와 성능을 높임
-* **정수형 가중치 최적화:** 직진은 10, 대각선은 14 ($10 \times \sqrt{2} \approx 14.14$)로 설정하면 부동소수점 연산(float/double) 오버헤드를 없애고 정밀하고 빠른 경로 탐색이 가능함
-* **메모리 단편화 개선:** 맵 크
+struct LowerScore
+{
+    bool operator()(const SearchNode& a, const SearchNode& b) const
+    {
+        if (a.f != b.f)
+        {
+            return a.f > b.f;
+        }
+
+        return a.g < b.g;
+    }
+};
+```
+
+`std::priority_queue`의 비교 함수는 첫 번째 인자의 우선순위가 두 번째보다 낮을 때 true를 반환한다. 따라서 `a.f > b.f`를 사용하면 작은 $F$가 먼저 나온다. $F$가 같을 때는 큰 $G$를 먼저 선택해 목적지 방향으로 더 진행한 후보를 우선한다.
+
+```cpp
+std::priority_queue<SearchNode, std::vector<SearchNode>, LowerScore> open;
+```
+
+Open List는 자료구조로서의 목록을 의미할 뿐 반드시 `std::list`로 구현한다는 뜻은 아니다. 최소 $F$ 후보를 반복해서 꺼내야 하므로 우선순위 큐가 적합하다.
+
+## bestG는 좌표까지 발견한 최소 실제 비용이다
+
+각 좌표까지 지금까지 발견한 가장 작은 $G$를 저장한다.
+
+```cpp
+constexpr int Infinity = std::numeric_limits<int>::max();
+
+std::vector<std::vector<int>> bestG(size, std::vector<int>(size, Infinity));
+std::vector<std::vector<bool>> closed(size, std::vector<bool>(size, false));
+std::map<Pos, Pos> parent;
+```
+
+`bestG`에는 $F$가 아니라 $G$를 저장한다. 같은 좌표에서 목적지까지의 $H$는 같으므로 두 경로의 우열은 실제로 지불한 $G$를 비교하면 된다.
+
+시작점의 실제 비용은 0이다.
+
+```cpp
+bestG[start.y][start.x] = 0;
+parent[start] = start;
+open.push(SearchNode{Heuristic(start, goal), 0, start});
+```
+
+`parent[start] = start`는 경로를 역추적할 때 시작점에 도착했다는 종료 표시로 사용한다.
+
+## 가장 작은 F를 꺼내 이웃을 완화한다
+
+우선순위 큐에서 후보를 꺼낸 뒤, 더 좋은 경로가 이미 발견된 오래된 후보인지 확인한다.
+
+```cpp
+SearchNode current = open.top();
+open.pop();
+
+if (current.g != bestG[current.pos.y][current.pos.x])
+{
+    continue;
+}
+
+if (closed[current.pos.y][current.pos.x])
+{
+    continue;
+}
+```
+
+`std::priority_queue`는 내부 후보의 값을 직접 갱신하지 않는다. 같은 좌표로 더 싼 경로를 찾으면 새 후보를 추가하고, 이전 후보가 나중에 나오면 `bestG`와 비교해 버린다. 다익스트라에서 사용한 lazy deletion과 같은 방식이다.
+
+유효한 후보를 꺼냈다면 확정하고 목적지인지 확인한다.
+
+```cpp
+closed[current.pos.y][current.pos.x] = true;
+
+if (current.pos == goal)
+{
+    reached = true;
+    break;
+}
+```
+
+일관적인 휴리스틱에서는 목적지가 우선순위 큐에서 유효한 후보로 나온 순간 그 $G$가 최단 비용이다. 목적지를 처음 이웃으로 발견한 순간 종료하면 안 된다. 다른 후보를 거쳐 더 싼 경로가 나올 수 있다.
+
+각 이웃에는 현재 $G$와 이동 비용을 더한다.
+
+```cpp
+int nextG = current.g + move.cost;
+
+if (nextG >= bestG[next.y][next.x])
+{
+    continue;
+}
+
+bestG[next.y][next.x] = nextG;
+parent[next] = current.pos;
+open.push(SearchNode{nextG + Heuristic(next, goal), nextG, next});
+```
+
+더 작은 $G$를 발견했을 때만 비용과 부모를 함께 갱신한다. 부모는 해당 최소 비용 경로가 어느 좌표에서 들어왔는지를 기억한다.
+
+## 대각선으로 벽 모서리를 통과할지 정해야 한다
+
+대각선 목적지가 빈칸이라는 사실만 검사하면 맞닿은 두 벽 사이를 비집고 지나가는 경로가 만들어질 수 있다.
+
+```text
+현재 위치 C, 대각선 목적지 N
+
+C #
+# N
+
+목적지 N만 검사하면 대각선 이동 가능
+두 인접 벽을 고려하면 이동 불가능
+```
+
+모서리 통과를 금지한다면 대각선 이동에서 수직·수평 인접 칸도 확인한다.
+
+```cpp
+bool IsDiagonal(const Move& move)
+{
+    return move.delta.y != 0 && move.delta.x != 0;
+}
+
+bool Player::CanMoveDiagonal(Pos current, const Move& move)
+{
+    Pos vertical{current.y + move.delta.y, current.x};
+    Pos horizontal{current.y, current.x + move.delta.x};
+    return CanGo(vertical) && CanGo(horizontal);
+}
+```
+
+모서리 통과를 허용할 수도 있지만 이는 알고리즘의 사소한 구현 차이가 아니라 게임의 이동 규칙이다. 경로 탐색과 실제 캐릭터 충돌 규칙이 같아야 한다.
+
+## 목적지 도달을 확인한 뒤 경로를 복원한다
+
+목적지에 도달하지 못했는데 `parent[goal]`을 조회하면 `std::map::operator[]`가 새 기본값을 삽입한다. 존재하지 않는 경로를 역추적하지 않도록 성공 여부를 먼저 확인한다.
+
+```cpp
+Path.clear();
+PathIndex = 0;
+
+if (!reached)
+{
+    return;
+}
+
+for (Pos current = goal;; current = parent.at(current))
+{
+    Path.push_back(current);
+
+    if (current == start)
+    {
+        break;
+    }
+}
+
+std::reverse(Path.begin(), Path.end());
+```
+
+`parent.at(current)`는 부모가 기록되지 않은 잘못된 상태에서 조용히 값을 추가하지 않고 예외로 문제를 드러낸다. 정상적인 탐색에서는 완화할 때마다 부모를 기록했으므로 목적지부터 시작점까지 연결된다.
+
+## 전체 탐색 흐름
+
+다음 코드는 `Player`와 `Board`가 제공하는 좌표 타입과 `CanGo`를 사용한다. 핵심 탐색 흐름만 모은 예제다.
+
+```cpp
+void Player::AStar()
+{
+    Pos start = Position;
+    Pos goal = MazeBoard->GetExitPos();
+    int size = MazeBoard->GetSize();
+    constexpr int Infinity = std::numeric_limits<int>::max();
+
+    const std::array<Move, 8> moves{
+        Move{Pos{-1, 0}, 10}, Move{Pos{0, -1}, 10}, Move{Pos{1, 0}, 10}, Move{Pos{0, 1}, 10},
+        Move{Pos{-1, -1}, 14}, Move{Pos{1, -1}, 14}, Move{Pos{1, 1}, 14}, Move{Pos{-1, 1}, 14}
+    };
+
+    std::vector<std::vector<int>> bestG(size, std::vector<int>(size, Infinity));
+    std::vector<std::vector<bool>> closed(size, std::vector<bool>(size, false));
+    std::map<Pos, Pos> parent;
+    std::priority_queue<SearchNode, std::vector<SearchNode>, LowerScore> open;
+
+    bestG[start.y][start.x] = 0;
+    parent[start] = start;
+    open.push(SearchNode{Heuristic(start, goal), 0, start});
+
+    bool reached = false;
+
+    while (!open.empty())
+    {
+        SearchNode current = open.top();
+        open.pop();
+
+        if (current.g != bestG[current.pos.y][current.pos.x])
+        {
+            continue;
+        }
+
+        if (closed[current.pos.y][current.pos.x])
+        {
+            continue;
+        }
+
+        closed[current.pos.y][current.pos.x] = true;
+
+        if (current.pos == goal)
+        {
+            reached = true;
+            break;
+        }
+
+        for (const Move& move : moves)
+        {
+            Pos next = current.pos + move.delta;
+
+            if (!CanGo(next))
+            {
+                continue;
+            }
+
+            if (IsDiagonal(move) && !CanMoveDiagonal(current.pos, move))
+            {
+                continue;
+            }
+
+            if (closed[next.y][next.x])
+            {
+                continue;
+            }
+
+            int nextG = current.g + move.cost;
+
+            if (nextG >= bestG[next.y][next.x])
+            {
+                continue;
+            }
+
+            bestG[next.y][next.x] = nextG;
+            parent[next] = current.pos;
+            open.push(SearchNode{nextG + Heuristic(next, goal), nextG, next});
+        }
+    }
+
+    Path.clear();
+    PathIndex = 0;
+
+    if (!reached)
+    {
+        return;
+    }
+
+    for (Pos current = goal;; current = parent.at(current))
+    {
+        Path.push_back(current);
+
+        if (current == start)
+        {
+            break;
+        }
+    }
+
+    std::reverse(Path.begin(), Path.end());
+}
+```
+
+`CanMoveDiagonal`은 모서리 통과를 금지하는 이동 규칙을 선택했을 때 사용하는 검사다. 프로젝트가 대각선 모서리 통과를 허용한다면 해당 조건을 제외하되 실제 이동 처리도 같은 규칙을 사용해야 한다.
+
+## BFS, 다익스트라와 비교한다
+
+| 알고리즘 | 후보 선택 기준 | 사용 조건 |
+|---|---|---|
+| BFS | 시작점에서의 간선 수 | 모든 이동 비용이 동일 |
+| Dijkstra | $G$가 가장 작음 | 음수 비용 없음 |
+| A* | $G+H$가 가장 작음 | 음수 비용 없음, 목적지와 적절한 휴리스틱 존재 |
+
+A*가 항상 다익스트라보다 빠르다고 단정할 수는 없다. 휴리스틱 계산 비용이 추가되고, 장애물 배치나 휴리스틱의 정보량에 따라 다익스트라와 비슷한 수의 노드를 탐색할 수도 있다.
+
+인접 리스트와 이진 힙을 사용하는 그래프 관점에서 최악의 시간 복잡도는 다익스트라와 마찬가지로 흔히 $O((V+E)\log V)$ 범위로 설명할 수 있다. A*의 실용적인 장점은 좋은 휴리스틱으로 실제 확장 정점 수를 줄일 가능성에 있다.
+
+## A*를 구현할 때 확인할 기준
+
+1. 이동 비용이 음수가 아닌가?
+2. $G$, $H$, $F$의 역할을 구분했는가?
+3. `best`에는 좌표까지의 최소 $G$를 저장하는가?
+4. 휴리스틱이 실제 남은 비용을 과대평가하지 않는가?
+5. 이동 방향과 비용에 맞는 휴리스틱을 선택했는가?
+6. 최소 $F$ 후보가 먼저 나오도록 비교 함수를 작성했는가?
+7. 우선순위 큐의 오래된 후보를 `bestG`와 비교해 버리는가?
+8. 목적지를 처음 발견했을 때가 아니라 유효한 후보로 꺼냈을 때 종료하는가?
+9. 대각선 모서리 통과 규칙을 실제 이동과 일치시켰는가?
+10. 완화에 성공할 때 `bestG`, 부모와 Open List를 함께 갱신하는가?
+11. 목적지에 도달하지 못한 경우 경로 역추적을 시작하지 않는가?
+12. 일관적이지 않은 휴리스틱을 사용한다면 닫힌 노드의 재개방을 고려했는가?
+
+A*의 핵심은 휴리스틱으로 목적지 방향을 무작정 선호하는 것이 아니다. 현재까지 실제로 지불한 비용과 남은 비용의 안전한 추정치를 함께 사용해 후보 순서를 정하는 데 있다. 최단 경로 보장은 우선순위 큐가 아니라 이동 비용과 휴리스틱이 만족하는 조건에서 나온다.
+
+## 다음 학습: 이진 탐색
+
+다음 글에서는 정렬된 배열의 가운데 값을 기준으로 탐색 범위를 절반씩 줄이는 이진 탐색을 다룬다. 반복마다 유지해야 하는 구간의 의미, 안전한 중앙 인덱스 계산과 값을 찾지 못했을 때의 종료 조건을 살펴본다.

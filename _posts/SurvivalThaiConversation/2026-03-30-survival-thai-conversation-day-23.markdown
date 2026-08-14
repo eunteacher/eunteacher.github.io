@@ -1,5 +1,6 @@
 ---
 layout: post
+published: false
 title:  "[태국어생존회화 23일차] 감정 표현의 기술: 심심함, 좋음, 싫음"
 date:   2026-03-31 00:00:00 +0900
 categories: [회화, 태국어생존회화]

@@ -1,0 +1,551 @@
+---
+layout: post
+title: '[Algorithm 22] 레드 블랙 트리 3: 삭제 후 Black Height 복구'
+date: 2026-04-03
+categories: [Dev, Algorithm]
+tags: [C++, Red Black Tree, Tree Deletion, Black Height, Tree Rotation]
+use_math: true
+---
+
+레드 블랙 트리의 삽입은 빨간 노드를 추가해 Black Height 변화를 피했다. 삭제는 제거되는 노드가 검정일 수 있어 더 복잡하다.
+
+```text
+빨간 노드 삭제
+→ 어떤 경로의 검정 노드 수도 변하지 않음
+
+검정 노드 삭제
+→ 삭제 위치를 지나던 경로의 검정 노드 수가 1 감소
+→ Black Height 규칙이 깨질 수 있음
+```
+
+삭제할 키를 가진 노드와 실제로 트리에서 떼어 내는 노드가 다를 수도 있다. 자식이 둘인 노드는 오른쪽 서브트리의 최솟값인 후속자를 그 자리로 옮기기 때문이다. 따라서 **실제로 제거된 위치의 원래 색상**을 기준으로 복구 여부를 결정해야 한다.
+
+이번 글은 검정 NIL 센티널을 사용하는 구현을 전제로 한다. 모든 빈 자식은 `nil_`을 가리키며 `nil_->color`는 항상 검정이다.
+
+## BST 삭제와 색상 복구를 분리한다
+
+삭제는 두 단계로 생각할 수 있다.
+
+```text
+1. BST 규칙을 유지하며 노드를 제거한다.
+2. 제거된 노드가 검정이었다면 레드 블랙 규칙을 복구한다.
+```
+
+노드를 실제로 대신할 위치를 `x`라고 하자. 검정 노드가 사라졌다면 `x`가 있는 경로는 다른 경로보다 검정 하나가 부족한 상태로 볼 수 있다. 설명에서는 이를 이중 검정(Double Black)이라고 부르기도 한다.
+
+이중 검정은 노드에 세 번째 색을 실제로 저장한다는 뜻이 아니다. 복구가 필요한 현재 위치를 추적하기 위한 개념이다.
+
+## 서브트리를 교체하는 Transplant
+
+`Transplant(u, v)`는 `u`가 있던 부모 위치에 `v` 서브트리를 연결한다.
+
+```cpp
+void Transplant(Node* u, Node* v)
+{
+    if (u->parent == nil_)
+    {
+        root_ = v;
+    }
+    else if (u == u->parent->left)
+    {
+        u->parent->left = v;
+    }
+    else
+    {
+        u->parent->right = v;
+    }
+
+    v->parent = u->parent;
+}
+```
+
+`v`가 NIL이어도 부모를 갱신한다. 삭제 복구는 `x`가 NIL인 경우에도 부모와 형제를 찾아야 하기 때문이다.
+
+하나의 센티널 객체를 모든 빈 자리에 공유한다면 `nil_->parent`는 현재 복구 중인 NIL 위치를 임시로 나타낸다. 동시에 여러 삭제를 수행하거나 센티널의 부모를 영구적인 구조 정보처럼 사용하면 안 된다. 다른 설계에서는 `x`와 부모를 별도 인자로 전달할 수도 있다.
+
+## 실제로 제거된 노드의 색을 기억한다
+
+삭제 대상 노드를 `z`, 실제로 제거되는 노드 또는 이동되는 후속자를 `y`, 제거 위치를 대신하는 노드를 `x`라고 하자.
+
+```cpp
+Node* y = z;
+Color removedColor = y->color;
+Node* x = nil_;
+```
+
+### 왼쪽 자식이 없는 경우
+
+오른쪽 자식이 삭제 위치를 대신한다. 리프 삭제에서는 오른쪽 자식이 NIL이다.
+
+```cpp
+if (z->left == nil_)
+{
+    x = z->right;
+    Transplant(z, z->right);
+}
+```
+
+### 오른쪽 자식이 없는 경우
+
+왼쪽 자식이 삭제 위치를 대신한다.
+
+```cpp
+else if (z->right == nil_)
+{
+    x = z->left;
+    Transplant(z, z->left);
+}
+```
+
+### 자식이 둘인 경우
+
+오른쪽 서브트리의 최솟값인 후속자 `y`를 찾는다. 후속자는 왼쪽 자식이 없으므로 `y->right`가 기존 위치를 대신한다.
+
+```cpp
+else
+{
+    y = Minimum(z->right);
+    removedColor = y->color;
+    x = y->right;
+
+    if (y->parent == z)
+    {
+        x->parent = y;
+    }
+    else
+    {
+        Transplant(y, y->right);
+        y->right = z->right;
+        y->right->parent = y;
+    }
+
+    Transplant(z, y);
+    y->left = z->left;
+    y->left->parent = y;
+    y->color = z->color;
+}
+```
+
+후속자 `y`는 삭제 대상 `z`의 구조적 위치와 색을 이어받는다. 복구 여부는 `z`의 색이 아니라 후속자가 원래 자리에서 제거되기 전의 `removedColor`로 판단한다.
+
+```cpp
+delete z;
+
+if (removedColor == Color::Black)
+{
+    FixDelete(x);
+}
+```
+
+빨간 노드가 실제로 제거됐다면 Black Height는 바뀌지 않으므로 복구하지 않는다.
+
+## 검정 노드가 빨간 자식으로 교체되면 간단하다
+
+검정 노드가 삭제되고 그 자리를 빨간 자식이 대신하는 경우가 있다.
+
+```text
+삭제 전             삭제 후 임시 상태       색상 변경 후
+
+   Z(B)                X(R)                  X(B)
+     \          →                            
+     X(R)
+```
+
+`x`를 검정으로 바꾸면 사라진 검정 하나를 바로 보충할 수 있다. `FixDelete` 마지막의 다음 코드가 이 경우를 처리한다.
+
+```cpp
+x->color = Color::Black;
+```
+
+복잡한 반복은 `x`가 검정이고 루트가 아닐 때 필요하다.
+
+## 형제와 두 조카의 색을 확인한다
+
+`x`가 부모의 왼쪽 자식이라고 가정한다.
+
+```text
+          P
+        /   \
+       X     S
+            / \
+           N   F
+
+P: Parent
+S: Sibling
+N: Near Nephew, x와 가까운 조카
+F: Far Nephew, x와 먼 조카
+```
+
+왼쪽의 `x`를 기준으로 가까운 조카는 `S->left`, 먼 조카는 `S->right`다. `x`가 오른쪽 자식이면 가까운 조카와 먼 조카의 방향도 반대가 된다.
+
+삭제 복구는 형제 `S`와 두 조카의 색에 따라 네 가지 경우로 나뉜다.
+
+## 경우 1: 형제가 빨강이다
+
+형제가 빨강이면 부모는 검정이고 형제의 두 자식은 검정이다.
+
+```text
+복구 전
+
+          P(B)
+        /      \
+      X(BB)    S(R)
+              /  \
+           N(B)  F(B)
+```
+
+형제를 검정, 부모를 빨강으로 바꾸고 부모에서 왼쪽 회전한다.
+
+```text
+회전 후
+
+             S(B)
+            /
+          P(R)
+        /     \
+      X(BB)   N(B)
+```
+
+이 회전만으로 이중 검정이 사라지지는 않는다. 형제가 검정인 형태로 바꿔 나머지 경우 중 하나를 적용할 수 있게 만든다.
+
+```cpp
+sibling->color = Color::Black;
+x->parent->color = Color::Red;
+RotateLeft(x->parent);
+sibling = x->parent->right;
+```
+
+## 경우 2: 형제와 두 조카가 모두 검정이다
+
+형제의 양쪽 자식도 검정이면 형제를 빨강으로 바꾼다.
+
+```text
+복구 전
+
+          P(?)
+        /      \
+      X(BB)    S(B)
+              /  \
+           N(B)  F(B)
+
+형제 재색칠 후
+
+          P(BB 또는 해결)
+        /      \
+       X       S(R)
+```
+
+`x` 쪽의 부족한 검정과 형제 쪽의 검정 하나를 같은 수준으로 맞춘 셈이다. 부족한 검정은 부모로 올라간다.
+
+```cpp
+sibling->color = Color::Red;
+x = x->parent;
+```
+
+부모가 빨강이었다면 반복 종료 뒤 검정으로 바뀌면서 문제가 해결된다. 부모가 검정이었다면 이중 검정이 한 단계 위로 전파된다. 루트까지 올라가면 루트가 검정 하나를 흡수하고 종료한다.
+
+## 경우 3: 형제는 검정, 가까운 조카는 빨강이다
+
+먼 조카가 검정이고 가까운 조카가 빨강인 경우다.
+
+```text
+          P(?)
+        /      \
+      X(BB)    S(B)
+              /  \
+           N(R)  F(B)
+```
+
+가까운 조카를 검정, 형제를 빨강으로 바꾸고 형제에서 오른쪽 회전한다.
+
+```text
+회전 후
+
+          P(?)
+        /      \
+      X(BB)    N(B)
+                 \
+                 S(R)
+                    \
+                    F(B)
+```
+
+이중 검정을 바로 제거하는 것이 아니라 먼 조카가 빨강인 경우 4의 형태로 변환한다.
+
+```cpp
+sibling->left->color = Color::Black;
+sibling->color = Color::Red;
+RotateRight(sibling);
+sibling = x->parent->right;
+```
+
+## 경우 4: 형제는 검정, 먼 조카는 빨강이다
+
+먼 조카가 빨강이면 한 번의 회전과 색상 변경으로 현재 이중 검정을 제거할 수 있다.
+
+```text
+복구 전
+
+          P(?)
+        /      \
+      X(BB)    S(B)
+              /  \
+           N(?)  F(R)
+```
+
+형제는 부모의 색을 받고, 부모와 먼 조카를 검정으로 만든 뒤 부모에서 왼쪽 회전한다.
+
+```text
+복구 후
+
+             S(?)
+           /      \
+         P(B)     F(B)
+        /   \
+       X    N(?)
+```
+
+왼쪽의 부족한 검정은 검정이 된 부모로 보충되고, 오른쪽의 먼 조카도 검정으로 바뀌어 Black Height가 맞춰진다.
+
+```cpp
+sibling->color = x->parent->color;
+x->parent->color = Color::Black;
+sibling->right->color = Color::Black;
+RotateLeft(x->parent);
+x = root_;
+```
+
+`x = root_`로 설정해 반복을 끝낸다.
+
+## 오른쪽 자식인 경우는 좌우 대칭이다
+
+`x`가 부모의 오른쪽 자식이면 형제는 왼쪽에 있다.
+
+```text
+          P
+        /   \
+       S     X
+      / \
+     F   N
+```
+
+- 형제가 빨강이면 부모에서 오른쪽 회전한다.
+- 가까운 조카는 `sibling->right`다.
+- 먼 조카는 `sibling->left`다.
+- 경우 3에서는 형제에서 왼쪽 회전한다.
+- 경우 4에서는 부모에서 오른쪽 회전한다.
+
+왼쪽 경우의 코드를 복사한 뒤 일부 방향만 바꾸면 빠뜨리기 쉽다. 형제, 가까운 조카와 먼 조카를 그림으로 다시 정한 뒤 대칭 코드를 작성한다.
+
+## FixDelete의 전체 흐름
+
+```cpp
+void FixDelete(Node* x)
+{
+    while (x != root_ && x->color == Color::Black)
+    {
+        if (x == x->parent->left)
+        {
+            Node* sibling = x->parent->right;
+
+            if (sibling->color == Color::Red)
+            {
+                sibling->color = Color::Black;
+                x->parent->color = Color::Red;
+                RotateLeft(x->parent);
+                sibling = x->parent->right;
+            }
+
+            if (sibling->left->color == Color::Black && sibling->right->color == Color::Black)
+            {
+                sibling->color = Color::Red;
+                x = x->parent;
+            }
+            else
+            {
+                if (sibling->right->color == Color::Black)
+                {
+                    sibling->left->color = Color::Black;
+                    sibling->color = Color::Red;
+                    RotateRight(sibling);
+                    sibling = x->parent->right;
+                }
+
+                sibling->color = x->parent->color;
+                x->parent->color = Color::Black;
+                sibling->right->color = Color::Black;
+                RotateLeft(x->parent);
+                x = root_;
+            }
+        }
+        else
+        {
+            Node* sibling = x->parent->left;
+
+            if (sibling->color == Color::Red)
+            {
+                sibling->color = Color::Black;
+                x->parent->color = Color::Red;
+                RotateRight(x->parent);
+                sibling = x->parent->left;
+            }
+
+            if (sibling->right->color == Color::Black && sibling->left->color == Color::Black)
+            {
+                sibling->color = Color::Red;
+                x = x->parent;
+            }
+            else
+            {
+                if (sibling->left->color == Color::Black)
+                {
+                    sibling->right->color = Color::Black;
+                    sibling->color = Color::Red;
+                    RotateLeft(sibling);
+                    sibling = x->parent->left;
+                }
+
+                sibling->color = x->parent->color;
+                x->parent->color = Color::Black;
+                sibling->left->color = Color::Black;
+                RotateRight(x->parent);
+                x = root_;
+            }
+        }
+    }
+
+    x->color = Color::Black;
+}
+```
+
+형제가 빨간 경우 1과 가까운 조카가 빨간 경우 3은 다른 경우로 모양을 바꾸는 준비 단계다. 실제로 이중 검정을 제거하거나 위로 전파하는 결정은 경우 2와 경우 4에서 이루어진다.
+
+## 전체 삭제 흐름
+
+```cpp
+bool Delete(int key)
+{
+    Node* z = Search(root_, key);
+
+    if (z == nil_)
+    {
+        return false;
+    }
+
+    Node* y = z;
+    Color removedColor = y->color;
+    Node* x = nil_;
+
+    if (z->left == nil_)
+    {
+        x = z->right;
+        Transplant(z, z->right);
+    }
+    else if (z->right == nil_)
+    {
+        x = z->left;
+        Transplant(z, z->left);
+    }
+    else
+    {
+        y = Minimum(z->right);
+        removedColor = y->color;
+        x = y->right;
+
+        if (y->parent == z)
+        {
+            x->parent = y;
+        }
+        else
+        {
+            Transplant(y, y->right);
+            y->right = z->right;
+            y->right->parent = y;
+        }
+
+        Transplant(z, y);
+        y->left = z->left;
+        y->left->parent = y;
+        y->color = z->color;
+    }
+
+    delete z;
+
+    if (removedColor == Color::Black)
+    {
+        FixDelete(x);
+    }
+
+    return true;
+}
+```
+
+삭제 대상 `z`를 해제하는 시점과 `FixDelete`가 사용하는 포인터를 구분해야 한다. `x`는 삭제된 `z`가 아니라 트리에 남아 삭제 위치를 대신하는 노드 또는 NIL이다.
+
+## 삭제 복구의 비용
+
+삭제할 노드와 후속자를 찾는 데 트리 높이만큼 이동한다. 레드 블랙 트리의 높이는 $O(\log N)$이므로 BST 삭제 단계는 $O(\log N)$이다.
+
+경우 2가 반복되면 이중 검정이 루트 방향으로 여러 단계 올라갈 수 있으므로 복구도 최악 $O(\log N)$이다. 각 색상 변경과 회전은 $O(1)$이다.
+
+따라서 전체 삭제 시간은 다음과 같다.
+
+$$
+O(\log N)
+$$
+
+검색, 삽입과 삭제 모두 최악 로그 시간을 보장하는 것이 기본 BST와의 중요한 차이다.
+
+## 삭제 테스트는 색상 규칙을 직접 검사해야 한다
+
+중위 순회가 정렬돼 있다는 사실만으로 레드 블랙 트리가 올바르다고 판단할 수 없다. BST 규칙은 맞아도 Black Height가 다르거나 빨강이 연속할 수 있다.
+
+검증 함수는 다음 조건을 확인해야 한다.
+
+```text
+루트가 검정인가?
+NIL 센티널이 검정인가?
+빨간 노드의 두 자식이 검정인가?
+왼쪽의 키가 작고 오른쪽의 키가 큰가?
+왼쪽과 오른쪽 서브트리의 Black Height가 같은가?
+자식의 parent가 현재 노드를 가리키는가?
+실제 노드 수가 저장된 size와 같은가?
+```
+
+삭제할 노드 형태도 나눠 확인한다.
+
+```text
+빨간 리프 삭제
+검정 리프 삭제
+빨간 자식 하나를 가진 검정 노드 삭제
+자식 둘인 노드 삭제
+루트 삭제
+최솟값·최댓값 삭제
+없는 키 삭제
+모든 노드를 하나씩 삭제
+```
+
+각 삭제 뒤 전체 트리 규칙을 다시 검사하면 특정 회전 경우만 테스트하고 다른 연결 오류를 놓치는 일을 줄일 수 있다.
+
+## 삭제 구현에서 확인할 기준
+
+1. 실제로 제거되는 노드의 원래 색을 저장했는가?
+2. 자식이 둘이면 후속자의 색과 오른쪽 자식을 기준으로 복구하는가?
+3. `Transplant`가 루트와 부모의 좌우 연결을 구분하는가?
+4. 대체 노드가 NIL이어도 복구에 필요한 부모를 기록하는가?
+5. 빨간 노드가 제거되면 불필요한 복구를 하지 않는가?
+6. 검정 노드가 빨간 자식으로 대체되면 마지막에 검정으로 만드는가?
+7. `x`가 부모의 왼쪽인지 오른쪽인지 먼저 구분하는가?
+8. 가까운 조카와 먼 조카의 방향을 올바르게 찾는가?
+9. 형제가 빨강인 경우 회전 후 형제를 다시 계산하는가?
+10. 두 조카가 검정이면 이중 검정을 부모로 올리는가?
+11. 가까운 조카가 빨강이면 경우 4 형태로 변환하는가?
+12. 먼 조카가 빨강이면 부모 색을 보존하며 회전하는가?
+13. 반복이 루트에 도달하거나 부족한 검정을 흡수하면 종료하는가?
+14. 삭제 뒤 BST 순서와 모든 레드 블랙 규칙을 함께 검증하는가?
+
+레드 블랙 트리 삭제의 핵심은 많은 경우를 따로 외우는 것이 아니다. 검정 노드가 빠져 부족해진 Black Height를 현재 위치 `x`가 들고 있다고 생각하고, 형제 쪽에서 검정을 가져오거나 부족함을 부모로 올려 보내는 흐름을 따라가는 데 있다.
+
+## 다음 학습: 기본 정렬 알고리즘
+
+다음 글에서는 버블 정렬, 선택 정렬과 삽입 정렬을 비교한다. 세 알고리즘이 같은 $O(N^2)$ 시간 복잡도를 가지면서도 교환 횟수, 이미 정렬된 입력과 안정성에서 어떤 차이를 보이는지 살펴본다.

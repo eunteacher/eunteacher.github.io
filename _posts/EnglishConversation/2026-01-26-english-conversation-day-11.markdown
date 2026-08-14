@@ -1,5 +1,6 @@
 ---
 layout: post
+published: false
 title: "[영어회화 11일차] 길을 잃었을 때 당황하지 않고 도움 요청하기"
 date:   2026-01-26 21:00:00 +0900
 categories: [회화, 영어회화]

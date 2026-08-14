@@ -1,5 +1,6 @@
 ---
 layout: post
+published: false
 title:  "[태국어생존회화 27일차] 친밀함의 시작: 생일, 거주지, 연락처 묻기"
 date:   2026-04-08 00:00:00 +0900
 categories: [회화, 태국어생존회화]

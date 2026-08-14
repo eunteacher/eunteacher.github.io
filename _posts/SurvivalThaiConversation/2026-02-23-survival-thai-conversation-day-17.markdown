@@ -1,5 +1,6 @@
 ---
 layout: post
+published: false
 title:  "[태국어생존회화 17일차] 생활 밀착형 요구사항: 거절, 문 닫기, 소음"
 date:   2026-02-23 00:00:00 +0900
 categories: [회화, 태국어생존회화]

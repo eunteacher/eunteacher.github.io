@@ -1,5 +1,6 @@
 ---
 layout: post
+published: false
 title:  "[영어회화 19일차] 무례하지 않게! 내 공간과 권리를 지키는 표현"
 date:   2026-02-26 22:30:00 +0900
 categories: [회화, 영어회화]

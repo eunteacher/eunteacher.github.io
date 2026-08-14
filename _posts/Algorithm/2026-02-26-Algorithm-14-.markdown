@@ -1,101 +1,302 @@
 ---
 layout: post
-title: '[Algorithm 14] 트리(Tree) 자료구조의 개념 및 기본 구현'
+title: '[Algorithm 14] 트리 기초: 계층 구조와 재귀 순회'
 date: 2026-02-26
 categories: [Dev, Algorithm]
-tags: [C++, Tree, DataStructure, Recursion, shared_ptr]
-use_math: true
+tags: [C++, Tree, Recursion, Traversal, Smart Pointer]
 ---
 
-# [Algorithm] 트리(Tree) 자료구조 기초 구현 및 분석
+그래프는 정점 사이의 일반적인 연결 관계를 표현한다. 트리(Tree)는 그중에서도 하나의 루트에서 부모와 자식 관계가 계층적으로 이어지는 구조다.
 
-계층적 데이터를 표현하는 트리(Tree) 자료구조의 기본 개념을 이해하고, C++ `shared_ptr`을 활용한 노드 구성 및 순회 알고리즘을 구현
+```text
+1
+├─ 2
+│  ├─ 5
+│  ├─ 6
+│  └─ 7
+├─ 3
+│  ├─ 8
+│  ├─ 9
+│  └─ 10
+└─ 4
+   ├─ 11
+   └─ 12
+```
 
-## 1. 소스 코드 (Source Code)
+파일 시스템의 폴더, 조직도, 게임 오브젝트의 계층처럼 하나의 항목 아래에 여러 항목이 속하는 데이터를 트리로 나타낼 수 있다. 이번 실습에서는 자식 수가 정해지지 않은 일반 트리를 만들고, 재귀 호출로 전체 노드를 출력한 뒤 트리의 높이를 계산한다.
+
+## 트리를 구성하는 관계
+
+트리의 각 데이터는 노드(Node)에 저장되고 노드 사이는 간선(Edge)으로 연결된다.
+
+| 용어 | 의미 | 예제 |
+|---|---|---|
+| 루트(Root) | 부모가 없는 시작 노드 | `1` |
+| 부모(Parent) | 바로 아래 노드를 가진 노드 | `2`는 `5`, `6`, `7`의 부모 |
+| 자식(Child) | 바로 위 부모에 연결된 노드 | `5`는 `2`의 자식 |
+| 형제(Sibling) | 같은 부모를 가진 노드 | `5`, `6`, `7` |
+| 리프(Leaf) | 자식이 없는 노드 | `5`부터 `12`까지 |
+| 서브트리(Subtree) | 한 노드와 그 아래 모든 자손 | `2`, `5`, `6`, `7` |
+
+루트를 제외한 모든 노드는 부모를 정확히 하나 가진다. 노드가 $N$개인 하나의 연결된 트리는 간선을 $N-1$개 가진다. 두 노드 사이의 단순 경로도 하나뿐이며, 순환이 생기면 더 이상 트리가 아니다.
+
+이번 예제는 부모에서 자식 방향만 저장한다. 따라서 루트만 알면 모든 노드에 도달할 수 있지만 자식에서 부모로 바로 이동할 수는 없다.
+
+## 자식 목록으로 일반 트리를 표현한다
+
+자식이 항상 두 개인 이진 트리와 달리 일반 트리는 노드마다 자식 수가 다를 수 있다. 각 노드에 동적 배열을 두면 이를 자연스럽게 표현할 수 있다.
 
 ```cpp
-#include <iostream>
-#include <vector>
-#include <string>
-#include <memory>
-using namespace std;
+struct Node;
+using NodeRef = std::shared_ptr<Node>;
 
-// 스마트 포인터를 활용한 노드 참조 타입 정의 (메모리 누수 방지)
-using NodeRef = shared_ptr<struct Node>;
-
-// 트리의 기본 단위인 노드(Node) 구조체 정의
 struct Node
 {
-    Node() {}
-    Node(const string& data) : data(data) {}
+    explicit Node(std::string value) : data(std::move(value))
+    {
+    }
 
-    string data;
-    // N-ary 트리를 구성하기 위한 자식 노드 컨테이너
-    vector<NodeRef> children;
+    std::string data;
+    std::vector<NodeRef> children;
 };
+```
 
-// 트리 생성 및 초기화 함수
+`data`에는 노드의 값을 저장하고 `children`에는 바로 아래 자식 노드의 참조를 저장한다. 자식의 자식은 해당 노드 안에서 다시 같은 구조로 표현된다.
+
+```text
+Node
+├─ data
+└─ children
+   ├─ Node
+   │  └─ children
+   └─ Node
+      └─ children
+```
+
+트리 자체가 작은 트리의 반복으로 정의되는 재귀적 자료구조인 셈이다.
+
+## 루트부터 자식 관계를 연결한다
+
+먼저 루트 노드를 만들고 각 그룹의 대표 노드를 루트의 자식으로 추가한다. 그다음 대표 노드에 다시 자식을 연결한다.
+
+```cpp
 NodeRef CreateTree()
 {
-    // 루트 노드 생성
-    NodeRef root = make_shared<Node>("1");
+    NodeRef root = std::make_shared<Node>("1");
 
-    // 디자인팀 서브트리(Subtree) 구성
+    NodeRef node2 = std::make_shared<Node>("2");
+    root->children.push_back(node2);
+    node2->children.push_back(std::make_shared<Node>("5"));
+    node2->children.push_back(std::make_shared<Node>("6"));
+    node2->children.push_back(std::make_shared<Node>("7"));
+
+    NodeRef node3 = std::make_shared<Node>("3");
+    root->children.push_back(node3);
+    node3->children.push_back(std::make_shared<Node>("8"));
+    node3->children.push_back(std::make_shared<Node>("9"));
+    node3->children.push_back(std::make_shared<Node>("10"));
+
+    NodeRef node4 = std::make_shared<Node>("4");
+    root->children.push_back(node4);
+    node4->children.push_back(std::make_shared<Node>("11"));
+    node4->children.push_back(std::make_shared<Node>("12"));
+
+    return root;
+}
+```
+
+`node2`, `node3`, `node4` 지역 변수가 사라져도 각 노드는 부모의 `children`이 계속 소유한다. 마지막에 반환한 `root`가 전체 트리로 들어가는 진입점이 된다.
+
+노드를 추가할 때는 다음 두 조건을 지켜야 한다.
+
+1. 이미 조상인 노드를 자식으로 다시 연결해 순환을 만들지 않는다.
+2. 하나의 노드를 여러 부모의 자식으로 공유해 트리가 아닌 그래프를 만들지 않는다.
+
+`std::vector`와 `std::shared_ptr`은 이 구조 조건을 자동으로 검사하지 않는다. 자료구조를 트리로 유지하는 책임은 노드를 연결하는 코드에 있다.
+
+## 전위 순회로 계층을 출력한다
+
+현재 노드를 먼저 처리한 뒤 각 자식 서브트리를 차례로 방문한다.
+
+```cpp
+void PrintTree(const NodeRef& node, int depth)
+{
+    std::cout << std::string(depth, '-') << node->data << '\n';
+
+    for (const NodeRef& child : node->children)
     {
-        NodeRef node = make_shared<Node>("2");
-        root->children.push_back(node);
-        node->children.push_back(make_shared<Node>("5"));
-        node->children.push_back(make_shared<Node>("6"));
-        node->children.push_back(make_shared<Node>("7"));
+        PrintTree(child, depth + 1);
+    }
+}
+```
+
+호출 흐름은 다음과 같다.
+
+```text
+PrintTree(1, 0)
+├─ 1 출력
+├─ PrintTree(2, 1)
+│  ├─ 2 출력
+│  ├─ PrintTree(5, 2)
+│  ├─ PrintTree(6, 2)
+│  └─ PrintTree(7, 2)
+├─ PrintTree(3, 1)
+└─ PrintTree(4, 1)
+```
+
+노드를 출력하는 시점이 자식 호출보다 앞이므로 전위 순회(Preorder Traversal)에 해당한다. 각 자식의 방문이 끝나면 호출 스택이 부모로 돌아와 다음 자식을 처리한다.
+
+형제 노드의 방문 순서는 `children`에 저장한 순서다. 트리 구조만으로 `2`, `3`, `4` 중 어느 노드를 먼저 방문해야 하는지가 정해지는 것은 아니다.
+
+## 깊이와 높이를 구분한다
+
+깊이(Depth)는 루트에서 특정 노드까지 내려간 거리다. 간선 수를 기준으로 세면 루트의 깊이는 0이고 `5`의 깊이는 2다.
+
+높이(Height)는 어떤 노드에서 가장 깊은 리프까지 내려가는 거리다. 다만 높이를 간선 수로 셀지 노드 수로 셀지는 자료마다 다르므로 기준을 명시해야 한다.
+
+이번 코드는 경로에 포함된 **노드 수**를 높이로 사용한다.
+
+```text
+리프 5의 높이: 1
+노드 2의 높이: 2
+루트 1의 높이: 3
+```
+
+리프의 높이는 1이다. 자식이 있다면 가장 높은 자식 서브트리에 현재 노드 하나를 더한다.
+
+$$
+height(v) =
+\begin{cases}
+1 & \text{if } v \text{ is a leaf} \\
+1 + \max\limits_{c \in children(v)} height(c) & \text{otherwise}
+\end{cases}
+$$
+
+```cpp
+int GetHeight(const NodeRef& node)
+{
+    int height = 1;
+
+    for (const NodeRef& child : node->children)
+    {
+        height = std::max(height, GetHeight(child) + 1);
     }
 
-    // 프로그래밍팀 서브트리 구성
+    return height;
+}
+```
+
+예제에서 모든 리프의 높이는 1이고, 그 부모인 `2`, `3`, `4`의 높이는 2다. 루트는 가장 높은 자식의 2에 자신을 더해 3을 반환한다.
+
+간선 수 기준의 높이가 필요하다면 리프를 0으로 정의하면 된다. 같은 트리의 루트 높이는 그 기준에서 2다. 두 정의 중 하나가 틀린 것이 아니라, 사용하는 기준을 섞는 것이 문제다.
+
+## shared_ptr가 트리 구조를 보장하지는 않는다
+
+이 예제는 원본 실습의 소유 방식을 따라 `std::shared_ptr`를 사용한다. 여러 곳에서 한 노드를 함께 소유해야 할 때 참조 횟수로 수명을 관리할 수 있다는 장점이 있다.
+
+하지만 부모만 자식을 소유하는 단일 소유권 트리라면 `std::unique_ptr`가 구조를 더 명확하게 표현할 수 있다. `shared_ptr`가 항상 더 안전한 기본 선택은 아니다.
+
+특히 자식이 부모도 `shared_ptr`로 가리키면 다음과 같은 순환 소유가 생긴다.
+
+```text
+parent --shared_ptr--> child
+parent <--shared_ptr-- child
+```
+
+외부 참조가 모두 사라져도 두 객체가 서로의 참조 횟수를 유지하므로 해제되지 않는다. 부모를 역참조해야 한다면 보통 자식 쪽에는 소유권이 없는 `std::weak_ptr`를 둔다.
+
+```cpp
+std::weak_ptr<Node> parent;
+```
+
+스마트 포인터는 정해진 소유 관계에 따라 객체 수명을 관리한다. 올바른 소유 관계 자체를 대신 설계해 주지는 않는다.
+
+## 순회의 시간과 재귀 호출 공간
+
+노드 수를 $N$이라고 하면 출력과 높이 계산은 모든 노드를 한 번씩 방문한다.
+
+| 작업 | 시간 복잡도 | 추가 공간 |
+|---|---:|---:|
+| 전체 트리 출력 | $O(N)$ | $O(H)$ 호출 스택 |
+| 트리 높이 계산 | $O(N)$ | $O(H)$ 호출 스택 |
+
+$H$는 트리의 높이다. 균형 잡힌 트리에서는 호출 깊이가 비교적 작지만 모든 노드가 한 줄로 연결된 트리에서는 $H=N$이 될 수 있다.
+
+```text
+1
+└─ 2
+   └─ 3
+      └─ 4
+         └─ ...
+```
+
+입력으로 만들어지는 트리의 깊이를 신뢰할 수 없다면 재귀 호출이 스택 한도를 넘을 수 있다. 이때는 명시적인 `std::stack`이나 `std::queue`를 사용하는 반복 순회를 고려한다.
+
+## 전체 예제
+
+```cpp
+#include <algorithm>
+#include <cassert>
+#include <iostream>
+#include <memory>
+#include <string>
+#include <utility>
+#include <vector>
+
+struct Node;
+using NodeRef = std::shared_ptr<Node>;
+
+struct Node
+{
+    explicit Node(std::string value) : data(std::move(value))
     {
-        NodeRef node = make_shared<Node>("3");
-        root->children.push_back(node);
-        node->children.push_back(make_shared<Node>("8"));
-        node->children.push_back(make_shared<Node>("9"));
-        node->children.push_back(make_shared<Node>("10"));
     }
 
-    // 아트팀 서브트리 구성
-    {
-        NodeRef node = make_shared<Node>("4");
-        root->children.push_back(node);
-        node->children.push_back(make_shared<Node>("11"));
-        node->children.push_back(make_shared<Node>("12"));
-    }
+    std::string data;
+    std::vector<NodeRef> children;
+};
+
+NodeRef CreateTree()
+{
+    NodeRef root = std::make_shared<Node>("1");
+
+    NodeRef node2 = std::make_shared<Node>("2");
+    root->children.push_back(node2);
+    node2->children.push_back(std::make_shared<Node>("5"));
+    node2->children.push_back(std::make_shared<Node>("6"));
+    node2->children.push_back(std::make_shared<Node>("7"));
+
+    NodeRef node3 = std::make_shared<Node>("3");
+    root->children.push_back(node3);
+    node3->children.push_back(std::make_shared<Node>("8"));
+    node3->children.push_back(std::make_shared<Node>("9"));
+    node3->children.push_back(std::make_shared<Node>("10"));
+
+    NodeRef node4 = std::make_shared<Node>("4");
+    root->children.push_back(node4);
+    node4->children.push_back(std::make_shared<Node>("11"));
+    node4->children.push_back(std::make_shared<Node>("12"));
 
     return root;
 }
 
-// 전위 순회(Preorder Traversal) 방식을 응용한 트리 구조 출력 함수
-void PrintTree(NodeRef root, int depth)
+void PrintTree(const NodeRef& node, int depth)
 {
-    // 트리의 깊이(Depth)에 비례하여 들여쓰기 수행
-    for (int i = 0; i < depth; i++)
-    {
-        cout << "-";
-    }
+    std::cout << std::string(depth, '-') << node->data << '\n';
 
-    cout << root->data << endl;
-
-    // 자식 노드들을 재귀적으로 순회하며 깊이 증가
-    for (NodeRef& child : root->children)
+    for (const NodeRef& child : node->children)
     {
         PrintTree(child, depth + 1);
     }
 }
 
-// 트리의 최대 높이(Height)를 계산하는 재귀 함수
-int GetHeight(NodeRef root)
+int GetHeight(const NodeRef& node)
 {
     int height = 1;
 
-    // 모든 자식 노드를 순회하며 가장 깊은 서브트리의 높이를 산출
-    for (NodeRef& child : root->children)
+    for (const NodeRef& child : node->children)
     {
-        height = max(height, GetHeight(child) + 1);
+        height = std::max(height, GetHeight(child) + 1);
     }
 
     return height;
@@ -103,58 +304,49 @@ int GetHeight(NodeRef root)
 
 int main()
 {
-    // 트리 초기화
     NodeRef root = CreateTree();
 
-    // 루트부터 탐색하며 계층 구조 출력
     PrintTree(root, 0);
 
-    // 트리의 높이 계산 및 출력
     int height = GetHeight(root);
-    cout << "Tree Height : " << height << endl;
-
-    return 0;
+    assert(height == 3);
+    std::cout << "Tree height: " << height << '\n';
 }
 ```
----
-## 2. 이론 정리 (Study Notes)
 
+실행 결과는 다음과 같다.
 
+```text
+1
+-2
+--5
+--6
+--7
+-3
+--8
+--9
+--10
+-4
+--11
+--12
+Tree height: 3
+```
 
-[Image of Tree Data Structure]
+출력 순서는 현재 노드를 먼저 처리하는 전위 순회와 일치한다. 높이 3은 루트부터 리프까지 포함된 노드가 세 개라는 의미다.
 
+## 트리 구현에서 확인할 기준
 
-트리(Tree)는 노드(Node)와 간선(Edge)으로 이루어진 비순환형 그래프(Acyclic Graph)의 일종으로, 데이터의 계층적 구조를 표현하는 데 특화된 자료구조
+1. 루트가 하나이며 루트를 제외한 각 노드의 부모가 하나인가?
+2. 조상을 자식으로 연결해 순환을 만들지 않았는가?
+3. 자식의 저장 순서가 실제 순회 순서와 맞는가?
+4. 깊이와 높이를 간선 수로 셀지 노드 수로 셀지 정했는가?
+5. 빈 트리를 함수가 받을 수 있다면 `nullptr` 처리를 정의했는가?
+6. 소유권이 하나라면 `unique_ptr`, 공유해야 한다면 `shared_ptr`가 맞는가?
+7. 부모 역참조가 필요할 때 순환 소유를 피하고 있는가?
+8. 트리가 매우 깊어질 수 있다면 재귀 호출 한도를 고려했는가?
 
-### 트리 주요 용어 및 구성 요소
+트리를 순회하는 핵심은 현재 노드에서 해야 할 일과 자식 서브트리에 맡길 일을 나누는 것이다. 같은 규칙을 각 자식에 반복 적용하면 전체 구조를 출력하거나 노드 수, 높이와 같은 값을 계산할 수 있다.
 
-| 용어 | 설명 | 비고 |
-| :--- | :--- | :--- |
-| **노드 (Node)** | 트리를 구성하는 기본 데이터 요소 | 루트, 리프, 내부 노드 등으로 구분됨 |
-| **간선 (Edge)** | 노드와 노드를 연결하는 선 | 계층 관계(부모-자식)를 표현함 |
-| **루트 (Root)** | 트리 구조의 최상위에 위치한 단일 노드 | 트리 탐색의 진입점 역할을 수행함 |
-| **리프 (Leaf)** | 자식 노드가 없는 최하단의 단말 노드 | 터미널(Terminal) 노드라고도 불림 |
-| **깊이 (Depth)** | 루트에서 특정 노드까지 도달하기 위해 거치는 간선의 수 | 루트 노드의 깊이는 0 또는 1로 정의됨 |
-| **높이 (Height)** | 가장 깊숙히 있는 노드의 깊이 | 트리의 최대 깊이를 의미함 |
-| **서브트리 (Subtree)** | 트리의 특정 노드와 그 자손들로 이루어진 부분 트리 | 트리의 재귀적 속성을 명확히 보여줌 |
+## 다음 학습: 힙과 우선순위 큐
 
-### 트리의 높이(Height) 산출 수식
-
-트리가 갖는 재귀적 속성을 활용하여, 특정 노드 $v$의 높이를 다음과 같은 수식으로 정의
-
-$$Height(v) = 1 + \max_{u \in children(v)} Height(u)$$
-
-자식 노드가 없는 리프 노드에 도달할 경우 하위 서브트리의 높이가 0이 되므로, 재귀 호출을 통해 최종적인 트리의 최대 높이가 산출
-
-## 3. 종합 의견 (Review)
-
-### 핵심 요약 및 주의사항
-
-* 트리는 본질적으로 재귀적인(Recursive) 속성을 띄므로, 구조 순회나 탐색 로직 작성 시 재귀 함수를 활용하는 것이 직관적이고 구현이 용이함
-* 트리 구조에서 자식 노드가 부모 노드를 가리키는 포인터가 추가로 필요한 경우, 양방향 모두 `shared_ptr`을 사용하면 순환 참조(Circular Reference)로 인한 메모리 누수가 발생하므로 부모 참조에는 반드시 `weak_ptr`을 사용
-* 단순 데이터 계층화뿐만 아니라 이진 탐색 트리(BST), 힙(Heap), 트라이(Trie) 등 다양한 고도화된 자료구조를 파생시키는 핵심 기반 지식
-
-### Tip
-
-* 동적 할당된 노드들의 메모리 생명주기를 안전하게 관리하기 위해 원시 포인터(`Node*`) 대신 스마트 포인터(`std::shared_ptr`)를 사용하는 것이 모던 C++의 권장 방식
-* 트리의 깊이가 비정상적으로 깊어지는 편향 트리(Skewed Tree) 환경에서는 재귀 호출 방식이 스택 오버플로우(Stack Overflow)를 유발할 수 있으므로, 실무에서는 스택(Stack)이나 큐(Queue)를 결합한 반복문 형태의 순회 방식도 적극적으로 고려
+다음 글에서는 완전 이진 트리의 모양을 배열에 저장하고 부모와 자식 사이의 우선순위를 유지하는 힙을 다룬다. 삽입할 때 위로 이동하는 과정과 삭제할 때 아래로 이동하는 과정을 통해 `push`, `pop`의 동작과 시간 복잡도를 살펴본다.

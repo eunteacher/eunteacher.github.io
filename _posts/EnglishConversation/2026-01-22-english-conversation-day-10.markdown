@@ -1,5 +1,6 @@
 ---
 layout: post
+published: false
 title:  "[영어회화 10일차] 호감 표현하기 & 데이트 신청의 정석"
 date:   2026-01-22 20:00:00 +0900
 categories: [회화, 영어회화]

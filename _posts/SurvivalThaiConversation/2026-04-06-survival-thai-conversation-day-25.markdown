@@ -1,5 +1,6 @@
 ---
 layout: post
+published: false
 title:  "[태국어생존회화 25일차] 대화의 시작과 매너: 근황 확인 및 언어 소통"
 date:   2026-04-06 00:00:00 +0900
 categories: [회화, 태국어생존회화]

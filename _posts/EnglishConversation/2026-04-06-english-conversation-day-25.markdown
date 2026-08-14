@@ -1,5 +1,6 @@
 ---
 layout: post
+published: false
 title:  "[영어회화 25일차] 상대방의 행동과 언어 능력을 묻는 기초 질문"
 date:   2026-04-06 23:10:00 +0900
 categories: [회화, 영어회화]

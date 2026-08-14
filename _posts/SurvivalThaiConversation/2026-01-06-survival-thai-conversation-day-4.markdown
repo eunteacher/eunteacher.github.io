@@ -1,5 +1,6 @@
 ---
 layout: post
+published: false
 title:  "[태국어생존회화 4일차] 맛집 완전 정복: 자리 잡기 & 포장하기 생존 태국어"
 date:   2026-01-06 22:40:00 +0900
 categories: [회화, 태국어생존회화]

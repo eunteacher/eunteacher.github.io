@@ -1,5 +1,6 @@
 ---
 layout: post
+published: false
 title:  "[태국어생존회화 2일차] 짐 없어졌을 때 & 공항 갈 때 생존 태국어"
 date:   2026-01-03 13:00:00 +0900
 categories: [회화, 태국어생존회화]

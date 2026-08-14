@@ -1,0 +1,462 @@
+---
+layout: post
+title: '[Algorithm 30] Prim: 하나의 연결 영역에서 MST 확장하기'
+date: 2026-04-11
+categories: [Dev, Algorithm]
+tags: [C++, Prim, Minimum Spanning Tree, Priority Queue, Greedy]
+use_math: true
+---
+
+Kruskal은 그래프의 모든 간선을 가중치순으로 정렬한 뒤 서로 다른 연결 요소를 잇는 간선을 선택했다. Prim 알고리즘은 시작 정점 하나에서 출발해 현재 연결된 영역 밖으로 나가는 가장 싼 간선을 선택한다.
+
+```text
+Kruskal
+→ 그래프 곳곳에서 작은 간선을 선택
+→ 여러 트리가 합쳐지며 MST 완성
+
+Prim
+→ 시작 정점에서 트리 하나를 유지
+→ 경계의 가장 싼 간선으로 영역 확장
+```
+
+두 알고리즘은 모두 무방향 연결 그래프의 최소 스패닝 트리(MST)를 찾는 greedy 알고리즘이다. 선택 순서는 다르지만 Cut Property를 이용해 안전한 간선을 고른다는 공통점이 있다.
+
+## 현재 트리와 바깥 정점 사이의 간선을 본다
+
+Prim은 정점을 두 집합으로 나눠 생각한다.
+
+```text
+Visited
+→ 이미 MST에 포함된 정점
+
+Unvisited
+→ 아직 포함되지 않은 정점
+```
+
+현재 Visited 집합에서 Unvisited 집합으로 나가는 간선을 경계 간선이라고 하자.
+
+```text
+Visited                Unvisited
+
+  0 ─── 1  --------->  2
+   \                  / \
+    ---------------->3   4
+
+Visited 내부 간선은 새 정점을 추가하지 않음
+경계 간선 중 가장 싼 것을 선택
+```
+
+경계 간선 중 가중치가 가장 작은 간선을 선택하면 그 간선은 현재 cut을 가로지르는 최소 간선이다. Cut Property에 따라 어떤 MST에 안전하게 포함할 수 있다.
+
+## 무방향 그래프를 인접 리스트로 저장한다
+
+Prim은 새 정점을 트리에 추가할 때 그 정점에서 나가는 간선을 확인한다. 인접 리스트가 이 접근 방식과 잘 맞는다.
+
+```cpp
+struct AdjacentEdge
+{
+    std::size_t to;
+    int weight;
+};
+
+using Graph = std::vector<std::vector<AdjacentEdge>>;
+```
+
+무방향 간선 `(u, v, weight)`은 양쪽 인접 리스트에 모두 넣는다.
+
+```cpp
+void AddUndirectedEdge(Graph& graph, std::size_t u, std::size_t v, int weight)
+{
+    graph[u].push_back(AdjacentEdge{v, weight});
+    graph[v].push_back(AdjacentEdge{u, weight});
+}
+```
+
+한 방향만 추가하면 Prim은 해당 방향으로 도달할 수 있는 간선만 보게 된다. MST의 일반적인 입력은 무방향 그래프라는 전제를 지켜야 한다.
+
+## 우선순위 큐에는 경계 간선을 넣는다
+
+어느 정점에서 어느 정점으로 연결되는지와 비용을 저장한다.
+
+```cpp
+struct Candidate
+{
+    int weight;
+    std::size_t from;
+    std::size_t to;
+};
+
+struct LowerWeight
+{
+    bool operator()(const Candidate& a, const Candidate& b) const
+    {
+        return std::tie(a.weight, a.from, a.to) > std::tie(b.weight, b.from, b.to);
+    }
+};
+```
+
+`std::priority_queue`의 비교 함수에서 큰 tuple이 낮은 우선순위를 가지게 해 가중치가 작은 간선이 먼저 나오도록 한다. 끝점 비교는 같은 가중치에서 결과를 일정하게 만들기 위한 tie-break다.
+
+```cpp
+std::priority_queue<Candidate, std::vector<Candidate>, LowerWeight> frontier;
+```
+
+## 시작 정점을 방문하고 경계를 연다
+
+시작 정점 자체에는 선택할 부모 간선이 없다. 먼저 방문 표시하고 밖으로 나가는 모든 간선을 후보로 넣는다.
+
+```cpp
+visited[start] = true;
+
+for (const AdjacentEdge& edge : graph[start])
+{
+    frontier.push(Candidate{edge.weight, start, edge.to});
+}
+```
+
+MST의 전체 비용은 시작 정점에서 0으로 시작한다. 우선순위 큐에 넣은 간선이 바로 선택된 것은 아니다. 나중에 더 싼 후보가 먼저 나오거나 목적지 정점이 이미 다른 간선으로 방문될 수 있다.
+
+## 가장 싼 후보가 새 정점을 연결할 때만 선택한다
+
+```cpp
+Candidate current = frontier.top();
+frontier.pop();
+
+if (visited[current.to])
+{
+    continue;
+}
+```
+
+목적지 `to`가 이미 MST에 포함됐다면 이 간선은 현재 트리 내부의 두 정점을 잇는다. 선택하면 사이클이 생기므로 버린다.
+
+방문하지 않은 정점이라면 간선을 선택한다.
+
+```cpp
+visited[current.to] = true;
+result.edges.push_back(current);
+result.totalWeight += current.weight;
+```
+
+새 정점에서 방문하지 않은 이웃으로 나가는 간선을 frontier에 추가한다.
+
+```cpp
+for (const AdjacentEdge& edge : graph[current.to])
+{
+    if (!visited[edge.to])
+    {
+        frontier.push(Candidate{edge.weight, current.to, edge.to});
+    }
+}
+```
+
+현재 MST의 경계가 새 정점 주변까지 확장된다.
+
+## 예제 그래프를 단계별로 확장한다
+
+Kruskal 글과 같은 그래프를 사용한다.
+
+```text
+간선
+0-1 (1)
+1-2 (2)
+0-2 (3)
+1-3 (4)
+2-3 (5)
+3-4 (6)
+2-4 (7)
+```
+
+시작 정점은 0이다.
+
+### 정점 0에서 시작
+
+```text
+Visited = {0}
+Frontier = {0-1(1), 0-2(3)}
+```
+
+가장 싼 `0-1(1)`을 선택한다.
+
+```text
+Visited = {0, 1}
+선택 비용 = 1
+```
+
+정점 1의 경계 간선을 추가한다.
+
+```text
+Frontier = {1-2(2), 0-2(3), 1-3(4)}
+```
+
+### 정점 2 추가
+
+`1-2(2)`를 선택한다.
+
+```text
+Visited = {0, 1, 2}
+누적 비용 = 3
+```
+
+정점 2에서 `2-3(5)`, `2-4(7)`이 후보에 들어간다. `0-2(3)`은 나중에 나오지만 목적지 2가 이미 방문됐으므로 버린다.
+
+### 정점 3과 4 추가
+
+```text
+1-3(4) 선택 → 누적 비용 7
+3-4(6) 선택 → 누적 비용 13
+```
+
+선택 결과는 다음과 같다.
+
+```text
+0-1 (1)
+1-2 (2)
+1-3 (4)
+3-4 (6)
+
+전체 비용 = 13
+```
+
+이 예제에서는 Kruskal과 같은 간선 집합이 나왔다. 같은 가중치가 여러 개라면 시작점과 tie-break에 따라 서로 다른 MST를 선택할 수 있지만 최소 비용은 같다.
+
+## 전체 구현
+
+```cpp
+struct PrimResult
+{
+    long long totalWeight = 0;
+    std::vector<Candidate> edges;
+    bool connected = false;
+};
+
+PrimResult Prim(const Graph& graph, std::size_t start)
+{
+    PrimResult result;
+
+    if (graph.empty())
+    {
+        result.connected = true;
+        return result;
+    }
+
+    assert(start < graph.size());
+
+    std::vector<bool> visited(graph.size(), false);
+    std::priority_queue<Candidate, std::vector<Candidate>, LowerWeight> frontier;
+
+    visited[start] = true;
+
+    for (const AdjacentEdge& edge : graph[start])
+    {
+        frontier.push(Candidate{edge.weight, start, edge.to});
+    }
+
+    while (!frontier.empty() && result.edges.size() + 1 < graph.size())
+    {
+        Candidate current = frontier.top();
+        frontier.pop();
+
+        if (visited[current.to])
+        {
+            continue;
+        }
+
+        visited[current.to] = true;
+        result.edges.push_back(current);
+        result.totalWeight += current.weight;
+
+        for (const AdjacentEdge& edge : graph[current.to])
+        {
+            if (!visited[edge.to])
+            {
+                frontier.push(Candidate{edge.weight, current.to, edge.to});
+            }
+        }
+    }
+
+    result.connected = result.edges.size() + 1 == graph.size();
+    return result;
+}
+```
+
+이 구현은 같은 목적지로 향하는 여러 후보를 우선순위 큐에 함께 두는 lazy 방식이다. 가장 싼 후보가 먼저 선택되고 나머지는 목적지가 이미 방문된 시점에 버려진다.
+
+Kruskal의 오래된 Disjoint Set 후보와 다익스트라의 오래된 거리 후보를 버린 것처럼, 우선순위 큐 안의 모든 항목이 최종 결과에 사용되는 것은 아니다.
+
+## 연결되지 않은 그래프에서는 시작 컴포넌트만 방문한다
+
+```text
+0 ─ 1       2 ─ 3
+```
+
+0에서 시작하면 frontier가 비는 시점에 `{0, 1}`만 방문한다. 선택 간선 수가 `V-1`보다 작으므로 `connected`는 false다.
+
+```cpp
+result.connected = result.edges.size() + 1 == graph.size();
+```
+
+하나의 MST가 필요하다면 연결 실패를 오류로 처리한다. 각 컴포넌트의 최소 스패닝 포리스트가 필요하면 방문하지 않은 정점마다 Prim을 다시 시작할 수 있다.
+
+```text
+for each unvisited vertex
+→ 새 Prim component 시작
+→ 각 컴포넌트 트리를 결과 forest에 추가
+```
+
+## eager 방식은 정점별 최저 경계 비용을 관리한다
+
+앞선 lazy 구현은 같은 정점으로 향하는 여러 간선을 큐에 넣는다. eager 방식은 각 미방문 정점에 대해 현재 연결 영역에서 들어갈 수 있는 최저 비용과 부모 하나만 관리한다.
+
+```cpp
+bestWeight[next] = edge.weight;
+parent[next] = current;
+```
+
+더 싼 간선을 발견할 때만 새 후보를 넣고, 큐에서 꺼낼 때 현재 `bestWeight`와 다른 오래된 후보를 버린다. 다익스트라의 거리 완화와 비슷한 형태다.
+
+```text
+Dijkstra
+→ 시작점부터의 누적 경로 비용을 갱신
+
+Prim
+→ 현재 MST에서 정점으로 들어오는 단일 간선 비용을 갱신
+```
+
+두 알고리즘 모두 최소 힙을 사용하지만 갱신하는 값의 의미가 다르다.
+
+## Kruskal과 Prim을 비교한다
+
+| 비교 | Kruskal | Prim |
+|---|---|---|
+| 선택 단위 | 전체에서 가장 싼 안전한 간선 | 현재 트리 경계의 가장 싼 간선 |
+| 중간 상태 | 여러 개의 트리 | 시작점과 연결된 트리 하나 |
+| 핵심 자료구조 | 간선 정렬 + Disjoint Set | 인접 리스트 + Priority Queue |
+| 사이클 방지 | 대표가 같은지 확인 | 목적지가 이미 방문됐는지 확인 |
+| 연결 실패 | 최소 스패닝 포리스트 생성 | 시작 컴포넌트에서 멈춤 |
+| 잘 맞는 표현 | 간선 목록 | 인접 리스트 |
+
+희소 그래프에서 두 알고리즘 모두 효율적으로 사용할 수 있다. 이미 간선 목록이 있고 정렬하기 쉬우면 Kruskal이 자연스럽고, 한 정점에서 인접 관계를 따라 영역을 확장하려면 Prim이 자연스럽다.
+
+인접 행렬과 선형 탐색으로 다음 정점을 고르는 Prim 구현은 $O(V^2)$이다. 간선이 매우 많은 밀집 그래프에서는 단순한 $O(V^2)$ 구현이 힙 관리보다 유리할 수 있다. 자료구조와 그래프 밀도를 함께 고려한다.
+
+## 우선순위 큐 구현의 시간 복잡도
+
+인접 리스트의 모든 무방향 간선은 양쪽 목록에서 확인된다. lazy 구현에서는 후보가 최대 $O(E)$개 들어갈 수 있다.
+
+```text
+간선 후보 push/pop
+→ 각 O(log E)
+
+전체
+→ O(E log E)
+```
+
+단순 그래프에서 $E \le V^2$이므로 일반적으로 다음처럼 표현한다.
+
+$$
+O(E\log V)
+$$
+
+eager 방식에서도 이진 힙에 새 후보를 넣고 오래된 후보를 버리는 구현은 $O(E\log V)$로 설명할 수 있다.
+
+정점별 배열과 우선순위 큐, 선택 간선 목록에 추가 공간을 사용한다.
+
+## 음수 가중치도 처리할 수 있다
+
+Prim도 Kruskal처럼 음수 간선을 사용할 수 있다. 경계 간선 중 가장 작은 값을 선택하므로 음수 간선은 더 높은 우선순위로 처리된다.
+
+```text
+MST
+→ 선택한 전체 간선 합을 최소화
+→ 음수 가중치 사용 가능
+
+Dijkstra
+→ 경로 누적 비용 확정 논리가 필요
+→ 음수 가중치 사용 불가
+```
+
+최소 힙을 사용한다는 공통점만으로 알고리즘의 입력 조건이 같다고 판단하면 안 된다.
+
+## 맵 생성에서는 연결 영역이 눈에 보이게 확장된다
+
+격자 셀을 정점, 인접 벽을 간선으로 보면 Prim으로도 perfect maze를 만들 수 있다.
+
+```text
+1. 임의 시작 셀을 방문한다.
+2. 방문 영역 경계의 벽을 frontier에 넣는다.
+3. 가장 우선순위가 높은 벽을 제거해 새 셀을 연결한다.
+4. 새 셀 주변 벽을 frontier에 추가한다.
+5. 모든 셀이 방문될 때까지 반복한다.
+```
+
+Kruskal은 맵 전체에서 연결이 동시에 자라는 반면 Prim은 하나의 연결 영역이 퍼져 나간다. 무작위 가중치 분포와 tie-break 방식에 따라 통로 모양의 경향이 달라질 수 있다.
+
+두 방식 모두 스패닝 트리만 사용하면 사이클이 없는 미로를 만든다. 우회 통로가 필요하면 MST 생성 후 제외된 벽 일부를 추가로 제거한다.
+
+무작위 Prim 역시 가능한 모든 스패닝 트리를 같은 확률로 뽑는다고 일반화할 수 없다. 균등 랜덤 스패닝 트리가 목적이라면 그 조건을 보장하는 별도 알고리즘을 검토해야 한다.
+
+## 전체 검증 예제
+
+```cpp
+#include <cassert>
+#include <cstddef>
+#include <queue>
+#include <tuple>
+#include <vector>
+
+// AdjacentEdge, Candidate, LowerWeight, PrimResult와 Prim은 앞의 구현과 같다.
+
+int main()
+{
+    Graph graph(5);
+    AddUndirectedEdge(graph, 0, 1, 1);
+    AddUndirectedEdge(graph, 1, 2, 2);
+    AddUndirectedEdge(graph, 0, 2, 3);
+    AddUndirectedEdge(graph, 1, 3, 4);
+    AddUndirectedEdge(graph, 2, 3, 5);
+    AddUndirectedEdge(graph, 3, 4, 6);
+    AddUndirectedEdge(graph, 2, 4, 7);
+
+    PrimResult result = Prim(graph, 0);
+    assert(result.connected);
+    assert(result.edges.size() == 4);
+    assert(result.totalWeight == 13);
+
+    Graph disconnected(4);
+    AddUndirectedEdge(disconnected, 0, 1, 1);
+    AddUndirectedEdge(disconnected, 2, 3, 2);
+
+    PrimResult partial = Prim(disconnected, 0);
+    assert(!partial.connected);
+    assert(partial.edges.size() == 1);
+    assert(partial.totalWeight == 1);
+}
+```
+
+연결 그래프의 비용과 간선 수뿐 아니라 연결되지 않은 그래프에서 시작 컴포넌트만 반환하는지도 확인한다.
+
+같은 그래프에 Kruskal과 Prim을 모두 실행해 최소 비용이 같은지 비교할 수 있다. 간선 집합 자체는 MST가 여러 개일 때 달라질 수 있으므로 비용과 각 결과의 트리 조건을 검사한다.
+
+## Prim을 구현할 때 확인할 기준
+
+1. 입력 간선을 무방향 그래프의 양쪽 인접 리스트에 추가했는가?
+2. 시작 정점이 유효한 범위인가?
+3. 현재 연결 영역 밖으로 나가는 간선만 후보로 추가하는가?
+4. 가중치가 가장 작은 후보가 먼저 나오도록 비교 함수를 작성했는가?
+5. 목적지 정점이 이미 방문됐다면 후보를 버리는가?
+6. 새 정점을 방문할 때만 비용과 선택 간선을 추가하는가?
+7. 새 정점의 인접 간선을 frontier에 추가하는가?
+8. 선택 간선이 $V-1$개가 되면 종료하는가?
+9. 연결되지 않은 그래프를 별도로 표시하는가?
+10. 비용 합을 충분히 큰 타입에 저장하는가?
+11. 음수 가중치를 불필요하게 금지하지 않는가?
+12. 다익스트라의 누적 거리와 Prim의 단일 경계 비용을 구분하는가?
+13. 그래프 밀도에 따라 힙과 인접 행렬 구현을 비교하는가?
+14. MST가 여러 개일 때 구체적인 간선 집합이 달라질 수 있음을 고려하는가?
+
+Prim의 핵심은 전체 그래프에서 가장 싼 간선을 찾는 것이 아니다. 현재까지 만든 트리와 아직 방문하지 않은 영역 사이의 경계에서 가장 싼 간선을 선택한다. 방문 배열은 선택한 간선이 새 정점을 추가하는지 알려주고, 우선순위 큐는 현재 경계의 최소 비용 간선을 제공한다.
+
+## 다음 학습: 동적 계획법 입문
+
+다음 글에서는 큰 문제를 반복되는 작은 문제로 나누고 계산 결과를 저장하는 동적 계획법을 다룬다. 재귀식, 상태와 점화식을 정의하고 메모이제이션과 테이블 방식의 차이를 살펴본다.

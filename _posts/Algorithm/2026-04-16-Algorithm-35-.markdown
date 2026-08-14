@@ -1,0 +1,330 @@
+---
+layout: post
+title: '[Algorithm 35] ENCHANT: 목표 강화 수치에 도달하는 경우의 수'
+date: 2026-04-16
+categories: [Dev, Algorithm]
+tags: [C++, Dynamic Programming, ENCHANT, Memoization, Counting]
+use_math: true
+---
+
+현재 강화 수치에서 한 번 강화할 때마다 `+1`, `+2`, `+3` 중 하나만큼 상승할 수 있다고 하자. 목표 수치에 정확히 도달하는 강화 순서가 몇 가지인지 구하는 문제다.
+
+```text
+시작: +0
+목표: +4
+
++1 → +1 → +1 → +1
++1 → +1 → +2
++1 → +2 → +1
++2 → +1 → +1
++2 → +2
++1 → +3
++3 → +1
+
+총 7가지
+```
+
+같은 상승량을 사용하더라도 순서가 다르면 다른 경우로 센다. `+1, +3`과 `+3, +1`은 모두 목표에 도달하지만 진행 순서가 서로 다르다.
+
+## 완전 탐색의 선택 구조
+
+현재 강화 수치가 `level`이라면 다음 선택은 세 가지다.
+
+```text
+Enchant(level)
+├─ Enchant(level + 1)
+├─ Enchant(level + 2)
+└─ Enchant(level + 3)
+```
+
+각 선택 뒤에 목표까지 도달하는 방법의 수를 모두 더하면 현재 상태의 답이 된다.
+
+$$
+ways(level) = ways(level+1) + ways(level+2) + ways(level+3)
+$$
+
+이때 목표에 정확히 도달하면 하나의 유효한 방법을 완성한 것이고, 목표를 넘으면 실패한 경로다.
+
+$$
+ways(target)=1
+$$
+
+$$
+ways(level)=0 \quad (level>target)
+$$
+
+목표에서 1을 반환하는 이유는 더 움직일 방법이 한 가지라는 뜻이 아니다. 지금까지 선택한 하나의 경로가 정상적으로 완성됐다는 뜻이다. 경우의 수 재귀에서 성공한 경로 하나를 상위 호출의 합계에 반영하기 위한 값이다.
+
+## 단순 재귀에는 같은 계산이 반복된다
+
+점화식을 그대로 코드로 옮길 수 있다.
+
+```cpp
+long long CountEnchantmentsRecursive(int level, int target)
+{
+    if (level > target)
+    {
+        return 0;
+    }
+
+    if (level == target)
+    {
+        return 1;
+    }
+
+    return CountEnchantmentsRecursive(level + 1, target) + CountEnchantmentsRecursive(level + 2, target) + CountEnchantmentsRecursive(level + 3, target);
+}
+```
+
+구조는 명확하지만 여러 경로가 같은 강화 수치에 도착한다.
+
+```text
++0 → +1 → +3
++0 → +2 → +3
++0 → +3
+
+세 경로 모두 이후에는 ways(3)을 계산
+```
+
+현재 수치가 같다면 목표까지 남은 경우의 수도 같다. 이전에 어떤 순서로 도착했는지는 이후 선택에 영향을 주지 않으므로 `level` 하나만 DP 상태로 사용하면 된다.
+
+## 메모이제이션으로 각 수치를 한 번만 계산한다
+
+계산하지 않은 상태는 경우의 수로 나올 수 없는 `-1`로 표시한다.
+
+```cpp
+long long CountEnchantmentsMemo(int level, int target, std::vector<long long>& memo)
+{
+    if (level > target)
+    {
+        return 0;
+    }
+
+    if (level == target)
+    {
+        return 1;
+    }
+
+    long long& result = memo[level];
+
+    if (result != -1)
+    {
+        return result;
+    }
+
+    result = CountEnchantmentsMemo(level + 1, target, memo) + CountEnchantmentsMemo(level + 2, target, memo) + CountEnchantmentsMemo(level + 3, target, memo);
+    return result;
+}
+
+long long CountEnchantments(int start, int target)
+{
+    if (start > target)
+    {
+        return 0;
+    }
+
+    std::vector<long long> memo(static_cast<std::size_t>(target) + 1, -1);
+    return CountEnchantmentsMemo(start, target, memo);
+}
+```
+
+`memo[level]`에는 해당 강화 수치에서 목표까지 도달하는 경우의 수가 저장된다. `level`부터 `target`까지 각 상태를 한 번 계산하고, 한 상태에서 세 개의 전이만 확인하므로 시간 복잡도는 $O(target-start)$다. 메모 배열과 재귀 호출 스택에도 같은 크기의 공간이 필요하다.
+
+## 남은 거리로 상태를 바꿔 볼 수 있다
+
+현재 수치 대신 목표까지 남은 차이를 상태로 정의해도 같은 문제가 된다.
+
+```text
+remaining = target - level
+
+ways[remaining] = 남은 수치를 +1, +2, +3으로 채우는 경우의 수
+```
+
+남은 거리가 0이면 이미 정확히 도달했으므로 한 가지다.
+
+```text
+ways[0] = 1
+ways[1] = 1
+ways[2] = 2
+ways[3] = 4
+ways[4] = 7
+```
+
+점화식은 다음과 같다.
+
+$$
+ways[d] = ways[d-1] + ways[d-2] + ways[d-3]
+$$
+
+존재하지 않는 음수 거리의 경우의 수를 0으로 생각하면 앞의 재귀 점화식과 정확히 같다.
+
+## Bottom-up으로 작은 거리부터 채운다
+
+```cpp
+long long CountEnchantmentsBottomUp(int start, int target)
+{
+    if (start > target)
+    {
+        return 0;
+    }
+
+    int distance = target - start;
+    std::vector<long long> ways(static_cast<std::size_t>(distance) + 1, 0);
+    ways[0] = 1;
+
+    for (int current = 1; current <= distance; ++current)
+    {
+        for (int increase = 1; increase <= 3; ++increase)
+        {
+            if (current >= increase)
+            {
+                ways[current] += ways[current - increase];
+            }
+        }
+    }
+
+    return ways[distance];
+}
+```
+
+`ways[current]`는 마지막 상승량을 기준으로 나눠 계산한다.
+
+```text
+마지막이 +1인 경우: ways[current - 1]
+마지막이 +2인 경우: ways[current - 2]
+마지막이 +3인 경우: ways[current - 3]
+```
+
+세 집합은 마지막 선택이 서로 다르므로 겹치지 않는다. 가능한 모든 마지막 선택을 합했으므로 빠지는 경우도 없다.
+
+## 반복문의 순서가 순열을 만든다
+
+현재 코드는 거리를 바깥 반복문에 두고, 각 거리에서 가능한 마지막 상승량을 모두 확인한다.
+
+```cpp
+for (int current = 1; current <= distance; ++current)
+{
+    for (int increase = 1; increase <= 3; ++increase)
+    {
+        // ways[current - increase]를 더한다.
+    }
+}
+```
+
+이 순서는 `+1, +3`과 `+3, +1`을 서로 다른 진행으로 센다. 반대로 상승량을 바깥 반복문에 두면 각 상승량의 사용 개수만 같은 조합을 세는 형태가 된다.
+
+```text
+현재 문제: 강화 순서가 다르면 별도 집계 → 순열 형태
+동전 조합: 각 동전의 개수만 같으면 동일 → 조합 형태
+```
+
+같은 DP 배열을 사용해도 반복 순서에 따라 세는 대상이 바뀔 수 있다. 코드를 작성하기 전에 문제에서 순서를 구분하는지 먼저 확인해야 한다.
+
+## 세 상태만 보관해 공간을 줄인다
+
+현재 값을 계산할 때 직전 세 값만 필요하므로 전체 배열을 저장하지 않아도 된다.
+
+```cpp
+long long CountEnchantmentsCompact(int start, int target)
+{
+    if (start > target)
+    {
+        return 0;
+    }
+
+    int distance = target - start;
+
+    if (distance == 0)
+    {
+        return 1;
+    }
+
+    long long ways0 = 1;
+    long long ways1 = 1;
+    long long ways2 = 2;
+
+    if (distance == 1)
+    {
+        return ways1;
+    }
+
+    if (distance == 2)
+    {
+        return ways2;
+    }
+
+    for (int current = 3; current <= distance; ++current)
+    {
+        long long next = ways0 + ways1 + ways2;
+        ways0 = ways1;
+        ways1 = ways2;
+        ways2 = next;
+    }
+
+    return ways2;
+}
+```
+
+시간 복잡도는 $O(target-start)$로 유지되고 추가 공간은 $O(1)$이 된다. 중간 상태가 다른 작업에 필요하지 않고 최종 경우의 수만 구할 때 사용할 수 있다.
+
+## 경로의 수와 성공 확률은 다른 값이다
+
+이 문제는 `+1`, `+2`, `+3`으로 목표에 도달하는 **선택 순서의 개수**를 센다. 각 상승량이 무작위로 정해진다는 설정이 붙더라도 경우의 수를 그대로 성공 확률로 해석하려면 모든 전체 경로의 발생 확률이 같은지 확인해야 한다.
+
+경로의 길이가 다르면 선택 횟수도 다르다.
+
+```text
+목표 +3
+
++3           → 1회 선택
++1 → +2      → 2회 선택
++1 → +1 → +1 → 3회 선택
+```
+
+각 시도에서 세 상승량이 같은 확률로 나온다고 해도 위 경로들의 확률은 각각 $1/3$, $1/9$, $1/27$로 다르다. 확률을 구하는 문제라면 경우의 수를 더하는 대신 각 전이에 발생 확률을 곱한 별도의 점화식이 필요하다.
+
+## 결과 자료형의 범위를 확인한다
+
+경우의 수는 세 이전 값을 계속 더하므로 빠르게 커진다. 알고리즘이 선형 시간이어도 `long long`의 범위를 넘으면 올바른 답을 저장할 수 없다.
+
+```text
+작은 목표     → long long으로 계산 가능
+큰 목표       → 나머지 연산 또는 큰 정수 자료형 필요
+문제에서 mod 제시 → 더할 때마다 mod 적용
+```
+
+나머지를 요구하는 문제라면 덧셈 중간에도 오버플로가 발생하지 않도록 자료형과 모듈러 연산 시점을 함께 확인해야 한다.
+
+## 전체 검증 코드
+
+```cpp
+#include <cassert>
+#include <vector>
+
+// CountEnchantments, CountEnchantmentsBottomUp,
+// CountEnchantmentsCompact 구현은 앞의 코드와 같다.
+
+int main()
+{
+    assert(CountEnchantments(0, 0) == 1);
+    assert(CountEnchantments(0, 1) == 1);
+    assert(CountEnchantments(0, 2) == 2);
+    assert(CountEnchantments(0, 3) == 4);
+    assert(CountEnchantments(0, 4) == 7);
+    assert(CountEnchantments(0, 9) == 149);
+    assert(CountEnchantments(5, 4) == 0);
+
+    for (int target = 0; target <= 30; ++target)
+    {
+        long long topDown = CountEnchantments(0, target);
+        assert(CountEnchantmentsBottomUp(0, target) == topDown);
+        assert(CountEnchantmentsCompact(0, target) == topDown);
+    }
+}
+```
+
+시작과 목표가 같은 경우는 이미 정확히 도달한 한 가지 경로로 처리한다. 시작이 목표보다 큰 경우, 작은 목표의 직접 계산 결과, 강의 예시의 목표 `+9`도 함께 확인한다. 마지막 반복문은 세 구현이 같은 점화식을 계산하는지 비교한다.
+
+## 다음 학습: KART-RIDER
+
+다음 글에서는 구간별로 선택할 수 있는 행동과 제한 조건을 DP 상태로 옮기는 KART-RIDER 문제를 살펴본다. 문제에서 정말 기억해야 하는 정보만 상태에 남기고, 이전 결과를 이용해 다음 상태를 갱신하는 과정을 정리한다.

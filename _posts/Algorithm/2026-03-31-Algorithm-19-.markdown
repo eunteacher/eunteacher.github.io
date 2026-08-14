@@ -1,351 +1,548 @@
 ---
 layout: post
-title: '[Algorithm 19] 이진 탐색 트리(Binary Search Tree) 자료구조 구현 및 분석'
+title: '[Algorithm 19] 이진 탐색 트리: 삽입·탐색·삭제'
 date: 2026-03-31
 categories: [Dev, Algorithm]
-tags: [C++, Algorithm, DataStructure, BST, Tree]
+tags: [C++, Binary Search Tree, Tree, Search, Successor]
 use_math: true
 ---
 
-# [Algorithm] 이진 탐색 트리(Binary Search Tree) 기초 구현
+이진 탐색은 정렬된 배열의 가운데를 기준으로 탐색 구간을 절반씩 줄였다. 빠른 탐색이 가능하지만 배열 중간에 원소를 삽입하거나 삭제하면 뒤의 원소를 이동해야 한다.
 
-효율적인 데이터 탐색, 삽입, 삭제를 지원하는 이진 탐색 트리(BST)의 핵심 원리를 분석하고 C++ 클래스로 구현함
+이진 탐색 트리(Binary Search Tree, BST)는 대소 관계를 노드의 연결 방향으로 표현한다.
 
-## 1. 소스 코드 (Source Code)
+```text
+        30
+      /    \
+    10      40
+      \       \
+      20       50
+        \
+        25
+          \
+          26
+```
+
+현재 노드보다 작은 키는 왼쪽으로, 크거나 같은 키는 오른쪽으로 내려간다. 검색과 삽입은 한 경로만 따라가고, 삭제는 자식 수에 따라 연결을 다시 구성한다.
+
+## 왼쪽과 오른쪽 서브트리의 규칙
+
+이번 구현은 중복 키를 허용하고 같은 키를 오른쪽에 삽입한다. 따라서 각 노드의 규칙은 다음과 같다.
+
+```text
+왼쪽 서브트리의 모든 키 < 현재 키
+오른쪽 서브트리의 모든 키 ≥ 현재 키
+```
+
+```text
+        20
+      /    \
+    10      20
+           / \
+         20   30
+```
+
+중복을 허용하지 않는 집합 형태의 BST라면 같은 키를 발견했을 때 삽입하지 않는 정책을 사용할 수 있다. 어느 방식이든 비교와 삽입, 검색, 삭제가 같은 정책을 따라야 한다.
+
+BST 규칙은 직계 자식에만 적용되는 것이 아니다. 왼쪽 **서브트리 전체**와 오른쪽 **서브트리 전체**가 조건을 만족해야 한다.
+
+## 노드는 부모와 두 자식을 연결한다
+
+원본 실습은 연결 변경을 직접 확인할 수 있도록 원시 포인터를 사용한다.
 
 ```cpp
-#include <iostream>
-#include <windows.h>
-
-using namespace std;
-
-// 트리를 구성하는 노드 구조체 정의
 struct Node
 {
-    Node* Parent = nullptr;
-    Node* Left = nullptr;
-    Node* Right = nullptr;
-    int Key = {};
+    Node* parent = nullptr;
+    Node* left = nullptr;
+    Node* right = nullptr;
+    int key = 0;
 };
+```
 
-// 이진 탐색 트리(BST) 클래스 선언 및 구현
-class BinarySearchTree
+`left`와 `right`만 있어도 루트부터 아래로 탐색할 수 있다. `parent`는 중위 순회의 다음 노드를 찾거나 노드를 교체할 때 위쪽으로 이동하기 위해 사용한다.
+
+```text
+parent
+  ↑
+[node]
+ ↙  ↘
+left right
+```
+
+한 연결을 바꿀 때 반대 방향도 함께 갱신해야 한다.
+
+```text
+parent->left = child
+child->parent = parent
+```
+
+둘 중 하나만 바꾸면 위에서 내려갈 때와 아래에서 올라갈 때 서로 다른 구조가 보인다.
+
+## 검색은 한쪽 서브트리만 선택한다
+
+현재 키와 목표 키를 비교해 다음 노드를 정한다.
+
+```cpp
+Node* Search(Node* node, int key)
 {
-public:
-    // 콘솔 화면에 트리를 시각적으로 출력 (디버깅 용도)
-    void Print() { Print(Root, 10, 0); }
-    void Print(Node* node, int x, int y);
-
-    // 중위 순회(Inorder Traversal) 출력
-    void Print_Inorder() { Print_Inorder(Root); }
-    void Print_Inorder(Node* node);
-
-    // 재귀 방식을 활용한 노드 탐색
-    Node* Search(Node* node, int key);
-
-    // 반복문을 활용한 노드 탐색 (재귀 오버헤드 방지)
-    Node* Search2(Node* node, int key);
-
-    // 서브트리 내 최솟값 및 최댓값 탐색
-    Node* Min(Node* node);
-    Node* Max(Node* node);
-
-    // 특정 노드의 다음 순서 노드(Successor) 탐색
-    Node* Next(Node* node);
-
-    // 새로운 데이터 삽입
-    void Insert(int key);
-
-    // 특정 키값을 가진 노드 삭제
-    void Delete(int key);
-    void Delete(Node* node);
-
-    // 노드 교체 유틸리티 함수
-    void Replace(Node* u, Node* v);
-
-private:
-    Node* Root = nullptr;
-};
-
-// 커서 위치 조정을 위한 Windows API 래핑 함수
-void SetCursorPosition(int x, int y)
-{
-    HANDLE output = ::GetStdHandle(STD_OUTPUT_HANDLE);
-    COORD pos = { static_cast<SHORT>(x), static_cast<SHORT>(y) };
-    ::SetConsoleCursorPosition(output, pos);
-}
-
-void BinarySearchTree::Print(Node* node, int x, int y)
-{
-    if (node == nullptr)
+    while (node != nullptr && node->key != key)
     {
-        return;
+        if (key < node->key)
+        {
+            node = node->left;
+        }
+        else
+        {
+            node = node->right;
+        }
     }
 
-    SetCursorPosition(x, y);
-    cout << node->Key;
-
-    // 트리의 계층 구조를 시각화하기 위한 재귀 호출
-    Print(node->Left, x - (5 / (y + 1)), y + 1);
-    Print(node->Right, x + (5 / (y + 1)), y + 1);
+    return node;
 }
+```
 
-void BinarySearchTree::Print_Inorder(Node* node)
+키를 찾으면 해당 노드를 반환하고, 내려갈 자식이 없으면 `nullptr`을 반환한다.
+
+```text
+Search(25)
+
+30: 25 < 30 → left
+10: 25 > 10 → right
+20: 25 > 20 → right
+25: 발견
+```
+
+같은 키가 여러 개라면 탐색 경로에서 처음 만난 노드를 반환한다. 중위 순서의 첫 번째나 마지막 중복 노드가 필요하다면 별도의 경계 탐색 규칙이 필요하다.
+
+재귀로도 같은 흐름을 표현할 수 있다.
+
+```cpp
+Node* SearchRecursive(Node* node, int key)
 {
-    if (node == nullptr)
-    {
-        return;
-    }
-
-    // 중위 순회: 왼쪽 자식 -> 자신 -> 오른쪽 자식 순으로 방문
-    // BST에서 중위 순회를 수행하면 오름차순으로 정렬된 결과를 얻음
-    Print_Inorder(node->Left);
-    cout << node->Key << '\n';
-    Print_Inorder(node->Right);
-}
-
-Node* BinarySearchTree::Search(Node* node, int key)
-{
-    // 노드가 없거나 키를 찾은 경우 반환
-    if (node == nullptr || key == node->Key)
+    if (node == nullptr || node->key == key)
     {
         return node;
     }
 
-    // 찾고자 하는 키가 현재 노드의 키보다 작으면 왼쪽 서브트리 탐색
-    if (key < node->Key)
+    if (key < node->key)
     {
-        return Search(node->Left, key);
+        return SearchRecursive(node->left, key);
     }
-    // 크면 오른쪽 서브트리 탐색
-    else
-    {
-        return Search(node->Right, key);
-    }
+
+    return SearchRecursive(node->right, key);
 }
+```
 
-Node* BinarySearchTree::Search2(Node* node, int key)
+반복 구현은 트리가 깊어져도 검색 자체가 호출 스택을 추가로 사용하지 않는다. 재귀 구현은 BST의 정의가 코드에 직접 드러난다는 장점이 있다.
+
+## 삽입은 비어 있는 자리를 찾는다
+
+새 키가 들어갈 방향을 따라가며 마지막으로 확인한 노드를 부모로 기억한다.
+
+```cpp
+void Insert(int key)
 {
-    // 재귀 호출 없이 반복문으로 트리 탐색 수행
-    while (node && key != node->Key)
-    {
-        if (key < node->Key)
-        {
-            node = node->Left;
-        }
-        else
-        {
-            node = node->Right;
-        }
-    }
-
-    return node;
-}
-
-Node* BinarySearchTree::Min(Node* node)
-{
-    // 왼쪽 자식이 없을 때까지 이동하면 최솟값 도달
-    while (node->Left)
-    {
-        node = node->Left;
-    }
-
-    return node;
-}
-
-Node* BinarySearchTree::Max(Node* node)
-{
-    // 오른쪽 자식이 없을 때까지 이동하면 최댓값 도달
-    while (node->Right)
-    {
-        node = node->Right;
-    }
-
-    return node;
-}
-
-Node* BinarySearchTree::Next(Node* node)
-{
-    // 오른쪽 서브트리가 존재하면, 오른쪽 서브트리의 최솟값이 다음 순서임
-    if (node->Right)
-    {
-        return Min(node->Right);
-    }
-
-    // 오른쪽 서브트리가 없다면, 자신이 부모의 왼쪽 자식이 될 때까지 위로 이동
-    Node* parent = node->Parent;
-
-    while (parent && node == parent->Right)
-    {
-        node = parent;
-        parent = parent->Parent;
-    }
-
-    return parent;
-}
-
-void BinarySearchTree::Insert(int key)
-{
-    Node* newNode = new Node();
-    newNode->Key = key;
-
-    // 트리가 비어있으면 루트로 설정
-    if (Root == nullptr)
-    {
-        Root = newNode;
-        return;
-    }
-
-    Node* node = Root;
     Node* parent = nullptr;
+    Node* current = root_;
 
-    // 삽입될 위치(부모 노드) 탐색
-    while (node)
+    while (current != nullptr)
     {
-        parent = node;
-        if (key < node->Key)
-        {
-            node = node->Left;
-        }
-        else
-        {
-            node = node->Right;
-        }
+        parent = current;
+        current = key < current->key ? current->left : current->right;
     }
 
-    newNode->Parent = parent;
+    Node* node = new Node{};
+    node->key = key;
+    node->parent = parent;
 
-    // 부모 노드와 키값을 비교하여 왼쪽 또는 오른쪽에 삽입
-    if (key < parent->Key)
+    if (parent == nullptr)
     {
-        parent->Left = newNode;
+        root_ = node;
+    }
+    else if (key < parent->key)
+    {
+        parent->left = node;
     }
     else
     {
-        parent->Right = newNode;
+        parent->right = node;
     }
 }
+```
 
-void BinarySearchTree::Delete(int key)
+트리가 비어 있으면 `parent`가 `nullptr`이므로 새 노드가 루트가 된다. 그 외에는 마지막 비교 결과에 따라 부모의 왼쪽이나 오른쪽에 연결한다.
+
+```text
+Insert(26)
+
+30 → left
+10 → right
+20 → right
+25 → right
+빈자리 발견
+
+25.right = 26
+26.parent = 25
+```
+
+새 노드는 항상 리프 위치에 들어간다. 삽입 뒤에도 기존 노드의 상대적인 위치는 바뀌지 않는다.
+
+## 최솟값과 최댓값은 한 방향 끝에 있다
+
+BST의 가장 작은 키는 왼쪽 자식이 더 이상 없는 노드다. 가장 큰 키는 오른쪽 끝에 있다.
+
+```cpp
+Node* Min(Node* node)
 {
-    Node* deleteNode = Search(Root, key);
-    Delete(deleteNode);
+    if (node == nullptr)
+    {
+        return nullptr;
+    }
+
+    while (node->left != nullptr)
+    {
+        node = node->left;
+    }
+
+    return node;
 }
 
-void BinarySearchTree::Delete(Node* node)
+Node* Max(Node* node)
+{
+    if (node == nullptr)
+    {
+        return nullptr;
+    }
+
+    while (node->right != nullptr)
+    {
+        node = node->right;
+    }
+
+    return node;
+}
+```
+
+빈 서브트리를 받을 수 있으므로 먼저 `nullptr`을 처리한다.
+
+## 중위 순회는 키를 정렬된 순서로 방문한다
+
+왼쪽 서브트리, 현재 노드, 오른쪽 서브트리 순서로 방문한다.
+
+```cpp
+void PrintInorder(Node* node)
 {
     if (node == nullptr)
     {
         return;
     }
 
-    // Case 1 & 2: 자식이 없거나 하나만 있는 경우
-    if (node->Left == nullptr)
-    {
-        Replace(node, node->Right);
-    }
-    else if (node->Right == nullptr)
-    {
-        Replace(node, node->Left);
-    }
-    // Case 3: 자식이 둘 다 있는 경우
-    else
-    {
-        // 다음 순서(Successor)의 노드를 찾아 데이터 복사 후 해당 노드를 삭제
-        Node* next = Next(node);
-        node->Key = next->Key;
-        Delete(next);
-    }
-}
-
-void BinarySearchTree::Replace(Node* u, Node* v)
-{
-    // u 노드가 루트인 경우
-    if (u->Parent == nullptr)
-    {
-        Root = v;
-    }
-    // u 노드가 부모의 왼쪽 자식인 경우
-    else if (u == u->Parent->Left)
-    {
-        u->Parent->Left = v;
-    }
-    // u 노드가 부모의 오른쪽 자식인 경우
-    else
-    {
-        u->Parent->Right = v;
-    }
-
-    // v 노드의 부모 포인터 갱신
-    if (v)
-    {
-        v->Parent = u->Parent;
-    }
-
-    // 기존 u 노드 메모리 해제
-    delete u;
-}
-
-int main()
-{
-    BinarySearchTree bst;
-
-    // 초기 데이터 삽입
-    bst.Insert(30);
-    bst.Insert(10);
-    bst.Insert(20);
-    bst.Insert(25);
-    bst.Insert(26);
-    bst.Insert(40);
-    bst.Insert(50);
-
-    // 데이터 삭제 테스트
-    bst.Delete(20);
-    bst.Delete(26);
-
-    // 결과 확인을 위한 트리 출력
-    bst.Print();
-
-    return 0;
+    PrintInorder(node->left);
+    std::cout << node->key << '\n';
+    PrintInorder(node->right);
 }
 ```
----
-## 2. 이론 정리 (Study Notes)
 
-이진 탐색 트리(BST)는 이진 탐색의 빠른 탐색 속도와 연결 리스트의 효율적인 노드 삽입 및 삭제 장점을 결합한 자료구조임
+왼쪽의 모든 키가 현재 키보다 작고 오른쪽의 모든 키가 크거나 같으므로 결과는 비내림차순이다.
 
-### 이진 탐색 트리의 핵심 규칙
+```text
+10 20 25 26 30 40 50
+```
 
-* 모든 노드의 키값은 유일해야 함
-* **왼쪽 서브트리**의 모든 키값은 부모 노드의 키값보다 작음
-* **오른쪽 서브트리**의 모든 키값은 부모 노드의 키값보다 큼
-* 각 노드의 왼쪽과 오른쪽 서브트리 역시 이진 탐색 트리임
+중복 키를 허용한다면 같은 값이 연속해서 출력될 수 있다.
 
-### BST 연산의 시간 복잡도
+## 후속자는 중위 순회에서 바로 다음 노드다
 
-트리의 높이를 $h$, 전체 노드의 개수를 $N$이라고 할 때의 시간 복잡도는 다음과 같음
+후속자(Successor)는 중위 순회 순서에서 현재 노드 다음에 오는 노드다.
 
-| 연산 구분 | 평균 시간 복잡도 | 최악 시간 복잡도 | 비고 |
-| :--- | :--- | :--- | :--- |
-| **탐색 (Search)** | $O(\log N)$ | $O(N)$ | 트리의 높이($h$)에 비례하여 소요됨 |
-| **삽입 (Insert)** | $O(\log N)$ | $O(N)$ | 올바른 리프 노드 위치를 찾아 삽입함 |
-| **삭제 (Delete)** | $O(\log N)$ | $O(N)$ | 자식의 개수에 따라 복잡한 참조 변경이 동반됨 |
+### 오른쪽 서브트리가 있는 경우
 
-균형이 잘 잡힌 포화 이진 트리의 경우 노드 개수와 트리 높이의 관계는 다음의 수식으로 근사됨
+오른쪽 서브트리에서 가장 작은 노드가 후속자다.
 
-$$h \approx \log_2(N + 1)$$
+```text
+        20
+          \
+          40
+         /
+       30
 
-## 3. 종합 의견 (Review)
+Successor(20) = 30
+```
 
-### 핵심 요약 및 주의사항
+```cpp
+if (node->right != nullptr)
+{
+    return Min(node->right);
+}
+```
 
-* 이진 탐색 트리는 데이터를 오름차순이나 내림차순으로 연속 삽입할 때 트리가 한쪽으로 편향되는 현상(Skewed Tree)이 발생할 수 있으며, 이 경우 탐색 효율이 $O(N)$으로 퇴화하므로 주의해야 함
-* 노드 삭제 시 대상 노드의 자식 개수(0개, 1개, 2개)에 따라 처리 로직을 명확히 구분해야 포인터 참조 오류(Dangling Pointer)를 방지할 수 있음
-* 자식이 둘 다 있는 노드를 삭제할 때는 직후 순서(Successor) 노드 또는 직전 순서(Predecessor) 노드와 데이터를 교체한 뒤 리프 쪽에 위치한 해당 노드를 삭제해야 이진 탐색 트리의 구조를 안전하게 유지할 수 있음
+### 오른쪽 서브트리가 없는 경우
 
-### Tip
+현재 노드가 부모의 오른쪽 자식인 동안 위로 올라간다. 처음으로 현재 서브트리가 부모의 왼쪽에 놓이는 지점의 부모가 후속자다.
 
-* BST의 모든 데이터를 정렬된 상태로 출력하고 싶다면 반드시 **중위 순회(Inorder Traversal)**를 사용해야 함
-* 단순 알고리즘 구현이 아닌 실무 C++ 환경에서는 메모리 누수 방지와 생명주기 관리를 위해 원시 포인터(`Node*`) 대신 스마트 포인터(`std::unique_ptr`, `std::shared_ptr`)를 도입하는 것이 권장됨
-* 탐색 로직 작성 시 재귀(Recursion) 방식은 코드가 직관적이나 함수 호출에 따른 스택 메모리 오버헤드가 발생하므로, 성능이 중요한 환경에서는 `while`문을 활용한 반복문 형태의 탐색 적용을 우선적으로 고려해야 함
-* 편향 트리로 인한 성능 저하 문제를 근본적으로 해결하기 위해 실제 프로덕션 레벨에서는 자가 균형(Self-Balancing) 기능을 갖춘 AVL 트리나 Red-Black 트리를 주로 활용하며, C++ 표준 라이브러리의 `std::map`, `std::set`이 이를 기반으로 구현되어 있음
+```cpp
+Node* Successor(Node* node)
+{
+    if (node == nullptr)
+    {
+        return nullptr;
+    }
+
+    if (node->right != nullptr)
+    {
+        return Min(node->right);
+    }
+
+    Node* parent = node->parent;
+
+    while (parent != nullptr && node == parent->right)
+    {
+        node = parent;
+        parent = parent->parent;
+    }
+
+    return parent;
+}
+```
+
+가장 큰 노드는 다음 노드가 없으므로 `nullptr`을 반환한다.
+
+## Replace는 한 서브트리를 다른 서브트리로 교체한다
+
+삭제 로직에서 반복되는 연결 변경을 `Replace`로 분리한다. `oldNode`가 차지하던 위치에 `newNode` 서브트리를 연결한다.
+
+```cpp
+void Replace(Node* oldNode, Node* newNode)
+{
+    if (oldNode->parent == nullptr)
+    {
+        root_ = newNode;
+    }
+    else if (oldNode == oldNode->parent->left)
+    {
+        oldNode->parent->left = newNode;
+    }
+    else
+    {
+        oldNode->parent->right = newNode;
+    }
+
+    if (newNode != nullptr)
+    {
+        newNode->parent = oldNode->parent;
+    }
+}
+```
+
+세 상황을 구분해야 한다.
+
+1. 기존 노드가 루트다.
+2. 기존 노드가 부모의 왼쪽 자식이다.
+3. 기존 노드가 부모의 오른쪽 자식이다.
+
+새 서브트리가 있다면 그 루트의 `parent`도 기존 노드의 부모로 바꾼다. `Replace`는 연결만 담당하고 메모리 해제는 호출한 삭제 함수가 담당하게 하면 역할이 분명해진다.
+
+## 삭제는 자식 수에 따라 나뉜다
+
+### 왼쪽 자식이 없는 경우
+
+오른쪽 자식이 있으면 그 서브트리로 교체하고, 오른쪽 자식도 없다면 `nullptr`로 교체한다. 리프 삭제도 이 경우에 포함된다.
+
+```cpp
+if (node->left == nullptr)
+{
+    Replace(node, node->right);
+    delete node;
+    return;
+}
+```
+
+### 오른쪽 자식이 없는 경우
+
+왼쪽 서브트리로 교체한다.
+
+```cpp
+if (node->right == nullptr)
+{
+    Replace(node, node->left);
+    delete node;
+    return;
+}
+```
+
+### 자식이 둘인 경우
+
+노드를 바로 제거하면 왼쪽과 오른쪽 두 서브트리를 한 자리에 연결해야 한다. 대신 후속자의 키를 삭제 대상에 복사하고 후속자 노드를 삭제한다.
+
+```text
+삭제 대상: 20
+
+        20
+      /    \
+    10      40
+           /
+         30  ← 후속자
+
+20의 키를 30으로 교체
+
+        30
+      /    \
+    10      40
+           /
+         30  ← 이 노드를 삭제
+```
+
+오른쪽 서브트리의 최솟값인 후속자는 왼쪽 자식을 가질 수 없다. 왼쪽 자식이 있었다면 그 노드가 더 작은 후속자여야 하기 때문이다. 따라서 후속자 삭제는 자식이 없거나 오른쪽 자식 하나만 있는 단순한 경우로 환원된다.
+
+```cpp
+Node* successor = Successor(node);
+node->key = successor->key;
+Replace(successor, successor->right);
+delete successor;
+```
+
+키 외에 여러 데이터 필드가 있다면 키만 복사해서는 객체의 의미가 달라질 수 있다. 노드 전체를 구조적으로 옮기는 방식이나 저장 데이터 전체를 함께 이전하는 방식을 설계해야 한다.
+
+## 삭제 함수의 전체 흐름
+
+```cpp
+void Delete(Node* node)
+{
+    if (node == nullptr)
+    {
+        return;
+    }
+
+    if (node->left == nullptr)
+    {
+        Replace(node, node->right);
+        delete node;
+        return;
+    }
+
+    if (node->right == nullptr)
+    {
+        Replace(node, node->left);
+        delete node;
+        return;
+    }
+
+    Node* successor = Successor(node);
+    node->key = successor->key;
+    Replace(successor, successor->right);
+    delete successor;
+}
+
+void Delete(int key)
+{
+    Delete(Search(root_, key));
+}
+```
+
+존재하지 않는 키를 검색하면 `nullptr`이 전달되고 아무 작업도 하지 않는다. 중복 키가 있다면 `Search`가 처음 발견한 노드 하나만 삭제한다.
+
+## 원시 포인터를 사용하면 트리 전체를 해제해야 한다
+
+개별 삭제에서 제거한 노드는 `delete`하지만, 트리 객체가 사라질 때 남아 있는 모든 노드도 해제해야 한다.
+
+```cpp
+void Clear(Node* node)
+{
+    if (node == nullptr)
+    {
+        return;
+    }
+
+    Clear(node->left);
+    Clear(node->right);
+    delete node;
+}
+```
+
+자식을 먼저 해제한 뒤 부모를 해제하는 후위 순회를 사용한다.
+
+```cpp
+~BinarySearchTree()
+{
+    Clear(root_);
+}
+```
+
+소유 포인터가 있는 클래스를 기본 복사하면 두 트리가 같은 노드를 가리키고 각각 해제하려 할 수 있다. 깊은 복사를 구현하지 않는다면 복사를 막는다.
+
+```cpp
+BinarySearchTree(const BinarySearchTree&) = delete;
+BinarySearchTree& operator=(const BinarySearchTree&) = delete;
+```
+
+실제 소유권을 더 명확히 표현하려면 자식에 `std::unique_ptr<Node>`를 사용할 수 있다. 다만 삭제 시 소유 포인터를 이동해야 하므로 연결 변경 코드는 원시 포인터 예제와 다른 형태가 된다. 이번 실습에서는 BST의 링크 변경 자체에 집중한다.
+
+## 트리 높이가 연산 비용을 결정한다
+
+검색, 삽입과 삭제는 모두 루트에서 하나의 경로를 따라간다. 트리 높이를 $H$라고 하면 시간 복잡도는 $O(H)$다.
+
+### 균형에 가까운 경우
+
+```text
+        40
+      /    \
+    20      60
+   /  \    / \
+ 10   30  50  70
+```
+
+높이가 $O(\log N)$이므로 주요 연산도 $O(\log N)$이다.
+
+### 한쪽으로 편향된 경우
+
+정렬된 값을 그대로 삽입하면 연결 리스트와 비슷한 모양이 될 수 있다.
+
+```text
+10
+  \
+  20
+    \
+    30
+      \
+      40
+```
+
+높이가 $N$이 되어 검색, 삽입과 삭제가 모두 $O(N)$까지 느려진다. 기본 BST는 균형을 자동으로 복구하지 않으므로 $O(\log N)$을 보장하지 않는다.
+
+평균 $O(\log N)$이라는 설명도 입력 순서가 충분히 무작위라는 등의 가정이 있을 때 성립한다. 최악의 입력에서도 로그 시간을 보장하려면 AVL 트리나 레드 블랙 트리 같은 자가 균형 트리가 필요하다.
+
+## 배열 이진 탐색과 비교한다
+
+| 비교 | 정렬된 vector + 이진 탐색 | Binary Search Tree |
+|---|---|---|
+| 검색 | $O(\log N)$ | $O(H)$ |
+| 중간 삽입·삭제 | $O(N)$ | 위치 탐색 포함 $O(H)$ |
+| 메모리 | 연속 저장 | 노드와 포인터 |
+| 캐시 지역성 | 좋음 | 일반적으로 낮음 |
+| 최악 검색 | $O(\log N)$ | 기본 BST는 $O(N)$ |
+| 정렬 순회 | 배열 순서 | 중위 순회 $O(N)$ |
+
+BST의 노드 삭제가 항상 $O(1)$인 것은 아니다. 삭제할 노드를 먼저 찾고 후속자를 찾는 시간이 트리 높이에 비례한다. 또한 포인터 재연결이 적다는 것과 전체 연산이 상수 시간이라는 것은 다른 이야기다.
+
+## 구현할 때 확인할 기준
+
+1. 중복 키를 허용하는지, 허용한다면 어느 방향에 넣는지 정했는가?
+2. 검색과 삽입이 같은 대소 관계를 사용하는가?
+3. 빈 트리에 처음 삽입할 때 루트를 설정하는가?
+4. 자식 연결과 부모 연결을 함께 갱신하는가?
+5. `Min`, `Max`, `Successor`가 `nullptr` 입력을 처리하는가?
+6. 후속자의 두 가지 경우를 구분하는가?
+7. 삭제 대상이 루트인지 확인하는가?
+8. 삭제 대상이 부모의 왼쪽·오른쪽 자식인지 구분하는가?
+9. 자식이 0개, 1개, 2개인 삭제를 모두 처리하는가?
+10. 자식 둘인 노드의 후속자가 왼쪽 자식을 갖지 않는 이유를 이해했는가?
+11. 존재하지 않는 키와 중복 키 삭제 정책이 명확한가?
+12. 원시 포인터를 사용한다면 전체 노드의 해제와 복사 정책을 정의했는가?
+13. 현재 트리가 편향됐을 때의 최악 복잡도를 고려했는가?
+
+이진 탐색 트리의 핵심은 이진 탐색의 비교 규칙을 노드 연결에 유지하는 것이다. 검색과 삽입은 비교 결과에 따라 한 방향을 선택하고, 삭제는 남은 서브트리가 같은 규칙을 계속 만족하도록 부모와 자식 링크를 다시 연결한다.
+
+## 다음 학습: 레드 블랙 트리
+
+다음 글에서는 삽입과 삭제 뒤에도 트리 높이가 한쪽으로 치우치지 않도록 색상 규칙과 회전을 사용하는 레드 블랙 트리를 다룬다. 기본 BST의 검색 규칙을 유지하면서 높이를 $O(\log N)$ 범위로 제한하는 방법을 살펴본다.

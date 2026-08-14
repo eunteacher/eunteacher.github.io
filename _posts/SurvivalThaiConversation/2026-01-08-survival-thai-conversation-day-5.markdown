@@ -1,5 +1,6 @@
 ---
 layout: post
+published: false
 title:  "[태국어생존회화 5일차] 쇼핑 필수 태국어: 입어보고 깎아달라 하기"
 date:   2026-01-08 22:00:00 +0900
 categories: [회화, 태국어생존회화]

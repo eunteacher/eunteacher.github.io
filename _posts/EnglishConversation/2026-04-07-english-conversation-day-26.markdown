@@ -1,5 +1,6 @@
 ---
 layout: post
+published: false
 title:  "[영어회화 26일차] 상대를 배려하고 내 상태를 알리는 매너 문장"
 date:   2026-04-07 10:00:00 +0900
 categories: [회화, 영어회화]

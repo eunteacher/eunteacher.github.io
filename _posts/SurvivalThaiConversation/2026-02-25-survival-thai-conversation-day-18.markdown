@@ -1,5 +1,6 @@
 ---
 layout: post
+published: false
 title:  "[태국어생존회화 18일차] 시간, 날씨, 쓰레기통: 생활 밀착형 질문"
 date:   2026-02-25 23:00:00 +0900
 categories: [회화, 태국어생존회화]

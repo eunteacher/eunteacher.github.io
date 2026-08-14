@@ -1,5 +1,6 @@
 ---
 layout: post
+published: false
 title:  "[태국어생존회화 20일차] 식탁과 대화의 완성: 배고픔, 재확인, 추가 요청"
 date:   2026-02-27 00:00:00 +0900
 categories: [회화, 태국어생존회화]

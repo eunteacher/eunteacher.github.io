@@ -1,5 +1,6 @@
 ---
 layout: post
+published: false
 title:  "[태국어생존회화 19일차] 질문과 정숙: 정체 확인 및 소음 차단"
 date:   2026-02-26 00:00:00 +0900
 categories: [회화, 태국어생존회화]

@@ -1,5 +1,6 @@
 ---
 layout: post
+published: false
 title:  "[영어회화 17일차] 정중하게 부탁하고 배려하는 일상 표현"
 date:   2026-02-23 00:00:00 +0900
 categories: [회화, 영어회화]

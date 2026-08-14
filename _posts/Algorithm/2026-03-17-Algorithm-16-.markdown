@@ -1,191 +1,503 @@
 ---
 layout: post
-title: '[Algorithm 16] 우선순위 큐(Priority Queue)와 힙(Heap)의 구현 및 분석'
+title: '[Algorithm 16] 우선순위 큐 구현: 힙과 비교 함수'
 date: 2026-03-17
 categories: [Dev, Algorithm]
-tags: [C++, Algorithm, DataStructure, Heap, PriorityQueue]
+tags: [C++, Priority Queue, Heap, Comparator, Data Structure]
 use_math: true
 ---
 
-# [Algorithm] 우선순위 큐(Priority Queue)와 힙(Heap) 트리 구현
+일반적인 큐는 먼저 들어온 원소를 먼저 꺼낸다. 우선순위 큐(Priority Queue)는 삽입 순서와 관계없이 현재 가장 높은 우선순위를 가진 원소를 먼저 꺼낸다.
 
-완전 이진 트리 기반의 힙(Heap) 구조를 활용하여 우선순위에 따라 데이터를 관리하는 커스텀 우선순위 큐 구현 및 원리 분석
+```text
+입력 순서: 100 → 300 → 200 → 500 → 400
 
-## 1. 소스 코드 (Source Code)
+최대 우선순위 큐에서 꺼내는 순서
+500 → 400 → 300 → 200 → 100
+
+최소 우선순위 큐에서 꺼내는 순서
+100 → 200 → 300 → 400 → 500
+```
+
+우선순위 큐는 동작을 정의하는 추상 자료형이고, 힙은 그 동작을 효율적으로 구현하는 자료구조다. 이번 실습에서는 `std::vector`에 이진 힙을 저장하고 비교 함수를 바꿔 최대 큐와 최소 큐를 모두 만들 수 있는 클래스를 구현한다.
+
+## 우선순위 큐가 제공할 동작
+
+이번 클래스는 네 가지 기본 연산을 제공한다.
+
+| 연산 | 역할 | 시간 복잡도 |
+|---|---|---:|
+| `push` | 원소를 삽입하고 힙 조건 복구 | $O(\log N)$ |
+| `pop` | 최상위 원소를 제거하고 힙 조건 복구 | $O(\log N)$ |
+| `top` | 최상위 원소 참조 | $O(1)$ |
+| `empty` | 원소 존재 여부 확인 | $O(1)$ |
+
+배열 전체를 매번 정렬하면 삽입이나 삭제에 불필요한 비용이 든다. 힙은 부모와 자식 사이의 우선순위만 유지하기 때문에 루트에 필요한 원소를 두는 데 집중할 수 있다.
+
+## 템플릿 매개변수로 값과 저장소를 분리한다
+
+클래스의 기본 형태는 표준 `std::priority_queue`와 비슷하게 구성한다.
 
 ```cpp
-#include <iostream>
-#include <vector>
-#include <list>
-#include <stack>
-#include <queue>
-using namespace std;
-
-/**
- * 템플릿 기반 커스텀 우선순위 큐 클래스
- * @tparam T 데이터 타입
- * @tparam Container 내부 저장소 컨테이너 (기본값: vector)
- * @tparam Predicate 비교 연산자 (기본값: less, 최대 힙 구성)
- */
-template<typename T, typename Container = vector<T>, typename Predicate = less<T>>
+template<typename T, typename Container = std::vector<T>, typename Compare = std::less<T>>
 class PriorityQueue
 {
 public:
-	/**
-	 * 새로운 데이터를 힙에 삽입
-	 * 상향식 힙화(Up-heap) 과정을 통해 부모-자식 간의 우선순위 유지
-	 */
-	void push(const T& data)
-	{
-		// 1) 완전 이진 트리의 속성을 유지하기 위해 가장 마지막 위치에 추가
-		Heap.push_back(data);
+    bool empty() const noexcept
+    {
+        return heap_.empty();
+    }
 
-		// 2) 부모 노드와 비교하며 위치를 조정하는 상향식 갱신 시작
-		int now = static_cast<int>(Heap.size()) - 1;
-
-		while (now > 0)
-		{
-			// 부모 노드의 인덱스 산출: (index - 1) / 2
-			int next = (now - 1) / 2;
-
-			// 설정된 비교 조건(Predicate)에 부합하지 않으면 위치 확정 후 종료
-			if (Predicate(Heap[now], Heap[next]))
-			{
-				break;
-			}
-
-			// 부모와 현재 노드의 데이터 교체
-			::swap(Heap[now], Heap[next]);
-			now = next;
-		}
-	}
-
-	/**
-	 * 우선순위가 가장 높은 데이터(루트 노드)를 삭제
-	 * 하향식 힙화(Down-heap) 과정을 통해 힙 구조 재정렬
-	 */
-	void pop()
-	{
-		// 1) 루트 노드에 가장 마지막 데이터 복사 후 마지막 요소 제거
-		Heap[0] = Heap.back();
-		Heap.pop_back();
-
-		int now = 0;
-
-		// 2) 자식 노드들과 비교하며 아래로 이동하는 하향식 갱신 수행
-		while (true)
-		{
-			int left = 2 * now + 1;
-			int right = 2 * now + 2;
-
-			// 왼쪽 자식이 없는 경우 리프 노드에 도달한 것이므로 종료
-			if (left >= (int)Heap.size())
-			{
-				break;
-			}
-
-			int next = now;
-
-			// 왼쪽 자식과 우선순위 비교
-			if (Predicate(Heap[next], Heap[left]))
-			{
-				next = left;
-			}
-
-			// 오른쪽 자식이 존재하고, 현재까지 선택된 후보보다 우선순위가 높으면 교체
-			if (right < (int)Heap.size() && Predicate(Heap[next], Heap[right]))
-			{
-				next = right;
-			}
-
-			// 자식 노드들보다 현재 노드의 우선순위가 높으면 갱신 종료
-			if (next == now)
-			{
-				break;
-			}
-
-			::swap(Heap[now], Heap[next]);
-			now = next;
-		}
-	}
-
-	// 힙의 최상단(루트) 데이터 반환
-	T& top()
-	{
-		return Heap[0];
-	}
-
-	// 비어있는지 확인
-	bool empty()
-	{
-		return Heap.empty();
-	}
+    std::size_t size() const noexcept
+    {
+        return heap_.size();
+    }
 
 private:
-	Container Heap = {};       // 데이터를 저장할 동적 배열
-	Predicate Predicate = {};   // 우선순위 결정 기준
+    Container heap_;
+    Compare compare_;
 };
+```
 
+- `T`: 저장할 값의 타입
+- `Container`: 힙을 담을 컨테이너
+- `Compare`: 두 값의 우선순위를 판단할 비교 함수
+
+구현에서는 임의 위치 접근과 끝 삽입·삭제가 필요하므로 기본 저장소로 `std::vector<T>`를 사용한다. 컨테이너를 템플릿으로 열어 두더라도 `operator[]`, `front`, `back`, `push_back`, `pop_back`, `size`, `empty`를 제공해야 한다는 요구사항은 남는다.
+
+이처럼 실제로는 모든 컨테이너를 받을 수 있는 것이 아니다. C++20이라면 concept으로 요구사항을 표현할 수 있고, 그 이전에는 템플릿 인스턴스화 과정의 컴파일 오류로 드러난다.
+
+## 비교 함수는 첫 번째 값의 우선순위가 낮은지를 묻는다
+
+`Compare`의 의미를 먼저 정해야 삽입과 삭제에서 같은 기준을 사용할 수 있다. 여기서는 표준 우선순위 큐와 같은 방식으로 다음처럼 해석한다.
+
+```cpp
+compare_(a, b) == true
+```
+
+이는 `a`가 `b`보다 **낮은 우선순위**라는 뜻이다. 따라서 `b`가 `a`보다 루트에 가까워야 한다.
+
+### std::less를 사용한 최대 힙
+
+```cpp
+std::less<int>{}(100, 300) == true
+```
+
+`100 < 300`이므로 `100`의 우선순위가 낮고 `300`이 위로 올라간다. 결과적으로 큰 값이 루트에 놓이는 최대 힙이 된다.
+
+```cpp
+PriorityQueue<int> maxQueue;
+```
+
+### std::greater를 사용한 최소 힙
+
+```cpp
+std::greater<int>{}(300, 100) == true
+```
+
+`300 > 100`이므로 `300`의 우선순위가 낮고 작은 값인 `100`이 위로 올라간다. 결과적으로 최소 힙이 된다.
+
+```cpp
+PriorityQueue<int, std::vector<int>, std::greater<int>> minQueue;
+```
+
+`less`가 최대 힙이고 `greater`가 최소 힙이라는 결과만 외우기보다, 비교 함수가 부모의 우선순위가 더 낮은지를 검사한다고 이해하면 교환 조건을 일관되게 작성할 수 있다.
+
+## push는 배열 끝에서 시작한다
+
+새 원소는 완전 이진 트리의 다음 자리에 해당하는 배열 끝에 추가한다.
+
+```cpp
+void push(const T& value)
+{
+    heap_.push_back(value);
+    SiftUp(heap_.size() - 1);
+}
+```
+
+끝에 추가한 원소와 부모 사이에서만 힙 조건이 깨질 수 있다. 부모의 우선순위가 낮으면 두 값을 교환하고 루트 방향으로 계속 올라간다.
+
+```cpp
+void SiftUp(std::size_t index)
+{
+    while (index > 0)
+    {
+        std::size_t parent = (index - 1) / 2;
+
+        if (!compare_(heap_[parent], heap_[index]))
+        {
+            break;
+        }
+
+        std::swap(heap_[parent], heap_[index]);
+        index = parent;
+    }
+}
+```
+
+최대 힙에 `45`를 삽입하는 흐름은 다음과 같다.
+
+```text
+삽입 전
+[50, 40, 30, 10, 20]
+
+배열 끝에 45 추가
+[50, 40, 30, 10, 20, 45]
+             parent  child
+               30  <  45
+
+부모와 교환
+[50, 40, 45, 10, 20, 30]
+
+50 < 45가 false이므로 종료
+```
+
+`index > 0` 조건은 루트에서 부모 인덱스를 계산하지 않도록 막는다. 비교 결과가 false라면 현재 부모가 자식보다 우선순위가 낮지 않으므로 힙 조건을 만족한다.
+
+## top은 루트를 참조한다
+
+힙에서 가장 높은 우선순위의 값은 항상 배열의 첫 원소다.
+
+```cpp
+const T& top() const
+{
+    if (heap_.empty())
+    {
+        throw std::out_of_range("PriorityQueue::top: queue is empty");
+    }
+
+    return heap_.front();
+}
+```
+
+값을 복사하지 않고 `const T&`로 반환한다. 호출자는 참조가 큐의 내부 원소를 가리킨다는 점을 알아야 한다. 이후 `push`로 벡터가 재할당되거나 `pop`으로 원소가 이동하면 기존 참조는 더 이상 유효하지 않을 수 있다.
+
+빈 큐의 `front()`에 접근하면 정의되지 않은 동작이 발생한다. 이번 예제는 실수를 즉시 확인할 수 있도록 예외를 던진다. 표준 `std::priority_queue::top()`은 빈 큐 검사를 대신해 주지 않으므로 호출 전에 `empty()`를 확인해야 한다.
+
+## pop은 마지막 원소를 루트로 옮긴다
+
+루트를 벡터 중간에서 직접 지우면 뒤의 모든 원소를 앞으로 이동해야 한다. 대신 루트와 마지막 원소를 교환하고 끝 원소를 제거한다.
+
+```cpp
+void pop()
+{
+    if (heap_.empty())
+    {
+        throw std::out_of_range("PriorityQueue::pop: queue is empty");
+    }
+
+    if (heap_.size() == 1)
+    {
+        heap_.pop_back();
+        return;
+    }
+
+    std::swap(heap_.front(), heap_.back());
+    heap_.pop_back();
+    SiftDown(0);
+}
+```
+
+원소가 하나뿐이면 제거한 뒤 바로 끝낸다. 두 개 이상이면 마지막 원소가 루트로 이동하면서 완전 이진 트리의 모양은 유지되지만 자식보다 우선순위가 낮을 수 있다.
+
+```text
+삭제 전
+[50, 40, 45, 10, 20, 30]
+
+루트와 마지막 교환
+[30, 40, 45, 10, 20, 50]
+
+마지막 원소 제거
+[30, 40, 45, 10, 20]
+```
+
+이제 루트부터 아래로 내려가며 힙 조건을 복구한다.
+
+## SiftDown은 두 자식 중 더 높은 우선순위를 선택한다
+
+왼쪽 자식이 없다면 현재 노드는 리프다. 왼쪽 자식이 있으면 현재 노드, 왼쪽 자식, 오른쪽 자식 중 가장 높은 우선순위의 위치를 찾는다.
+
+```cpp
+void SiftDown(std::size_t index)
+{
+    while (true)
+    {
+        std::size_t left = index * 2 + 1;
+
+        if (left >= heap_.size())
+        {
+            break;
+        }
+
+        std::size_t right = left + 1;
+        std::size_t highest = index;
+
+        if (compare_(heap_[highest], heap_[left]))
+        {
+            highest = left;
+        }
+
+        if (right < heap_.size() && compare_(heap_[highest], heap_[right]))
+        {
+            highest = right;
+        }
+
+        if (highest == index)
+        {
+            break;
+        }
+
+        std::swap(heap_[index], heap_[highest]);
+        index = highest;
+    }
+}
+```
+
+최대 힙에서 루트 `30`의 자식이 `40`, `45`라면 더 큰 `45`를 선택해야 한다.
+
+```text
+        30
+      /    \
+    40      45
+
+30과 40만 교환하면
+
+        40
+      /    \
+    30      45   ← 루트 40보다 큰 자식이 남음
+
+30과 45를 교환하면
+
+        45
+      /    \
+    40      30   ← 힙 조건 복구
+```
+
+오른쪽 자식은 존재하지 않을 수 있으므로 `right < heap_.size()`를 먼저 검사한다. 가장 높은 우선순위가 여전히 현재 노드라면 두 자식과의 조건을 모두 만족하므로 종료한다.
+
+## 전체 구현
+
+```cpp
+#include <cassert>
+#include <cstddef>
+#include <functional>
+#include <iostream>
+#include <stdexcept>
+#include <utility>
+#include <vector>
+
+template<typename T, typename Container = std::vector<T>, typename Compare = std::less<T>>
+class PriorityQueue
+{
+public:
+    bool empty() const noexcept
+    {
+        return heap_.empty();
+    }
+
+    std::size_t size() const noexcept
+    {
+        return heap_.size();
+    }
+
+    const T& top() const
+    {
+        if (heap_.empty())
+        {
+            throw std::out_of_range("PriorityQueue::top: queue is empty");
+        }
+
+        return heap_.front();
+    }
+
+    void push(const T& value)
+    {
+        heap_.push_back(value);
+        SiftUp(heap_.size() - 1);
+    }
+
+    void pop()
+    {
+        if (heap_.empty())
+        {
+            throw std::out_of_range("PriorityQueue::pop: queue is empty");
+        }
+
+        if (heap_.size() == 1)
+        {
+            heap_.pop_back();
+            return;
+        }
+
+        std::swap(heap_.front(), heap_.back());
+        heap_.pop_back();
+        SiftDown(0);
+    }
+
+private:
+    void SiftUp(std::size_t index)
+    {
+        while (index > 0)
+        {
+            std::size_t parent = (index - 1) / 2;
+
+            if (!compare_(heap_[parent], heap_[index]))
+            {
+                break;
+            }
+
+            std::swap(heap_[parent], heap_[index]);
+            index = parent;
+        }
+    }
+
+    void SiftDown(std::size_t index)
+    {
+        while (true)
+        {
+            std::size_t left = index * 2 + 1;
+
+            if (left >= heap_.size())
+            {
+                break;
+            }
+
+            std::size_t right = left + 1;
+            std::size_t highest = index;
+
+            if (compare_(heap_[highest], heap_[left]))
+            {
+                highest = left;
+            }
+
+            if (right < heap_.size() && compare_(heap_[highest], heap_[right]))
+            {
+                highest = right;
+            }
+
+            if (highest == index)
+            {
+                break;
+            }
+
+            std::swap(heap_[index], heap_[highest]);
+            index = highest;
+        }
+    }
+
+private:
+    Container heap_;
+    Compare compare_;
+};
 
 int main()
 {
-	// greater<int>를 사용하여 최소값부터 출력되는 최소 힙(Min-Heap) 구성
-	PriorityQueue<int, vector<int>, greater<int>> pq;
+    PriorityQueue<int, std::vector<int>, std::greater<int>> queue;
 
-	pq.push(100);
-	pq.push(300);
-	pq.push(200);
-	pq.push(500);
-	pq.push(400);
+    queue.push(100);
+    queue.push(300);
+    queue.push(200);
+    queue.push(500);
+    queue.push(400);
 
-	// 힙 정렬 원리에 따라 오름차순으로 데이터 출력
-	while (pq.empty() == false)
-	{
-		int value = pq.top();
-		pq.pop();
+    std::vector<int> result;
 
-		cout << value << endl;
-	}
+    while (!queue.empty())
+    {
+        result.push_back(queue.top());
+        queue.pop();
+    }
 
-	return 0;
+    assert((result == std::vector<int>{100, 200, 300, 400, 500}));
+
+    for (int value : result)
+    {
+        std::cout << value << '\n';
+    }
 }
 ```
----
-## 2. 이론 정리 (Study Notes)
 
-### 우선순위 큐(Priority Queue)와 힙(Heap)의 관계
-* **추상 자료구조(ADT)**: 데이터를 삽입한 순서에 상관없이 우선순위가 높은 요소가 먼저 나가는 논리적 구조임
-* **힙(Heap) 트리**: 우선순위 큐를 가장 효율적으로 구현하기 위해 고안된 완전 이진 트리 기반의 자료구조임
-* **특징**: 노드의 삽입과 삭제가 빈번한 환경에서 성능 우위를 가짐
+`std::greater<int>`를 사용했으므로 작은 값이 더 높은 우선순위를 가진다. 출력 순서는 다음과 같다.
 
+```text
+100
+200
+300
+400
+500
+```
 
-### 힙의 주요 성능 지표
+기본 비교 함수인 `std::less<int>`를 사용하면 같은 입력을 `500`, `400`, `300`, `200`, `100` 순서로 꺼내는 최대 우선순위 큐가 된다.
 
-| 작업 구분 | 시간 복잡도 | 비고 |
-| :--- | :--- | :--- |
-| **삽입 (Push)** | $O(\log N)$ | 트리의 깊이만큼 상향식 비교(Up-heap) 수행 |
-| **삭제 (Pop)** | $O(\log N)$ | 루트 교체 후 하향식 재정렬(Down-heap) 수행 |
-| **최상단 확인 (Top)** | $O(1)$ | 루트 노드에 직접 접근하여 즉시 반환 |
-| **공간 복잡도** | $O(N)$ | 연속된 메모리(배열)를 사용하여 데이터 저장 |
+## 사용자 정의 타입의 우선순위를 정한다
 
-### 배열 기반 인덱스 계산 공식
-별도의 포인터 없이 배열 인덱스 산술만으로 부모와 자식 노드 간의 이동이 가능함
+우선순위 큐에는 숫자만 저장할 필요가 없다. 게임 작업을 중요도에 따라 처리한다고 가정한다.
 
-* **현재 인덱스가 $i$인 경우**:
-  * **부모 노드 인덱스**: $Parent(i) = \lfloor (i - 1) / 2 \rfloor$
-  * **왼쪽 자식 인덱스**: $LeftChild(i) = 2i + 1$
-  * **오른쪽 자식 인덱스**: $RightChild(i) = 2i + 2$
+```cpp
+struct Task
+{
+    int priority;
+    int order;
+};
 
----
+struct TaskCompare
+{
+    bool operator()(const Task& a, const Task& b) const
+    {
+        if (a.priority != b.priority)
+        {
+            return a.priority < b.priority;
+        }
 
-## 3. 종합 의견 (Review)
+        return a.order > b.order;
+    }
+};
+```
 
-### 핵심 요약 및 주의사항
-* **완전 이진 트리 속성 유지**: 힙은 반드시 마지막 레벨까지 왼쪽부터 채워진 형태여야 함. 따라서 `pop` 연산 시 마지막 노드를 루트로 옮긴 뒤 재정렬하는 과정이 구조 유지의 핵심임
-* **비교 연산자(Predicate)의 활용**: `std::less`는 부모가 자식보다 작을 때 교체하여 **최대 힙(Max Heap)**을 구성하고, `std::greater`는 **최소 힙(Min Heap)**을 구성하게 됨
-* **데이터 안정성(Stability) 부재**: 힙은 형제 노드 간의 정렬 순서를 보장하지 않는 '느슨한 정렬' 상태임. 특정 데이터를 탐색하거나 순차 정렬이 필요한 경우에는 적합하지 않음
+높은 `priority` 값이 먼저 나오고 우선순위가 같으면 작은 `order`, 즉 먼저 등록된 작업이 먼저 나온다.
 
-### Tip
-* **std::priority_queue 적극 권장**: 실제 프로젝트에서는 직접 구현보다는 검증된 STL의 `std::priority_queue`를 사용하는 것이 안전하며, 다익스트라(Dijkstra) 등의 최단 경로 알고리즘에서 필수적으로 활용됨
-* **메모리 재할당 방지**: `vector` 기반으로 구현할 경우 `reserve()`를 통해 미리 메모리를 할당하면 삽입 시 발생하는 동적 할당 비용을 최적화할 수 있음
-* **커스텀 정렬 조건**: `Predicate`에 람다(Lambda) 식이나 구조체 연산자 오버로딩을 전달하여 거리 순, 비용 순 등 복잡한 우선순위 기준을 유연하게 설정 가능함
+```cpp
+PriorityQueue<Task, std::vector<Task>, TaskCompare> tasks;
+```
+
+비교 함수는 두 값이 완전히 같을 때 false를 반환해야 하고, 비교 관계가 실행 중 임의로 바뀌어서는 안 된다. 힙을 만든 뒤 비교 기준에 사용되는 값을 외부에서 변경하면 현재 배열이 새 기준의 힙이라는 보장이 깨진다.
+
+우선순위가 같은 원소의 기존 입력 순서는 힙만으로 보장되지 않는다. 안정적인 순서가 필요하면 위 예제처럼 등록 순번을 비교 기준에 포함한다.
+
+## 직접 구현에서 남는 선택
+
+학습용 구현은 힙의 핵심 흐름을 보여주지만 범용 컨테이너로 사용하려면 더 많은 결정을 내려야 한다.
+
+- 복사 대신 이동할 수 있도록 `push(T&&)`를 추가할 것인가?
+- 생성자 인자를 직접 전달하는 `emplace`를 지원할 것인가?
+- 비교 함수와 컨테이너 객체를 생성자로 받을 것인가?
+- 메모리 할당 실패와 원소 이동 중 예외에 어떤 보장을 제공할 것인가?
+- 빈 큐의 `top`, `pop`을 예외, assertion, 전제 조건 중 무엇으로 처리할 것인가?
+
+실제 코드에서는 검증된 `std::priority_queue`를 우선 사용하고, 직접 구현은 자료구조의 동작을 이해하거나 특별한 인터페이스가 필요한 경우에 한정하는 편이 좋다.
+
+```cpp
+std::priority_queue<int> standardMaxQueue;
+std::priority_queue<int, std::vector<int>, std::greater<int>> standardMinQueue;
+```
+
+## 구현할 때 확인할 기준
+
+1. `Compare(a, b)`의 의미를 한 문장으로 설명할 수 있는가?
+2. 삽입할 원소를 먼저 배열 끝에 추가했는가?
+3. 상향 이동을 루트에서 종료하는가?
+4. 삭제 전에 빈 큐를 검사하는가?
+5. 원소가 하나인 큐를 별도로 처리하는가?
+6. 하향 이동에서 왼쪽 자식의 존재를 먼저 검사하는가?
+7. 오른쪽 자식이 없을 수 있다는 점을 처리했는가?
+8. 두 자식 중 우선순위가 더 높은 자식을 선택하는가?
+9. `top`이 반환한 참조의 유효 기간을 고려하는가?
+10. 같은 우선순위의 입력 순서가 필요하면 별도 순번을 포함했는가?
+11. 사용자 정의 비교 함수가 일관된 순서를 만드는가?
+12. 범용 기능이 필요하다면 직접 구현보다 표준 컨테이너가 적합하지 않은가?
+
+우선순위 큐 구현의 중심은 `push`와 `pop` 자체가 아니라, 하나의 비교 규칙을 상향 이동과 하향 이동에 똑같이 적용하는 데 있다. 비교 함수가 부모의 우선순위가 낮다고 판단할 때 위치를 교환하면 같은 힙 코드로 최댓값, 최솟값과 사용자 정의 우선순위를 모두 다룰 수 있다.
+
+## 다음 학습: 이진 탐색
+
+다음 글에서는 정렬된 배열에서 가운데 값을 기준으로 탐색 범위를 절반씩 줄이는 이진 탐색을 다룬다. 반복마다 유지해야 하는 구간의 의미와 중앙 인덱스 계산, 값을 찾지 못했을 때의 종료 조건을 살펴본다.

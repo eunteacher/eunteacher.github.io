@@ -1,5 +1,6 @@
 ---
 layout: post
+published: false
 title:  "[영어회화 7일차] 필수 매너 영어: 창문, 에어컨, 통화 허락 구하기"
 date:   2026-01-13 22:00:00 +0900
 categories: [회화, 영어회화]

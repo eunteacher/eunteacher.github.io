@@ -1,0 +1,472 @@
+---
+layout: post
+title: '[Algorithm 27] Disjoint Set: 경로 압축과 집합 합치기'
+date: 2026-04-08
+categories: [Dev, Algorithm]
+tags: [C++, Disjoint Set, Union Find, Path Compression, Graph]
+use_math: true
+---
+
+여러 원소가 서로 같은 그룹에 속하는지 반복해서 확인해야 하는 상황이 있다.
+
+```text
+0 ─ 1       4
+    │
+2 ─ 3       5
+
+0과 3은 같은 집합인가? → Yes
+0과 4는 같은 집합인가? → No
+```
+
+그래프 전체를 매번 탐색해 연결 관계를 확인할 수도 있지만, 간선이 하나씩 추가되면서 두 그룹을 계속 합치는 문제라면 같은 탐색을 반복하게 된다.
+
+Disjoint Set은 서로 겹치지 않는 집합들을 관리하는 자료구조다. 다음 두 연산이 중심이어서 Union-Find라고도 부른다.
+
+- `Find(x)`: 원소 `x`가 속한 집합의 대표를 찾는다.
+- `Union(a, b)`: `a`와 `b`가 속한 두 집합을 하나로 합친다.
+
+경로 압축(Path Compression)과 크기 또는 랭크 기반 합치기를 함께 사용하면 두 연산의 분할 상환 시간은 거의 상수에 가깝다.
+
+## 각 집합을 부모 트리로 표현한다
+
+각 원소는 부모 인덱스 하나를 저장한다. 자기 자신을 부모로 가리키는 원소가 해당 집합의 대표 루트다.
+
+```text
+parent[0] = 0
+parent[1] = 0
+parent[2] = 0
+parent[3] = 2
+
+트리 구조
+
+      0
+     / \
+    1   2
+        |
+        3
+```
+
+`3`에서 부모를 따라가면 `3 → 2 → 0`이고, 자기 자신을 가리키는 `0`이 대표다.
+
+여러 집합은 여러 부모 트리의 모음인 숲(Forest)으로 표현된다.
+
+```text
+집합 {0, 1, 2, 3}    집합 {4}    집합 {5}
+
+       0                4           5
+      / \
+     1   2
+         |
+         3
+```
+
+트리의 연결 방향은 자료구조 내부 표현일 뿐 원래 그래프의 간선 방향이나 실제 부모 관계를 의미하지 않는다.
+
+## 처음에는 모든 원소가 서로 다른 집합이다
+
+원소가 $N$개라면 부모 배열과 집합 크기 배열을 만든다.
+
+```cpp
+explicit DisjointSet(std::size_t count) : parent_(count), size_(count, 1), componentCount_(count)
+{
+    std::iota(parent_.begin(), parent_.end(), 0);
+}
+```
+
+```text
+index   0 1 2 3 4 5
+parent  0 1 2 3 4 5
+size    1 1 1 1 1 1
+```
+
+모든 원소가 자기 자신을 대표로 가지며 각 집합 크기는 1이다. 전체 집합 개수도 처음에는 `count`다.
+
+`size_` 값은 루트에서만 의미가 있다. 루트가 아닌 노드의 과거 크기를 매번 0으로 만들 필요는 없지만 집합 크기를 조회할 때는 반드시 대표를 먼저 찾아야 한다.
+
+## Find는 부모를 따라 대표를 찾는다
+
+기본적인 `Find`는 자기 자신을 부모로 가리키는 루트까지 이동한다.
+
+```cpp
+std::size_t Find(std::size_t value)
+{
+    if (parent_[value] == value)
+    {
+        return value;
+    }
+
+    return Find(parent_[value]);
+}
+```
+
+```text
+Find(3)
+
+parent[3] = 2 → Find(2)
+parent[2] = 0 → Find(0)
+parent[0] = 0 → 대표 0 반환
+```
+
+두 원소의 대표가 같으면 같은 집합에 속한다.
+
+```cpp
+bool Connected(std::size_t a, std::size_t b)
+{
+    return Find(a) == Find(b);
+}
+```
+
+## 단순 연결만 반복하면 긴 사슬이 생길 수 있다
+
+아무 기준 없이 한 루트를 다른 루트 아래에 붙이면 한쪽으로 긴 트리가 만들어질 수 있다.
+
+```text
+0 → 1 → 2 → 3 → 4 → 5
+```
+
+대표를 찾을 때마다 모든 부모를 따라가야 하므로 트리 높이가 $N$이면 `Find`가 $O(N)$까지 느려진다.
+
+Disjoint Set의 성능은 원소 수보다 부모 트리의 높이에 좌우된다. 경로 압축과 크기 기반 합치기는 이 높이를 낮게 유지하기 위한 서로 다른 최적화다.
+
+## 경로 압축은 찾은 경로를 루트에 바로 연결한다
+
+재귀 호출에서 대표를 반환받을 때 현재 노드의 부모를 대표로 바꾼다.
+
+```cpp
+std::size_t Find(std::size_t value)
+{
+    if (parent_[value] != value)
+    {
+        parent_[value] = Find(parent_[value]);
+    }
+
+    return parent_[value];
+}
+```
+
+```text
+압축 전
+
+0
+|
+2
+|
+3
+|
+6
+
+Find(6) 실행 후
+
+    0
+  / | \
+ 2  3  6
+```
+
+한 번 대표를 찾은 경로의 노드들은 이후 거의 한 단계 만에 같은 대표를 찾는다.
+
+경로 압축은 `Find`가 호출된 경로만 평평하게 만든다. 아직 검색하지 않은 다른 가지가 자동으로 모두 루트에 연결되는 것은 아니다.
+
+이 구현은 부모 배열을 바꾸므로 논리적으로 읽기만 하는 검색처럼 보여도 `const` 멤버 함수로 만들 수 없다. 변경 없이 대표만 찾는 별도 함수가 필요하다면 압축하지 않는 `FindConst` 등을 구분할 수 있다.
+
+## Union은 대표끼리 연결한다
+
+원소 자체를 바로 연결하지 않고 각 원소가 속한 집합의 대표를 먼저 찾는다.
+
+```cpp
+std::size_t rootA = Find(a);
+std::size_t rootB = Find(b);
+```
+
+대표가 이미 같으면 두 원소는 같은 집합이다.
+
+```cpp
+if (rootA == rootB)
+{
+    return false;
+}
+```
+
+서로 다른 집합일 때만 한 루트를 다른 루트의 자식으로 연결한다.
+
+## 작은 트리를 큰 트리 아래에 붙인다
+
+크기 기반 합치기(Union by Size)는 원소 수가 적은 집합의 루트를 큰 집합의 루트 아래에 연결한다.
+
+```cpp
+bool Union(std::size_t a, std::size_t b)
+{
+    std::size_t rootA = Find(a);
+    std::size_t rootB = Find(b);
+
+    if (rootA == rootB)
+    {
+        return false;
+    }
+
+    if (size_[rootA] < size_[rootB])
+    {
+        std::swap(rootA, rootB);
+    }
+
+    parent_[rootB] = rootA;
+    size_[rootA] += size_[rootB];
+    --componentCount_;
+    return true;
+}
+```
+
+```text
+큰 집합 크기 8      작은 집합 크기 2
+      A                   B
+
+B를 A 아래에 연결
+
+          A
+        /   \
+   기존 가지  B
+```
+
+작은 집합의 모든 노드 깊이는 최대 1만 증가한다. 어떤 원소의 깊이가 증가할 때마다 그 원소가 속한 집합 크기는 적어도 두 배가 되므로, 경로 압축이 없더라도 크기 기반 합치기만 사용한 트리 높이는 $O(\log N)$으로 제한된다.
+
+## Union 과정을 배열로 따라간다
+
+6개 원소에서 시작한다.
+
+```text
+초기
+parent = [0, 1, 2, 3, 4, 5]
+size   = [1, 1, 1, 1, 1, 1]
+```
+
+### Union(0, 1)
+
+두 집합 크기가 같으므로 `1`을 `0` 아래에 연결한다고 하자.
+
+```text
+parent = [0, 0, 2, 3, 4, 5]
+size   = [2, 1, 1, 1, 1, 1]
+```
+
+### Union(2, 3)
+
+```text
+parent = [0, 0, 2, 2, 4, 5]
+size   = [2, 1, 2, 1, 1, 1]
+```
+
+### Union(1, 2)
+
+`Find(1)`은 0, `Find(2)`는 2다. 크기가 2로 같으므로 `2`를 `0` 아래에 연결한다.
+
+```text
+parent = [0, 0, 0, 2, 4, 5]
+size   = [4, 1, 2, 1, 1, 1]
+```
+
+`3`은 아직 `2`를 부모로 가리킨다. `Find(3)`을 실행하면 `3 → 2 → 0` 경로가 압축된다.
+
+```text
+Find(3) 이후
+parent = [0, 0, 0, 0, 4, 5]
+```
+
+부모 배열의 모든 값이 항상 직접 대표를 가리킬 필요는 없다. `Find`를 거친 결과가 같은 대표에 도착하면 같은 집합이다.
+
+## 크기와 랭크는 서로 다른 기준이다
+
+크기 대신 랭크(Rank)를 사용하는 구현도 있다. 랭크는 트리 높이의 상한을 나타내는 값으로 사용한다.
+
+```text
+Union by Size
+→ 원소 수가 작은 집합을 큰 집합 아래에 연결
+
+Union by Rank
+→ 랭크가 낮은 트리를 높은 트리 아래에 연결
+→ 랭크가 같을 때만 새 루트의 랭크 증가
+```
+
+경로 압축 뒤 실제 높이는 줄어들 수 있지만 랭크를 다시 낮추지는 않는다. 랭크는 정확한 현재 높이가 아니라 합치기 결정을 위한 상한 정보다.
+
+한 구현에서 크기와 랭크의 갱신 규칙을 섞지 않는다. 집합 원소 수를 조회해야 한다면 Union by Size가 `size_` 정보를 그대로 제공한다는 장점이 있다.
+
+## 전체 구현
+
+```cpp
+#include <algorithm>
+#include <cassert>
+#include <cstddef>
+#include <numeric>
+#include <vector>
+
+class DisjointSet
+{
+public:
+    explicit DisjointSet(std::size_t count) : parent_(count), size_(count, 1), componentCount_(count)
+    {
+        std::iota(parent_.begin(), parent_.end(), 0);
+    }
+
+    std::size_t Find(std::size_t value)
+    {
+        assert(value < parent_.size());
+
+        if (parent_[value] != value)
+        {
+            parent_[value] = Find(parent_[value]);
+        }
+
+        return parent_[value];
+    }
+
+    bool Union(std::size_t a, std::size_t b)
+    {
+        std::size_t rootA = Find(a);
+        std::size_t rootB = Find(b);
+
+        if (rootA == rootB)
+        {
+            return false;
+        }
+
+        if (size_[rootA] < size_[rootB])
+        {
+            std::swap(rootA, rootB);
+        }
+
+        parent_[rootB] = rootA;
+        size_[rootA] += size_[rootB];
+        --componentCount_;
+        return true;
+    }
+
+    bool Connected(std::size_t a, std::size_t b)
+    {
+        return Find(a) == Find(b);
+    }
+
+    std::size_t SetSize(std::size_t value)
+    {
+        return size_[Find(value)];
+    }
+
+    std::size_t ComponentCount() const noexcept
+    {
+        return componentCount_;
+    }
+
+private:
+    std::vector<std::size_t> parent_;
+    std::vector<std::size_t> size_;
+    std::size_t componentCount_;
+};
+
+int main()
+{
+    DisjointSet sets(6);
+
+    assert(sets.ComponentCount() == 6);
+    assert(sets.Union(0, 1));
+    assert(sets.Union(2, 3));
+    assert(sets.Union(1, 2));
+    assert(!sets.Union(0, 3));
+
+    assert(sets.Connected(0, 3));
+    assert(!sets.Connected(0, 4));
+    assert(sets.SetSize(3) == 4);
+    assert(sets.ComponentCount() == 3);
+}
+```
+
+`Union`이 false를 반환하면 두 원소가 이미 같은 집합이었다는 뜻이다. 집합 수는 실제로 서로 다른 두 집합을 합쳤을 때만 감소한다.
+
+## 그래프의 사이클을 찾는다
+
+무방향 그래프에 간선을 하나씩 추가한다고 하자.
+
+```cpp
+for (const Edge& edge : edges)
+{
+    if (!sets.Union(edge.from, edge.to))
+    {
+        std::cout << "cycle detected\n";
+    }
+}
+```
+
+간선의 두 끝점이 이미 같은 집합이면 둘 사이에 기존 경로가 존재한다. 새 간선을 추가하면 사이클이 만들어진다.
+
+```text
+0 ─ 1
+\   /
+  2
+
+0-1 추가 → 합침
+1-2 추가 → 합침
+2-0 추가 → 이미 같은 집합, 사이클
+```
+
+이 성질은 다음에 다룰 Kruskal 최소 스패닝 트리에서 간선을 선택할 때 사용한다.
+
+## 시간 복잡도는 거의 상수다
+
+경로 압축과 크기 또는 랭크 기반 합치기를 함께 사용하면 $M$번의 연산에 다음 시간이 걸린다.
+
+$$
+O(M\alpha(N))
+$$
+
+$\alpha(N)$은 역 아커만 함수(Inverse Ackermann Function)로, 현실적인 크기의 입력에서는 매우 작은 값이다. 따라서 한 연산의 분할 상환 비용을 거의 $O(1)$처럼 다룬다.
+
+정확히 상수 시간이라고 표현하기보다 $O(\alpha(N))$ 분할 상환이라고 구분하는 편이 맞다.
+
+| 구현 | 연산 비용의 특징 |
+|---|---|
+| 아무 최적화 없음 | 최악 $O(N)$ |
+| 크기·랭크 기반 합치기 | 최악 $O(\log N)$ |
+| 경로 압축 + 크기·랭크 | 분할 상환 $O(\alpha(N))$ |
+
+한 번의 `Find`만 떼어 보면 부모 경로를 여러 단계 이동할 수 있다. 여러 연산 전체에 압축 효과를 나눠 계산한 결과가 분할 상환 복잡도다.
+
+## Disjoint Set이 잘하는 일과 못하는 일
+
+Disjoint Set은 집합 합치기와 같은 집합 여부 확인에 특화돼 있다.
+
+```text
+잘하는 일
+→ 두 원소의 연결 여부
+→ 두 집합 합치기
+→ 전체 컴포넌트 수
+→ 집합 크기
+
+기본 구조로 어려운 일
+→ 합친 집합 다시 분리
+→ 간선 삭제 뒤 연결 여부
+→ 두 원소 사이의 실제 경로 복원
+→ 집합 내부 원소 전체를 즉시 나열
+```
+
+부모 배열은 대표를 찾기 위한 압축된 구조이며 원래 그래프의 간선을 보존하지 않는다. `0`과 `3`이 연결됐다는 사실은 알 수 있지만 어떤 간선을 따라 연결됐는지는 별도로 저장해야 한다.
+
+연산을 되돌려야 하는 문제에서는 Rollback DSU처럼 경로 압축을 제한하고 변경 이력을 저장하는 변형을 사용할 수 있다. 요구사항이 달라지면 기본 최적화가 그대로 적용되지 않을 수 있다.
+
+## 구현할 때 확인할 기준
+
+1. 처음에 모든 원소의 부모가 자기 자신인가?
+2. 루트에서만 자기 자신을 부모로 가리키는가?
+3. `Find`가 반환받은 대표를 현재 부모에 저장하는가?
+4. `Union` 전에 두 원소의 대표를 각각 찾는가?
+5. 대표가 같으면 연결과 집합 수 갱신을 하지 않는가?
+6. 작은 트리를 큰 트리 아래에 연결하는가?
+7. 크기 정보는 새 대표에서만 갱신하는가?
+8. 집합 크기를 조회할 때 먼저 대표를 찾는가?
+9. 크기 기반과 랭크 기반 규칙을 섞지 않는가?
+10. 입력 인덱스가 부모 배열 범위 안인지 보장하는가?
+11. 부모 배열이 원래 그래프 경로를 저장한다고 오해하지 않는가?
+12. 집합 분리나 간선 삭제가 필요한 문제인지 확인했는가?
+13. 단일 연산 최악 비용과 여러 연산의 분할 상환 비용을 구분하는가?
+
+Disjoint Set의 핵심은 각 집합에서 대표 하나만 일관되게 찾는 것이다. 경로 압축은 이미 찾은 경로를 대표에 가깝게 만들고, 크기 기반 합치기는 작은 트리만 깊어지게 한다. 두 방법을 함께 사용하면 많은 연결·조회 연산을 매우 작은 비용으로 처리할 수 있다.
+
+## 다음 학습: Kruskal 최소 스패닝 트리
+
+다음 글에서는 가중치가 작은 간선부터 확인하고, 서로 다른 집합을 연결하는 간선만 선택하는 Kruskal 알고리즘을 다룬다. Disjoint Set으로 사이클을 판별하면서 모든 정점을 최소 비용으로 연결하는 과정을 살펴본다.

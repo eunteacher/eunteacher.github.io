@@ -1,5 +1,6 @@
 ---
 layout: post
+published: false
 title:  "[태국어생존회화 3일차] 식당에서 주문 & 계산하기 생존 태국어"
 date:   2026-01-04 14:00:00 +0900
 categories: [회화, 태국어생존회화]

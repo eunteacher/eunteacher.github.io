@@ -1,5 +1,6 @@
 ---
 layout: post
+published: false
 title:  "[영어회화 22일차] 내 기분과 온도를 솔직하게! 상태 표현의 기초"
 date:   2026-03-23 00:00:00 +0900
 categories: [회화, 영어회화]

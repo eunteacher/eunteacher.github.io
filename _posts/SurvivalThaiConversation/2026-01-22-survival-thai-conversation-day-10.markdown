@@ -1,5 +1,6 @@
 ---
 layout: post
+published: false
 title:  "[태국어생존회화 10일차] 썸 타는 태국어: 연락처 따기 & 고백하기"
 date:   2026-01-22 20:00:00 +0900
 categories: [회화, 태국어생존회화]

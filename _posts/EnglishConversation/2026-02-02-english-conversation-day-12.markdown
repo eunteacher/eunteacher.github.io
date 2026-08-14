@@ -1,5 +1,6 @@
 ---
 layout: post
+published: false
 title: "[영어회화 12일차] 분실과 통증, 위급 상황 대처하기"
 date:   2026-02-02 21:00:00 +0900
 categories: [회화, 영어회화]

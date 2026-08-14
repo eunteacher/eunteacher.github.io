@@ -1,5 +1,6 @@
 ---
 layout: post
+published: false
 title:  "[태국어생존회화 12일차] 위급 상황 탈출: 분실, 통증, 병원 찾기"
 date:   2026-02-02 21:00:00 +0900
 categories: [회화, 태국어생존회화]

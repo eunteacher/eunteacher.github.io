@@ -1,5 +1,6 @@
 ---
 layout: post
+published: false
 title:  "[영어회화 1일차] 호텔 체크인 & 환전하기"
 date:   2026-01-01 17:00:00 +0900
 categories: [회화, 영어회화]
