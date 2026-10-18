@@ -1,5 +1,7 @@
 #include <iostream>
 #include <random>
+#include <cstdlib>
+using namespace std;
 
 // 변수 선언이 아니라, 타일 종류를 나타내는 타입 정의
 enum class TileType
@@ -8,17 +10,43 @@ enum class TileType
   Empty
 };
 
-constexpr int boardSize = 15;
-static_assert(boardSize >= 3 && boardSize % 2 == 1,
-  "boardSize must be an odd number >= 3");
+enum class Direction
+{
+  Up,
+  Right,
+  Down,
+  Left
+};
 
-void PrintBoard(const TileType(&tiles)[boardSize][boardSize])
+constexpr int boardSize = 15;
+static_assert(boardSize >= 3 && boardSize % 2 == 1, "boardSize must be an odd number >= 3");
+
+void PrintBoard(const TileType(&tiles)[boardSize][boardSize], int playerY = -1, int playerX = -1, Direction playerDir = Direction::Up)
 {
   for (int y = 0; y < boardSize; ++y)
   {
     for (int x = 0; x < boardSize; ++x)
     {
-      if (tiles[y][x] == TileType::Wall)
+      if (y == playerY && x == playerX)
+      {
+        if (playerDir == Direction::Up)
+        {
+          std::cout << '^';
+        }
+        else if (playerDir == Direction::Right)
+        {
+          std::cout << '>';
+        }
+        else if (playerDir == Direction::Down)
+        {
+          std::cout << 'v';
+        }
+        else if (playerDir == Direction::Left)
+        {
+          std::cout << '<';
+        }
+      }
+      else if (tiles[y][x] == TileType::Wall)
       {
         std::cout << '#';
       }
@@ -50,82 +78,10 @@ void ResetBoard(TileType(&tiles)[boardSize][boardSize])
   }
 }
 
-int main()
+// 방을 초기화하고 무작위로 연결해서 미로를 만든다.
+void GenerateMaze(TileType(&tiles)[boardSize][boardSize])
 {
-  std::cout << "Algorithm Day 02 - Maze\n";
-
-  std::cout << std::endl;
-
-  TileType tiles[boardSize][boardSize]{};
-
-  for (int x = 0; x < boardSize; ++x)
-  {
-    tiles[0][x] = TileType::Wall;
-  }
-
-  PrintBoard(tiles);
-  std::cout << std::endl;
-
-  for (int y = 0; y < boardSize; ++y)
-  {
-    for (int x = 0; x < boardSize; ++x)
-    {
-      // y와 x가 둘 다 홀수면 이 칸을 Empty로 바꾸기
-      if (y % 2 == 1 && x % 2 == 1)
-      {
-        tiles[y][x] = TileType::Empty;
-      }
-    }
-  }
-
-  PrintBoard(tiles);
-  std::cout << std::endl;
-
-  //// 첫 번째 방과 오른쪽 방 사이의 벽을 뚫는다.
-  //tiles[1][2] = TileType::Empty;
-
-  //PrintBoard(tiles);
-  //std::cout << std::endl;
-
-  //// 위 상수를 코드로 표현하면,
-  //int roomY = 1;
-  //int roomX = 1;
-
-  //// 현재 방의 오른쪽 벽을 뚫는다.
-  //tiles[roomY][roomX + 1] = TileType::Empty;
-
-
-  //for (int roomX = 1; roomX < boardSize - 2; roomX += 2)
-  //{
-  //  tiles[roomY][roomX + 1] = TileType::Empty;
-  //}
-
-  //PrintBoard(tiles);
-
-  for (int roomY = 1; roomY < boardSize - 1; roomY += 2)
-  {
-    for (int roomX = 1; roomX < boardSize - 2; roomX += 2)
-    {
-      tiles[roomY][roomX + 1] = TileType::Empty;
-    }
-  }
-
-  int roomX = boardSize - 2;
-
-  for (int roomY = 1; roomY < boardSize - 2; roomY += 2)
-  {
-    tiles[roomY + 1][roomX] = TileType::Empty;
-  }
-
-  //tiles[y][x + 1] = TileType::Empty; // 오른쪽 벽 뚫기
-  //tiles[y + 1][x] = TileType::Empty; // 아래쪽 벽 뚫기
-
-  PrintBoard(tiles);
-  std::cout << std::endl;
-
   ResetBoard(tiles);
-  PrintBoard(tiles);
-  std::cout << std::endl;
 
   // 반복문 밖에서 난수 엔진을 한 번 만든다.
   std::random_device seed;
@@ -163,7 +119,120 @@ int main()
       }
     }
   }
+}
 
-  PrintBoard(tiles);
+// 오른손 법칙으로 한 차례 이동하거나 회전한다.
+// 참조(&)로 받아 호출한 쪽의 위치와 방향을 변경한다.
+void StepPlayer(const TileType(&tiles)[boardSize][boardSize], int& playerY, int& playerX, Direction& playerDir)
+{
+  Direction rightDir = static_cast<Direction>((static_cast<int>(playerDir) + 1) % 4);
+
+  // 플레이어 기준 오른쪽 칸의 좌표를 계산한다.
+  int rightY = playerY;
+  int rightX = playerX;
+
+  if (rightDir == Direction::Up)
+  {
+    rightY -= 1;
+  }
+  else if (rightDir == Direction::Right)
+  {
+    rightX += 1;
+  }
+  else if (rightDir == Direction::Down)
+  {
+    rightY += 1;
+  }
+  else if (rightDir == Direction::Left)
+  {
+    rightX -= 1;
+  }
+
+  bool canMoveRight = false;
+
+  if (rightY >= 0 && rightY < boardSize && rightX >= 0 && rightX < boardSize)
+  {
+    canMoveRight = (tiles[rightY][rightX] == TileType::Empty);
+  }
+
+  if (canMoveRight)
+  {
+    playerDir = rightDir;
+    playerY = rightY;
+    playerX = rightX;
+  }
+  else
+  {
+    // 오른쪽이 막혔으니 앞쪽 칸을 확인한다.
+    int nextY = playerY;
+    int nextX = playerX;
+
+    if (playerDir == Direction::Up)
+    {
+      nextY -= 1;
+    }
+    else if (playerDir == Direction::Right)
+    {
+      nextX += 1;
+    }
+    else if (playerDir == Direction::Down)
+    {
+      nextY += 1;
+    }
+    else if (playerDir == Direction::Left)
+    {
+      nextX -= 1;
+    }
+
+    if (nextY >= 0 && nextY < boardSize && nextX >= 0 && nextX < boardSize)
+    {
+      if (tiles[nextY][nextX] == TileType::Empty)
+      {
+        playerY = nextY;
+        playerX = nextX;
+      }
+      else
+      {
+        // 오른쪽과 앞쪽이 모두 벽이면 제자리에서 왼쪽으로 회전한다.
+        playerDir = static_cast<Direction>((static_cast<int>(playerDir) + 3) % 4);
+      }
+    }
+  }
+}
+
+int main()
+{
+  std::system("cls");
+  std::cout << "Algorithm Day 02 - Maze\n\n";
+
+  TileType tiles[boardSize][boardSize]{};
+  GenerateMaze(tiles);
+
+  int playerY = 1;
+  int playerX = 1;
+  Direction playerDir = Direction::Up;
+
+  int goalY = boardSize - 2;
+  int goalX = boardSize - 2;
+
+  PrintBoard(tiles, playerY, playerX, playerDir);
+
+  while (playerY != goalY || playerX != goalX)
+  {
+    std::cout << "\nPress Enter for the next action.\n";
+    if (!std::cin.get())
+    {
+      return 0;
+    }
+
+    StepPlayer(tiles, playerY, playerX, playerDir);
+    // Windows 콘솔을 지우고 현재 미로만 다시 출력한다.
+    std::system("cls");
+    std::cout << "Algorithm Day 02 - Maze\n\n";
+    PrintBoard(tiles, playerY, playerX, playerDir);
+  }
+
+  std::cout << "\nGoal reached!\n";
+
   return 0;
 }
