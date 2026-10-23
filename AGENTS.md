@@ -25,3 +25,8 @@ void PrintBoard(const TileType(&tiles)[boardSize][boardSize], int playerY = -1, 
 - 코드 이해를 중심으로 한 단계씩 진행하고, 질문은 한 번에 하나씩 한다.
 - 사용자가 직접 실습할 수 있도록 요청 없이 실습 코드나 블로그 글을 수정하지 않는다.
 - Git pull, commit, push는 사용자가 요청했을 때만 수행한다.
+
+## CS 학습 자료
+
+- CS 글은 `_posts/CS/카테고리/MD파일` 구조로 저장한다.
+- 컴퓨터 구조 글은 `_posts/CS/computer-architecture/`에 저장한다.
