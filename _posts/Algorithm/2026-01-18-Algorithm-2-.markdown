@@ -1,650 +1,796 @@
 ---
 layout: post
-title: '[Algorithm 02] 미로 생성과 오른손 법칙: 격자 구조와 방향 상태로 길 찾기'
+title: '[Algorithm 02] 미로 생성과 오른손 법칙: 직접 구현하며 이해하기'
 date: 2026-01-18
 categories: [Dev, Algorithm]
 tags: [C++, Maze Generation, Binary Tree Maze, Right-Hand Rule, Pathfinding]
 render_with_liquid: false
 ---
 
-이번 실습은 콘솔 격자에 미로를 만들고 플레이어가 입구에서 출구까지 이동할 경로를 미리 계산한다. 하나의 화면에서 동작하지만 실제 책임은 두 부분으로 나뉜다.
+이 글은 15 × 15 콘솔 미로를 만들고, 엔터를 누를 때마다 플레이어가 오른손 법칙으로 한 차례 행동하도록 구현하는 복습 기록이다. 실습 코드는 `.code/AlgorithmDay02/main.cpp`를 기준으로 한다.
+
+**해야 할 일을 말로 정리하고 → 짧게 구현하고 → 실행 결과를 확인하는 순서**로 진행한다. 미로 생성과 플레이어 이동을 나누고, 처음에는 배열과 함수만 사용한다.
+
+방향 순서는 `Up → Right → Down → Left`로 통일한다. 오른쪽 회전은 `+1`, 왼쪽 회전은 `+3`이다. 다른 코드의 방향 순서와 회전 공식을 섞지 않는다.
+
+목표는 빈 C++ 프로젝트에서 미로를 만들고, 플레이어가 오른손 법칙으로 도착점까지 걷게 만드는 것이다. 완성 코드를 보지 않고 아래 설명과 짧은 힌트만으로 구현해보자.
+
+한 단계를 구현하면 실행해서 확인하고 다음 단계로 넘어간다. 함수 이름과 변수 이름은 바꿔도 된다. 중요한 것은 각 코드가 하는 일을 설명할 수 있는 것이다.
+
+## 1. 전체를 두 덩어리로 생각하기
+
+| 구분 | 해야 할 일 |
+| --- | --- |
+| 미로 생성 | 벽과 방을 만들고, 방 사이 벽을 뚫어 연결한다. |
+| 플레이어 | 위치와 방향을 기억하고, 길을 확인해서 이동하거나 회전한다. |
+
+출력은 이 둘이 잘 작동하는지 확인하는 도구다. 처음에는 미로만 출력하고, 나중에 플레이어와 방향 표시를 붙인다.
+
+최종 실행 흐름은 다음과 같다.
 
 ```text
-Board::GenerateMap() → 벽과 통로로 이루어진 미로 생성
-Player::Init()       → 오른손 법칙으로 이동 경로 계산
-Player::Update()     → 계산된 경로를 일정 시간 간격으로 재생
+미로 생성
+플레이어 시작 위치와 방향 설정
+시작 화면 출력
+도착할 때까지 반복
+  엔터 입력 기다리기
+  한 차례 판단해서 이동 또는 회전
+  이전 화면을 지우고 현재 상태 출력
+도착 안내
 ```
 
-미로 생성은 문제 공간을 만들고 오른손 법칙은 그 공간을 탐색한다. 두 알고리즘을 분리해서 봐야 생성된 미로가 왜 연결되는지, 탐색이 언제 끝나는지와 찾은 경로가 최단 경로인지 판단할 수 있다.
+## 2. 좌표와 데이터부터 정하기
 
-## 격자는 Tile[y][x]로 저장한다
-
-이번 실습의 `Board`는 고정 크기 2차원 배열에 타일을 저장한다.
+미로는 15 × 15 크기의 배열로 만든다. 크기는 3 이상의 홀수로 정한다. 아래 설명에서 좌표는 항상 `(y, x)` 순서다.
 
 ```cpp
 enum class TileType
 {
-    None,
-    Empty,
-    Wall
+  Wall,
+  Empty
 };
 
-TileType tiles[BoardMaxSize][BoardMaxSize]{};
+constexpr int boardSize = 15;
+TileType tiles[boardSize][boardSize]{};
 ```
 
-첫 번째 인덱스 `y`는 행, 두 번째 인덱스 `x`는 열이다.
+`tiles[y][x]`에서 `y`는 행, `x`는 열이다. 화면의 왼쪽 위가 `(0, 0)`이다.
 
-```text
-y 증가: 아래쪽
-x 증가: 오른쪽
+| 이동 | 좌표 변화 |
+| --- | --- |
+| 위 | y가 1 감소 |
+| 오른쪽 | x가 1 증가 |
+| 아래 | y가 1 증가 |
+| 왼쪽 | x가 1 감소 |
 
-(0,0) ─────────→ x
-  │
-  │
-  ↓
-  y
-```
+주의: `TileType` 배열의 `{}` 초기화는 첫 번째 값인 `Wall`로 채운다. 아래 초기화 함수에서는 모든 칸에 값을 직접 넣어서 규칙을 분명히 하자.
 
-입구와 출구는 외곽 벽 안쪽의 홀수 좌표에 둔다.
+## 3. 미로 생성: 벽과 방 만들기
+
+먼저 가로·세로 반복문으로 모든 칸을 방문한다.
+
+- y와 x가 모두 홀수이면 빈 방으로 만든다.
+- 나머지는 벽으로 만든다.
+
+조건 힌트:
 
 ```cpp
-Pos GetEnterPos() const { return Pos{1, 1}; }
-Pos GetExitPos() const { return Pos{size_ - 2, size_ - 2}; }
+y % 2 == 1 && x % 2 == 1
 ```
 
-`Pos`는 멤버가 `y`, `x` 순서로 선언돼 `{y, x}`로 생성된다. 초기화 순서와 배열 접근 순서를 섞지 않도록 한 글 안에서 좌표 규칙을 일관되게 사용해야 한다.
-
-## 맵 크기는 홀수여야 한다
-
-이 구현은 짝수 좌표를 벽, 홀수 좌표를 방으로 사용한다.
+5 × 5로 생각하면 초기 모습은 다음과 같다. 실제 출력에서는 빈칸을 공백으로 표시해도 된다.
 
 ```text
-# # # # # # #
-# . # . # . #
-# # # # # # #
-# . # . # . #
-# # # # # # #
-# . # . # . #
-# # # # # # #
+#####
+# # #
+#####
+# # #
+#####
 ```
 
-`.`은 방, `#`은 벽이다. 외곽을 벽으로 유지하면서 `(size - 2, size - 2)`를 방으로 만들려면 `size`가 3 이상의 홀수여야 한다.
+방은 `(1, 1)`, `(1, 3)`, `(3, 1)`, `(3, 3)`에 있다. 두 방 사이에는 벽 한 칸이 있다.
+
+직접 할 일:
+
+1. 초기화 함수를 작성한다.
+2. 출력 함수를 작성한다. 벽은 `#`, 길은 공백으로 표시한다.
+3. 각 행의 출력이 끝나면 줄을 바꾼다.
+
+확인: 바깥 테두리가 전부 벽이고, 빈 방들이 서로 떨어져 있으면 성공이다.
+
+## 4. 미로 생성: 방 사이의 벽 뚫기
+
+이번 실습은 각 방에서 **오른쪽 또는 아래쪽**으로 연결하는 방식이다. 미로 생성 방향과 나중에 플레이어가 움직이는 방향은 별개다. 플레이어는 네 방향으로 다닐 수 있다.
+
+방만 방문하려면 y와 x를 1부터 시작해 2씩 증가시킨다. 마지막 방의 좌표는 `boardSize - 2`다.
+
+반복문 한쪽의 힌트:
 
 ```cpp
-assert(size >= 3);
-assert(size % 2 == 1);
-assert(size <= BoardMaxSize);
+for (int y = 1; y < boardSize - 1; y += 2)
 ```
 
-고정 배열의 최대 크기가 100이라면 `size`는 그 범위를 넘을 수 없다. 짝수 크기에서는 입구·출구와 방 좌표 규칙도 성립하지 않으므로 초기화 단계에서 범위와 홀수 조건을 함께 확인한다.
+현재 방이 `(y, x)`일 때 벽과 다음 방의 위치를 구별하자.
 
-## 첫 단계는 서로 막힌 방을 만든다
+| 방향 | 뚫을 벽 | 연결되는 방 |
+| --- | --- | --- |
+| 오른쪽 | `(y, x + 1)` | `(y, x + 2)` |
+| 아래쪽 | `(y + 1, x)` | `(y + 2, x)` |
 
-모든 좌표를 순회하면서 `x` 또는 `y`가 짝수면 벽으로 만든다.
+주요 코드 힌트:
 
 ```cpp
-for (int y = 0; y < size; ++y)
-{
-    for (int x = 0; x < size; ++x)
-    {
-        if (x % 2 == 0 || y % 2 == 0)
-        {
-            tiles[y][x] = TileType::Wall;
-        }
-        else
-        {
-            tiles[y][x] = TileType::Empty;
-        }
-    }
-}
+tiles[y][x + 1] = TileType::Empty; // 오른쪽 벽
+tiles[y + 1][x] = TileType::Empty; // 아래쪽 벽
 ```
 
-홀수 좌표의 각 방 사이에는 벽 한 칸이 있다. 아직은 어떤 방에서도 다른 방으로 이동할 수 없다.
+위 두 줄을 매번 모두 실행하는 것이 아니다. 아래 규칙에 따라 필요한 방향 하나를 선택한다.
 
-```text
-방 중심 간 거리: 2칸
+| 현재 방 | 처리 |
+| --- | --- |
+| 오른쪽 아래 마지막 방 | 연결할 다음 방이 없으므로 건너뛴다. |
+| 마지막 행의 방 | 아래에 방이 없으므로 오른쪽으로 연결한다. |
+| 마지막 열의 방 | 오른쪽에 방이 없으므로 아래로 연결한다. |
+| 그 밖의 방 | 오른쪽 또는 아래쪽 중 하나를 무작위로 고른다. |
 
-(1,1)  벽  (1,3)
-  .     #     .
-```
+### 먼저 구별하기: 마지막 방과 바깥 벽
 
-두 방을 연결하려면 가운데 벽 한 칸을 `Empty`로 바꾼다.
+크기가 15라면 배열의 좌표는 `0 ~ 14`다. 방의 좌표는 `1, 3, 5, 7, 9, 11, 13`이다.
 
-## 각 방에서 동쪽 또는 남쪽 벽 하나를 연다
+- `boardSize - 1`, 즉 14는 바깥 벽의 좌표다.
+- `boardSize - 2`, 즉 13은 마지막 방이 있는 행 또는 열의 좌표다.
+- 여기서 '마지막 행'은 바깥 벽인 14행이 아니라 **방이 있는 마지막 행인 13행**을 말한다. 마지막 열도 마찬가지다.
 
-이번 실습에서 사용하는 방식은 Binary Tree Maze 생성 알고리즘의 한 방향 변형이다. 각 방은 동쪽 또는 남쪽 중 하나를 선택해 통로를 만든다.
+각 방에서 물어볼 것은 **오른쪽에 연결할 방이 있는가? 아래쪽에 연결할 방이 있는가?** 두 가지다. 그 조합으로 아래 네 가지 상황이 생긴다.
+
+| 상황 | 오른쪽에 방 | 아래쪽에 방 | 선택 |
+| --- | --- | --- | --- |
+| 오른쪽 아래 마지막 방 | 없음 | 없음 | 벽을 뚫지 않는다. |
+| 마지막 행이지만 마지막 열은 아닌 방 | 있음 | 없음 | 오른쪽만 가능하다. |
+| 마지막 열이지만 마지막 행은 아닌 방 | 없음 | 있음 | 아래쪽만 가능하다. |
+| 마지막 행도 마지막 열도 아닌 방 | 있음 | 있음 | 두 방향 중 하나를 고른다. |
+
+### 조건 1: 오른쪽 아래 마지막 방인가?
+
+예: `(13, 13)`. 오른쪽과 아래쪽이 모두 미로 바깥을 향하므로 새로 연결할 방이 없다. 이 방에서는 아무 벽도 뚫지 않는다. 왼쪽이나 위쪽 방에서 이 방으로 연결해주므로 고립되는 것은 아니다.
+
+조건 힌트:
 
 ```cpp
-for (int y = 1; y < size - 1; y += 2)
-{
-    for (int x = 1; x < size - 1; x += 2)
-    {
-        if (y == size - 2 && x == size - 2)
-        {
-            continue;
-        }
-
-        if (y == size - 2)
-        {
-            tiles[y][x + 1] = TileType::Empty;
-        }
-        else if (x == size - 2)
-        {
-            tiles[y + 1][x] = TileType::Empty;
-        }
-        else if (ChooseEast())
-        {
-            tiles[y][x + 1] = TileType::Empty;
-        }
-        else
-        {
-            tiles[y + 1][x] = TileType::Empty;
-        }
-    }
-}
+y == boardSize - 2 && x == boardSize - 2
 ```
 
-일반 방에서는 동쪽과 남쪽을 무작위로 선택한다. 경계에서는 선택할 수 있는 방향이 하나뿐이다.
+이 방은 마지막 행과 마지막 열에도 해당한다. `continue;`로 이후 연결 처리를 건너뛰어 바깥 벽을 뚫지 않도록 한다.
 
-```text
-마지막 행의 방    → 동쪽으로 연결
-마지막 열의 방    → 남쪽으로 연결
-우하단 마지막 방  → 더 이상 연결하지 않음
-```
+### 조건 2: 방이 있는 마지막 행인가?
 
-방을 연결할 때는 전체 타일을 순회하며 짝수 좌표를 건너뛰거나, 홀수인 방 좌표만 `+= 2`로 순회할 수 있다. 두 반복 방식은 같은 방을 처리한다.
+예: `(13, 5)`. 아래쪽 벽 `(14, 5)` 너머에 방이 없다. 그 벽을 뚫으면 방을 연결하는 것이 아니라 바깥 테두리에 구멍을 내게 된다.
 
-## 생성된 통로가 하나의 트리가 되는 이유
+반면 오른쪽에는 `(13, 7)` 방이 있으므로, 사이의 `(13, 6)` 벽을 뚫는다.
 
-방을 정점, 방 사이에 연 벽을 간선으로 생각해 보자. 우하단 방을 제외한 모든 방은 동쪽이나 남쪽의 방으로 간선 하나를 만든다.
-
-동쪽이나 남쪽으로 이동하면 좌표 합 `x + y`가 항상 증가한다. 따라서 이전 방으로 되돌아오는 방향 순환을 만들 수 없다.
-
-```text
-(y, x) → (y, x + 2) 또는 (y + 2, x)
-x + y는 항상 증가
-```
-
-경계 규칙 때문에 모든 방에서 연결을 계속 따라가면 결국 우하단 방에 도달한다. 방의 개수를 $R$이라고 하면 다음 성질을 가진다.
-
-```text
-모든 방이 우하단 방과 연결됨
-우하단을 제외한 각 방이 간선 하나 생성
-전체 간선 수 = R - 1
-순환 없음
-```
-
-연결된 정점 $R$개와 간선 $R-1$개를 가지므로 통로 그래프는 트리다. 따라서 임의의 두 방 사이 경로가 하나뿐인 perfect maze가 만들어진다.
-
-여기서 “동쪽과 남쪽만 벽을 연다”는 뜻은 북쪽·서쪽 경계가 절대 열리지 않는다는 뜻이 아니다. 위쪽이나 왼쪽 이웃이 자신의 동쪽·남쪽 벽을 열면 현재 방의 서쪽·북쪽 통로가 될 수 있다.
-
-## 생성 방식에는 방향 편향이 있다
-
-각 방의 선택지가 동쪽과 남쪽으로 제한돼 미로 모양에도 편향이 생긴다. 마지막 행은 동쪽으로 이어지고 마지막 열은 남쪽으로 이어지는 긴 통로가 만들어진다.
-
-```text
-동일 확률 선택 ≠ 모든 미로 모양이 동일한 확률
-```
-
-단순하고 추가 탐색 상태가 거의 필요 없다는 장점이 있지만 자연스럽고 다양한 미로 분포가 필요한 경우에는 DFS 기반 backtracking, Prim이나 Kruskal 기반 생성 알고리즘을 비교해야 한다.
-
-## 난수와 재현 가능성을 구분한다
-
-간단한 구현에서는 다음 표현으로 방향을 선택할 수 있다.
+조건 힌트:
 
 ```cpp
-int randomValue = std::rand() % 2;
+y == boardSize - 2
 ```
 
-간단한 학습용 선택에는 사용할 수 있지만 전역 상태에 의존하고 시드 관리와 분포 품질을 제어하기 어렵다. 실행마다 다른 미로가 목적이라면 시드를 한 번 설정해야 하고, 버그 재현과 테스트가 목적이라면 고정 시드가 더 유용하다.
+마지막 모서리 방은 조건 1에서 이미 건너뛰었다. 따라서 여기까지 온 마지막 행의 방에는 반드시 오른쪽 방이 있다. 무작위 선택은 필요 없다.
+
+### 조건 3: 방이 있는 마지막 열인가?
+
+예: `(5, 13)`. 오른쪽 벽 `(5, 14)` 너머에 방이 없다. 오른쪽 바깥 벽은 그대로 둔다.
+
+아래쪽에는 `(7, 13)` 방이 있으므로, 사이의 `(6, 13)` 벽을 뚫는다.
+
+조건 힌트:
 
 ```cpp
-std::mt19937 random(seed);
+x == boardSize - 2
+```
+
+이 경우에도 선택 가능한 방향은 아래쪽 하나뿐이다.
+
+### 조건 4: 오른쪽과 아래쪽에 모두 방이 있는가?
+
+예: `(5, 5)`. 오른쪽 `(5, 7)`과 아래쪽 `(7, 5)`에 모두 방이 있다. 이제 무작위로 한 방향을 고를 수 있다.
+
+- 오른쪽을 골랐다면 `(5, 6)`의 벽만 뚫는다.
+- 아래쪽을 골랐다면 `(6, 5)`의 벽만 뚫는다.
+
+이 상황은 앞의 세 가지에 해당하지 않는 나머지 방이다. 별도로 복잡한 좌표 조건을 쓰지 않아도 된다. `chooseEast(random)`의 결과에 따라 한쪽만 선택하자.
+
+### 검사 순서가 중요한 이유
+
+`(13, 13)`은 마지막 방이면서 마지막 행에도, 마지막 열에도 속한다. 따라서 **가장 구체적인 조건인 마지막 모서리 방부터 처리**해야 한다.
+
+만약 마지막 행부터 검사하면 `(13, 13)`에서도 오른쪽 벽 `(13, 14)`을 뚫어버린다. 배열 범위를 벗어난 것은 아니지만, 바깥 벽을 유지한다는 규칙을 어긴다.
+
+전체 코드를 작성하기 전에 다음 순서를 말로 설명해보자.
+
+```text
+마지막 모서리 방이면 → 건너뛰기
+
+마지막 행이면 → 오른쪽 벽 뚫기
+그렇지 않고 마지막 열이면 → 아래쪽 벽 뚫기
+그 밖의 방이면 → 무작위로 오른쪽 또는 아래쪽 벽 하나 뚫기
+```
+
+코드 구조는 `if (마지막 모서리) { continue; }` 다음에, 마지막 행부터 `if / else if / else`로 이어보자. 마지막 모서리 검사 뒤에 독립된 `if`를 쓸 수 있는 이유는, 모서리에서는 이미 `continue`로 아래 코드를 건너뛰었기 때문이다.
+
+확인 질문: `(13, 5)`, `(5, 13)`, `(5, 5)`, `(13, 13)`에서 각각 어떤 처리를 해야 하는지 먼저 적어보고 코드를 작성하자.
+
+난수 도구 힌트 (`#include <random>` 필요):
+
+```cpp
+std::random_device seed;
+std::mt19937 random(seed());
 std::bernoulli_distribution chooseEast(0.5);
 ```
 
-생성 함수 안에서 현재 시간을 매번 시드로 넣으면 짧은 시간에 여러 번 생성할 때 같은 결과가 나오거나 테스트 재현이 어려워질 수 있다. 난수 엔진의 소유 위치와 시드 정책을 호출 측에서 정한다.
+이 준비 코드는 방을 순회하는 반복문 밖에 둔다. `chooseEast(random)`은 약 50% 확률로 `true`를 반환한다. `true`면 오른쪽, `false`면 아래쪽으로 연결해보자.
 
-## 방향 배열의 순서가 회전 공식을 결정한다
+확인:
 
-플레이어는 방향을 다음 순서로 저장한다.
+- 실행할 때마다 내부 모양이 달라지는가?
+- 바깥 테두리는 그대로 벽인가?
+- 마지막 행의 방들은 가로로 연결되는가?
+- 마지막 열의 방들은 세로로 연결되는가?
+
+이 방식에서는 각 방에서 오른쪽이나 아래쪽 연결을 따라가면 마지막 방에 도달한다. 좌표가 커지는 방향으로만 연결하므로 같은 방을 맴도는 연결도 생기지 않는다. 따라서 모든 방이 하나의 미로로 연결된다.
+
+## 5. 플레이어: 위치와 방향 표시
+
+플레이어는 미로 배열과 별도로 위치와 방향을 기억한다. 이동할 때 타일을 `P`로 바꿀 필요는 없다.
 
 ```cpp
-enum Direction
+enum class Direction
 {
-    Up,
-    Left,
-    Down,
-    Right,
-    DirectionCount
+  Up,
+  Right,
+  Down,
+  Left
 };
-
-const Pos front[DirectionCount]
-{
-    {-1, 0},
-    {0, -1},
-    {1, 0},
-    {0, 1}
-};
 ```
 
-인덱스가 증가하면 왼쪽으로 90도 회전한다.
+시작 위치는 `(1, 1)`, 시작 방향은 `Up`으로 정한다. 도착점은 오른쪽 아래 방 `(boardSize - 2, boardSize - 2)`이다.
 
-```text
-Up(0) → Left(1) → Down(2) → Right(3) → Up(0)
-```
+출력 함수에서는 현재 출력 중인 좌표가 플레이어 위치인지 **벽 검사보다 먼저** 확인한다. 플레이어 위치라면 방향에 맞는 문자를 출력한다.
 
-따라서 왼쪽 회전은 1을 더하고 오른쪽 회전은 1을 뺀다.
+| 방향 | 문자 |
+| --- | --- |
+| Up | `^` |
+| Right | `>` |
+| Down | `v` |
+| Left | `<` |
+
+확인: 시작 화면에서 두 번째 줄, 두 번째 칸에 `^`가 표시되어야 한다. `(0, 0)`은 바깥 벽이다.
+
+## 6. 플레이어: 벽을 확인하고 한 칸 이동
+
+실제 위치를 바로 바꾸지 말고, 먼저 **이동 후보 좌표**를 만든다.
 
 ```cpp
-int TurnLeft(int direction)
-{
-    return (direction + 1) % DirectionCount;
-}
-
-int TurnRight(int direction)
-{
-    return (direction - 1 + DirectionCount) % DirectionCount;
-}
+int nextY = playerY;
+int nextX = playerX;
 ```
 
-`+ DirectionCount`는 `Up`에서 1을 뺀 음수에 `%`를 적용하지 않도록 한다. 방향 배열을 `Up, Right, Down, Left` 순서로 바꾸면 회전 공식도 반대로 바뀐다. 공식만 복사하지 않고 enum 순서와 함께 유지한다.
-
-## 오른손 법칙은 방향까지 상태로 사용한다
-
-같은 위치에 있어도 어느 방향을 바라보는지에 따라 다음 행동이 달라진다.
-
-```text
-탐색 상태 = (현재 y, 현재 x, 바라보는 방향)
-```
-
-한 단계의 우선순위는 다음과 같다.
-
-```text
-1. 오른쪽 칸으로 갈 수 있다 → 오른쪽 회전 후 한 칸 전진
-2. 오른쪽이 막히고 앞이 열렸다 → 직진
-3. 오른쪽과 앞이 막혔다 → 제자리에서 왼쪽 회전
-```
+현재 방향에 따라 후보 좌표만 한 칸 변경한다. 예를 들어 위를 보고 있다면:
 
 ```cpp
-while (current != destination)
-{
-    int right = TurnRight(direction);
-
-    if (CanGo(current + front[right]))
-    {
-        direction = right;
-        current += front[direction];
-        path.push_back(current);
-    }
-    else if (CanGo(current + front[direction]))
-    {
-        current += front[direction];
-        path.push_back(current);
-    }
-    else
-    {
-        direction = TurnLeft(direction);
-    }
-}
+nextY -= 1;
 ```
 
-막다른 길에서는 왼쪽 회전이 여러 번 반복되고 뒤쪽 통로가 앞에 오면 이동한다. 회전만 한 상태는 위치 경로에 추가하지 않고 실제로 한 칸 움직였을 때만 좌표를 기록한다.
+나머지 세 방향은 앞의 좌표 변화 표를 보고 직접 작성한다.
 
-## CanGo는 격자 경계와 타일 종류를 함께 검사한다
+검사 순서는 다음과 같다.
 
-`Board::GetTileType`은 범위를 벗어난 좌표에 `TileType::None`을 반환한다.
+1. 후보 좌표가 배열 범위 안인지 확인한다.
+2. 범위 안이라면 그 칸이 `Empty`인지 확인한다.
+3. 길일 때만 실제 위치를 후보 좌표로 바꾼다.
+
+범위 조건 힌트:
 
 ```cpp
-TileType Board::GetTileType(Pos position) const
-{
-    if (position.x < 0 || position.x >= size_ || position.y < 0 || position.y >= size_)
-    {
-        return TileType::None;
-    }
-
-    return tiles_[position.y][position.x];
-}
+nextY >= 0 && nextY < boardSize && nextX >= 0 && nextX < boardSize
 ```
 
-플레이어는 `Empty`인 칸만 이동 가능하다고 판단한다.
+범위를 확인하기 전에 `tiles[nextY][nextX]`에 접근하지 않는다.
+
+위치 반영 힌트:
 
 ```cpp
-bool Player::CanGo(Pos position) const
-{
-    return board_->GetTileType(position) == TileType::Empty;
-}
+playerY = nextY;
+playerX = nextX;
 ```
 
-이렇게 하면 탐색 코드가 배열을 직접 읽지 않고 보드가 경계 정책을 책임진다. 출구 좌표도 `Empty`여야 목적지에 도달할 수 있다.
+확인: `(1, 1)`에서 위로 이동을 시도하면 제자리에 있어야 한다. 앞선 코드에서 `playerY -= 1`을 먼저 실행해두면 벽 검사 전에 이동해버리므로 주의한다.
 
-## 오른손 법칙은 최단 경로 알고리즘이 아니다
+## 7. 플레이어: 회전과 오른손 법칙
 
-벽을 따라가는 방식은 지나온 길을 되돌아가거나 목적지와 반대 방향의 통로를 먼저 탐색할 수 있다.
+오른쪽은 화면 기준이 아니라 **플레이어가 바라보는 방향 기준**이다.
 
 ```text
-도착 가능한 경로를 찾음 ≠ 이동 횟수가 가장 적은 경로
+오른쪽 회전: Up → Right → Down → Left → Up
+왼쪽 회전:   Up → Left → Down → Right → Up
 ```
 
-생성된 미로의 방 그래프는 트리이므로 방 사이의 단순 경로는 하나뿐이다. 하지만 오른손 법칙은 막다른 가지에 들어갔다 돌아올 수 있어 기록된 이동 경로에는 같은 칸이 반복될 수 있다.
-
-가중치가 없는 격자에서 실제 최단 이동 경로가 필요하면 BFS로 각 칸의 부모를 기록한 뒤 목적지에서 시작점까지 역추적하는 방법이 적합하다. 이 내용은 알고리즘 12편에서 다룬다.
-
-## 종료가 보장되지 않는 미로도 고려한다
-
-고전적인 벽 따라가기 방법은 벽 구조와 입구·출구 조건에 따라 성공 여부가 달라진다. 서로 분리된 벽 섬이나 순환 통로가 있는 일반 미로에서는 목적지에 도달하지 못한 채 같은 상태를 반복할 수 있다.
-
-이번 생성 방식은 연결되고 순환이 없는 통로 트리를 만들기 때문에 오른손 법칙과 함께 사용하기 좋은 조건이다. 다른 방식으로 만든 일반 미로까지 탐색하려면 반복 상태 검사로 성공과 실패를 구분할 수 있다.
+앞에서 선언한 enum은 순서대로 `0, 1, 2, 3`이다. 이 순서를 유지하면 다음 계산을 사용할 수 있다.
 
 ```cpp
-if (visited[current.y][current.x][direction])
+Direction rightDir = static_cast<Direction>((static_cast<int>(playerDir) + 1) % 4);
+```
+
+- `static_cast<int>`: 방향을 숫자로 바꾼다.
+- `+ 1`: 오른쪽으로 한 번 돌린 방향을 구한다.
+- `% 4`: 4가 되면 0으로 돌아오게 한다.
+- `static_cast<Direction>`: 숫자를 다시 방향 타입으로 바꾼다.
+
+왼쪽 회전은 `+ 1` 대신 `+ 3`을 사용한다. `0 - 1`로 계산하면 음수가 생길 수 있으므로 이번에는 이 방법을 쓴다.
+
+`rightDir`을 계산하는 것만으로 플레이어가 회전하지는 않는다. 실제 회전은 `playerDir`에 새 방향을 넣을 때 일어난다.
+
+한 차례 행동을 다음 순서로 구현하자.
+
+```text
+현재 방향을 기준으로 오른쪽 방향 구하기
+오른쪽 칸의 좌표 구하기
+
+오른쪽 칸이 길이면
+  오른쪽으로 회전하고 그 칸으로 이동
+그렇지 않으면
+  현재 방향의 앞쪽 칸 구하기
+  앞쪽이 길이면 직진
+  앞쪽도 막혔으면 제자리에서 왼쪽으로 회전
+```
+
+오른쪽 후보를 계산할 때는 `rightDir`, 앞쪽 후보를 계산할 때는 `playerDir`을 기준으로 한다. 오른쪽으로 이동한 차례에는 직진까지 추가로 하지 않는다.
+
+왼쪽 회전만 한 차례에는 위치가 그대로다. 다음 차례에 바뀐 방향으로 다시 오른쪽과 앞을 확인한다. 막다른 길에서는 여러 차례 회전한 뒤 들어왔던 길로 돌아갈 수 있다.
+
+## 8. main을 짧게 유지하기
+
+함수는 다음 역할로 나눠보자. 처음부터 클래스나 여러 파일로 나눌 필요는 없다.
+
+| 함수 이름 예시 | 역할 |
+| --- | --- |
+| ResetBoard | 모든 칸을 벽 또는 방으로 초기화 |
+| GenerateMaze | 초기화 후 방 사이 벽을 뚫기 |
+| PrintBoard | 미로와 플레이어 방향 출력 |
+| StepPlayer | 오른손 법칙으로 한 차례 행동 |
+
+한 차례 행동 함수의 매개변수 힌트:
+
+```cpp
+void StepPlayer(const TileType(&tiles)[boardSize][boardSize], int& playerY, int& playerX, Direction& playerDir)
+```
+
+`const`는 여기서 미로를 바꾸지 않겠다는 뜻이다. `int&`, `Direction&`는 호출한 쪽의 위치와 방향을 직접 바꾸기 위해 사용한다. 값만 복사해서 받으면 함수 안에서 이동해도 `main`의 플레이어는 그대로다.
+
+## 9. 도착할 때까지 한 차례씩 실행하기
+
+위치와 방향 초기화는 반복문 밖에 둔다. 반복문 안에 넣으면 매번 출발점으로 돌아간다.
+
+반복 조건 힌트:
+
+```cpp
+while (playerY != goalY || playerX != goalX)
+```
+
+두 좌표 중 하나라도 도착점과 다르면 계속 진행한다. `&&`를 쓰면 한 좌표만 도착점과 같아져도 너무 일찍 끝날 수 있다.
+
+반복문 안에서 할 일은 다음 네 가지다.
+
+1. 엔터 입력을 기다린다.
+2. `StepPlayer`를 한 번 호출한다.
+3. 이전 화면을 지운다.
+4. 현재 미로와 플레이어를 출력한다.
+
+매 차례 오른쪽 방향과 후보 좌표를 다시 계산해야 한다. 따라서 그 계산은 반복 호출되는 `StepPlayer` 안에 둔다.
+
+입력·출력 힌트:
+
+```cpp
+std::cout << "Press Enter for the next action.\n";
+std::cin.get();
+```
+
+입력이 종료되면 반복을 끝내도록 `std::cin.get()`의 성공 여부도 확인하면 좋다. 이 실습에서는 다른 `cin >>` 입력을 섞지 않는다.
+
+Windows 콘솔 화면 지우기 힌트 (`#include <cstdlib>` 필요):
+
+```cpp
+std::system("cls");
+```
+
+시작 화면은 반복 전에 한 번 출력한다. 도착한 뒤에는 `Goal reached!`를 출력한다. 콘솔 인코딩 설정에 영향을 덜 받도록 실행 안내 문구는 영어로 작성한다.
+
+## 10. 랜덤 때문에 헷갈릴 때 확인하는 방법
+
+미로 전체를 보면서 추측하기보다, 아래 상황을 하나씩 확인하자. 필요하면 미로 생성 뒤 잠시 주변 타일을 직접 지정해서 상황을 만들고, 확인 후 테스트 설정을 지운다.
+
+| 시험 상황 | 기대 결과 |
+| --- | --- |
+| 위를 보며 오른쪽 칸이 길 | 오른쪽 칸으로 이동하고 `>` 표시 |
+| 오른쪽과 앞쪽이 모두 길 | 오른쪽 길을 먼저 선택 |
+| 오른쪽이 벽이고 앞쪽이 길 | 방향을 유지하고 한 칸 직진 |
+| 오른쪽과 앞쪽이 모두 벽 | 위치는 그대로, 왼쪽 방향으로 표시 변경 |
+| 시작 위치에서 위로 이동만 시도 | 바깥 벽을 통과하지 않음 |
+| 한 좌표만 도착점과 같음 | 반복을 계속함 |
+| 두 좌표 모두 도착점과 같음 | 도착 안내 후 반복 종료 |
+
+예를 들어 `(1, 1)`에서 위를 보게 하고, 오른쪽 타일인 `tiles[1][2]`를 `Empty`로 지정하면 첫 행동의 결과를 확실하게 확인할 수 있다. 회전만 확인하려면 같은 타일을 `Wall`로 지정한다. 앞쪽 `(0, 1)`은 이미 바깥 벽이므로 왼쪽으로 회전해야 한다.
+
+같은 랜덤 미로로 반복 확인하고 싶다면 난수 엔진을 잠시 고정값으로 만들 수도 있다.
+
+```cpp
+std::mt19937 random(42);
+```
+
+같은 실행 환경에서는 같은 미로를 재현하기 편하다. 확인이 끝나면 원래의 무작위 초기화로 되돌린다.
+
+## 11. 완성 후 스스로 설명해보기
+
+- 왜 미로 크기를 홀수로 정했는가?
+- 왜 방을 방문할 때는 2칸씩, 플레이어는 1칸씩 움직이는가?
+- 마지막 행과 마지막 열에서 무작위 방향을 그대로 고르면 왜 안 되는가?
+- 왜 실제 위치를 바꾸기 전에 후보 좌표를 계산하는가?
+- 오른쪽이 길일 때 왜 `playerDir`도 바꿔야 하는가?
+- 왜 왼쪽으로 회전한 뒤 바로 이동하지 않아도 되는가?
+- 왜 오른쪽 후보 좌표를 매 차례 다시 구해야 하는가?
+- 왜 반복 조건에 `||`를 사용하는가?
+- 왜 위치와 방향을 참조로 전달하는가?
+
+이번처럼 모든 길이 연결되고 길의 고리가 없는 미로에서는 오른손 법칙으로 도착점을 찾을 수 있다. 다만 가장 짧은 경로를 구하는 알고리즘은 아니다. 임의의 다른 미로에서도 항상 도착한다고 일반화하지는 말자.
+
+문서를 보며 한 번 완성한 다음, 다음 연습에서는 코드 힌트를 가리고 위의 실행 흐름과 행동 규칙만 보고 다시 구현해보자. 각 분기의 이유를 설명하고, 문제가 생겼을 때 후보 좌표와 실제 위치를 구별해서 고칠 수 있다면 스스로 구현하는 힘이 붙은 것이다.
+
+## 12. 복습 중 막혔던 부분: 움직이지 않는 플레이어
+
+오른쪽 후보 좌표를 구하고 벽 여부까지 확인했는데, 엔터를 눌러도 움직이지 않는 문제가 있었다. 당시에는 다음처럼 `else`를 범위 검사 바로 뒤에 붙였다.
+
+```cpp
+if (rightY >= 0 && rightY < boardSize && rightX >= 0 && rightX < boardSize)
 {
-    return false;
+  canMoveRight = (tiles[rightY][rightX] == TileType::Empty);
+}
+else
+{
+  // 앞쪽 확인
+}
+```
+
+이 `else`는 **오른쪽 칸이 벽일 때**가 아니라 **후보 좌표가 배열 범위 밖일 때** 실행된다.
+
+시작 위치 `(1, 1)`에서 위를 보면 오른쪽 후보는 `(1, 2)`다. 그 칸이 벽이어도 좌표는 범위 안이다. 따라서 `canMoveRight`에 `false`만 저장하고 함수가 끝난다. 길이어도 `true`만 저장할 뿐 실제 위치를 바꾸는 코드가 없으므로 이동하지 않는다.
+
+빠진 것은 범위 검사 다음의 **이동 가능 여부에 따른 행동 분기**였다.
+
+```cpp
+bool canMoveRight = false;
+
+// 1. 안전하게 타일을 읽고 판단 결과를 저장한다.
+if (rightY >= 0 && rightY < boardSize && rightX >= 0 && rightX < boardSize)
+{
+  canMoveRight = (tiles[rightY][rightX] == TileType::Empty);
 }
 
-visited[current.y][current.x][direction] = true;
-```
-
-위치만 방문 처리하면 같은 칸을 다른 방향으로 다시 통과해야 하는 정상적인 벽 따라가기까지 막을 수 있다. 반복 여부는 `(위치, 방향)` 전체 상태로 판단한다.
-
-## 경로 계산과 화면 재생을 분리한다
-
-`Player::Init`은 미로를 한 번에 탐색해 `Path`를 만든다. `Player::Update`는 프레임마다 탐색을 다시 하지 않고 누적 시간이 이동 간격을 넘었을 때 다음 좌표를 꺼낸다.
-
-```cpp
-void Player::Update(std::uint64_t deltaTick)
+// 2. 판단 결과에 따라 실제 행동을 선택한다.
+if (canMoveRight)
 {
-    if (pathIndex_ >= path_.size())
-    {
-        return;
-    }
-
-    sumTick_ += deltaTick;
-
-    if (sumTick_ >= MoveTick)
-    {
-        sumTick_ = 0;
-        position_ = path_[pathIndex_];
-        ++pathIndex_;
-    }
+  playerDir = rightDir;
+  playerY = rightY;
+  playerX = rightX;
+}
+else
+{
+  // 앞쪽 확인
 }
 ```
 
-```text
-탐색 단계: Board를 읽어 Path 생성
-재생 단계: Path를 시간 간격에 따라 Position에 반영
-렌더 단계: 현재 Position을 색상으로 출력
-```
-
-알고리즘 검증과 애니메이션 속도를 분리할 수 있다는 장점이 있다.
-
-같은 `Player` 객체를 새로운 미로에서 다시 사용한다면 `Path`뿐 아니라 `pathIndex`, `sumTick`과 초기 방향도 함께 초기 상태로 되돌려야 한다.
-
-## 복잡도
-
-보드의 높이와 너비가 모두 $S$인 정사각 격자라고 하자.
-
-### 미로 생성
-
-전체 타일 초기화는 $S^2$칸을 한 번씩 처리한다. 방 연결도 방 개수에 비례하며 방 개수는 $O(S^2)$이다.
+**범위 검사와 행동 선택은 서로 다른 조건이다.** `else`가 무엇의 반대 상황인지 헷갈리면 연결된 `if`를 그대로 말로 읽어본다.
 
 ```text
-시간 복잡도: O(S²)
-타일 저장 공간: O(S²)
-추가 작업 공간: O(1), 타일 배열 제외
+범위 검사에 연결된 else → 범위 밖이면
+canMoveRight에 연결된 else → 오른쪽으로 이동할 수 없으면
 ```
 
-### 오른손 법칙
+## 13. 전체 코드와 대조하기
 
-이번 생성 방식의 통로 그래프는 트리다. 벽 따라가기는 막다른 가지를 왕복할 수 있지만 트리의 통로를 상수 횟수 이내로 따라가므로 목적지까지 최악 이동량은 통로 크기에 선형인 $O(S^2)$로 볼 수 있다.
+각 단계를 구현한 뒤 실습 원본과 비교한다. 특히 `StepPlayer`에서는 후보 좌표 계산, 범위 검사, 행동 분기의 중괄호 위치를 확인한다.
 
-```text
-탐색 시간: O(S²), 현재 생성된 perfect maze 기준
-기록 경로: O(S²)
-반복 상태 배열: O(S²)
-```
-
-임의의 순환 미로에서 종료 검사를 하지 않으면 시간 복잡도를 유한하게 보장할 수 없다. 상태 반복 검사를 넣으면 가능한 `(위치, 방향)` 수가 최대 $4S^2$이므로 그 안에서 성공 또는 실패를 결정할 수 있다.
-
-## 전체 검증 예제
-
-다음 코드는 고정 시드로 9×9 미로를 만들고 빈 타일 그래프가 트리인지 확인한 뒤 오른손 법칙으로 출구까지 이동한다. 생성과 탐색의 핵심 조건을 한 번에 확인하는 예제다.
+아래 코드는 유효한 빈 방에서 시작하고 바깥 테두리를 벽으로 유지한다. 앞쪽 후보는 범위 안의 길 또는 벽이 된다. 임의의 시작 좌표나 테두리 없는 보드로 확장한다면 앞쪽 후보가 범위 밖인 경우에도 회전하거나 실패를 처리하도록 보완해야 한다.
 
 ```cpp
-#include <array>
-#include <cassert>
-#include <cstdint>
 #include <iostream>
-#include <queue>
 #include <random>
-#include <string>
-#include <utility>
-#include <vector>
+#include <cstdlib>
+using namespace std;
 
-struct Pos
+// 변수 선언이 아니라, 타일 종류를 나타내는 타입 정의
+enum class TileType
 {
-    int y;
-    int x;
-
-    friend bool operator==(const Pos&, const Pos&) = default;
+  Wall,
+  Empty
 };
 
-class Maze
+enum class Direction
 {
-public:
-    Maze(int size, std::uint32_t seed) : tiles_(size, std::string(size, '#'))
-    {
-        assert(size >= 3 && size % 2 == 1);
-        Generate(seed);
-    }
-
-    int Size() const { return static_cast<int>(tiles_.size()); }
-    Pos Enter() const { return {1, 1}; }
-    Pos Exit() const { return {Size() - 2, Size() - 2}; }
-
-    bool CanGo(Pos position) const
-    {
-        return position.y >= 0 && position.y < Size() && position.x >= 0 && position.x < Size() && tiles_[position.y][position.x] == '.';
-    }
-
-    bool IsPassageTree() const
-    {
-        int openCount = 0;
-        int edgeCount = 0;
-
-        for (int y = 0; y < Size(); ++y)
-        {
-            for (int x = 0; x < Size(); ++x)
-            {
-                if (!CanGo({y, x}))
-                {
-                    continue;
-                }
-
-                ++openCount;
-
-                if (CanGo({y + 1, x}))
-                {
-                    ++edgeCount;
-                }
-
-                if (CanGo({y, x + 1}))
-                {
-                    ++edgeCount;
-                }
-            }
-        }
-
-        std::vector<std::vector<bool>> visited(Size(), std::vector<bool>(Size(), false));
-        std::queue<Pos> pending;
-        pending.push(Enter());
-        visited[Enter().y][Enter().x] = true;
-        int reachedCount = 0;
-
-        while (!pending.empty())
-        {
-            Pos current = pending.front();
-            pending.pop();
-            ++reachedCount;
-
-            for (Pos offset : Directions)
-            {
-                Pos next{current.y + offset.y, current.x + offset.x};
-
-                if (CanGo(next) && !visited[next.y][next.x])
-                {
-                    visited[next.y][next.x] = true;
-                    pending.push(next);
-                }
-            }
-        }
-
-        return reachedCount == openCount && edgeCount == openCount - 1;
-    }
-
-private:
-    void Generate(std::uint32_t seed)
-    {
-        for (int y = 1; y < Size() - 1; y += 2)
-        {
-            for (int x = 1; x < Size() - 1; x += 2)
-            {
-                tiles_[y][x] = '.';
-            }
-        }
-
-        std::mt19937 random(seed);
-        std::bernoulli_distribution chooseEast(0.5);
-
-        for (int y = 1; y < Size() - 1; y += 2)
-        {
-            for (int x = 1; x < Size() - 1; x += 2)
-            {
-                if (y == Size() - 2 && x == Size() - 2)
-                {
-                    continue;
-                }
-
-                if (y == Size() - 2)
-                {
-                    tiles_[y][x + 1] = '.';
-                }
-                else if (x == Size() - 2)
-                {
-                    tiles_[y + 1][x] = '.';
-                }
-                else if (chooseEast(random))
-                {
-                    tiles_[y][x + 1] = '.';
-                }
-                else
-                {
-                    tiles_[y + 1][x] = '.';
-                }
-            }
-        }
-    }
-
-    inline static constexpr std::array<Pos, 4> Directions{{{-1, 0}, {0, -1}, {1, 0}, {0, 1}}};
-    std::vector<std::string> tiles_;
+  Up,
+  Right,
+  Down,
+  Left
 };
 
-struct SearchResult
+constexpr int boardSize = 15;
+static_assert(boardSize >= 3 && boardSize % 2 == 1, "boardSize must be an odd number >= 3");
+
+void PrintBoard(const TileType(&tiles)[boardSize][boardSize], int playerY = -1, int playerX = -1, Direction playerDir = Direction::Up)
 {
-    bool reached;
-    std::vector<Pos> path;
-};
-
-SearchResult FollowRightWall(const Maze& maze)
-{
-    constexpr int directionCount = 4;
-    constexpr std::array<Pos, directionCount> front{{{-1, 0}, {0, -1}, {1, 0}, {0, 1}}};
-
-    Pos current = maze.Enter();
-    int direction = 0;
-    std::vector<Pos> path{current};
-    std::vector<std::vector<std::array<bool, directionCount>>> visited(maze.Size(), std::vector<std::array<bool, directionCount>>(maze.Size()));
-
-    while (current != maze.Exit())
+  for (int y = 0; y < boardSize; ++y)
+  {
+    for (int x = 0; x < boardSize; ++x)
     {
-        if (visited[current.y][current.x][direction])
+      if (y == playerY && x == playerX)
+      {
+        if (playerDir == Direction::Up)
         {
-            return {false, std::move(path)};
+          std::cout << '^';
         }
-
-        visited[current.y][current.x][direction] = true;
-        int right = (direction - 1 + directionCount) % directionCount;
-        Pos rightPosition{current.y + front[right].y, current.x + front[right].x};
-        Pos frontPosition{current.y + front[direction].y, current.x + front[direction].x};
-
-        if (maze.CanGo(rightPosition))
+        else if (playerDir == Direction::Right)
         {
-            direction = right;
-            current = rightPosition;
-            path.push_back(current);
+          std::cout << '>';
         }
-        else if (maze.CanGo(frontPosition))
+        else if (playerDir == Direction::Down)
         {
-            current = frontPosition;
-            path.push_back(current);
+          std::cout << 'v';
         }
-        else
+        else if (playerDir == Direction::Left)
         {
-            direction = (direction + 1) % directionCount;
+          std::cout << '<';
         }
+      }
+      else if (tiles[y][x] == TileType::Wall)
+      {
+        std::cout << '#';
+      }
+      else if (tiles[y][x] == TileType::Empty)
+      {
+        std::cout << ' ';
+      }
     }
 
-    return {true, std::move(path)};
+    std::cout << '\n';
+  }
+}
+
+void ResetBoard(TileType(&tiles)[boardSize][boardSize])
+{
+  for (int y = 0; y < boardSize; ++y)
+  {
+    for (int x = 0; x < boardSize; ++x)
+    {
+      if (y % 2 == 1 && x % 2 == 1)
+      {
+        tiles[y][x] = TileType::Empty;
+      }
+      else
+      {
+        tiles[y][x] = TileType::Wall;
+      }
+    }
+  }
+}
+
+// 방을 초기화하고 무작위로 연결해서 미로를 만든다.
+void GenerateMaze(TileType(&tiles)[boardSize][boardSize])
+{
+  ResetBoard(tiles);
+
+  // 반복문 밖에서 난수 엔진을 한 번 만든다.
+  std::random_device seed;
+  std::mt19937 random(seed());
+  std::bernoulli_distribution chooseEast(0.5);
+
+  for (int y = 1; y < boardSize - 1; y += 2)
+  {
+    for (int x = 1; x < boardSize - 1; x += 2)
+    {
+      // 1. 오른쪽 아래 마지막 방: 연결할 방향이 없음
+      if (y == boardSize - 2 && x == boardSize - 2)
+      {
+        continue;
+      }
+
+      // 2. 마지막 행: 아래에 방이 없으므로 오른쪽으로 연결
+      if (y == boardSize - 2)
+      {
+        tiles[y][x + 1] = TileType::Empty;
+      }
+      // 3. 마지막 열: 오른쪽에 방이 없으므로 아래로 연결
+      else if (x == boardSize - 2)
+      {
+        tiles[y + 1][x] = TileType::Empty;
+      }
+      // 4. 나머지 방: 오른쪽 또는 아래쪽을 무작위 선택
+      else if (chooseEast(random))
+      {
+        tiles[y][x + 1] = TileType::Empty;
+      }
+      else
+      {
+        tiles[y + 1][x] = TileType::Empty;
+      }
+    }
+  }
+}
+
+// 오른손 법칙으로 한 차례 이동하거나 회전한다.
+// 참조(&)로 받아 호출한 쪽의 위치와 방향을 변경한다.
+void StepPlayer(const TileType(&tiles)[boardSize][boardSize], int& playerY, int& playerX, Direction& playerDir)
+{
+  Direction rightDir = static_cast<Direction>((static_cast<int>(playerDir) + 1) % 4);
+
+  // 플레이어 기준 오른쪽 칸의 좌표를 계산한다.
+  int rightY = playerY;
+  int rightX = playerX;
+
+  if (rightDir == Direction::Up)
+  {
+    rightY -= 1;
+  }
+  else if (rightDir == Direction::Right)
+  {
+    rightX += 1;
+  }
+  else if (rightDir == Direction::Down)
+  {
+    rightY += 1;
+  }
+  else if (rightDir == Direction::Left)
+  {
+    rightX -= 1;
+  }
+
+  bool canMoveRight = false;
+
+  if (rightY >= 0 && rightY < boardSize && rightX >= 0 && rightX < boardSize)
+  {
+    canMoveRight = (tiles[rightY][rightX] == TileType::Empty);
+  }
+
+  if (canMoveRight)
+  {
+    playerDir = rightDir;
+    playerY = rightY;
+    playerX = rightX;
+  }
+  else
+  {
+    // 오른쪽이 막혔으니 앞쪽 칸을 확인한다.
+    int nextY = playerY;
+    int nextX = playerX;
+
+    if (playerDir == Direction::Up)
+    {
+      nextY -= 1;
+    }
+    else if (playerDir == Direction::Right)
+    {
+      nextX += 1;
+    }
+    else if (playerDir == Direction::Down)
+    {
+      nextY += 1;
+    }
+    else if (playerDir == Direction::Left)
+    {
+      nextX -= 1;
+    }
+
+    if (nextY >= 0 && nextY < boardSize && nextX >= 0 && nextX < boardSize)
+    {
+      if (tiles[nextY][nextX] == TileType::Empty)
+      {
+        playerY = nextY;
+        playerX = nextX;
+      }
+      else
+      {
+        // 오른쪽과 앞쪽이 모두 벽이면 제자리에서 왼쪽으로 회전한다.
+        playerDir = static_cast<Direction>((static_cast<int>(playerDir) + 3) % 4);
+      }
+    }
+  }
 }
 
 int main()
 {
-    Maze maze(9, 2026);
-    SearchResult result = FollowRightWall(maze);
+  std::system("cls");
+  std::cout << "Algorithm Day 02 - Maze\n\n";
 
-    assert(maze.IsPassageTree());
-    assert(result.reached);
-    assert(result.path.front() == maze.Enter());
-    assert(result.path.back() == maze.Exit());
+  TileType tiles[boardSize][boardSize]{};
+  GenerateMaze(tiles);
 
-    std::cout << std::boolalpha;
-    std::cout << "Passage graph is a tree: " << maze.IsPassageTree() << '\n';
-    std::cout << "Reached exit: " << result.reached << '\n';
-    std::cout << "Recorded positions: " << result.path.size() << '\n';
+  int playerY = 1;
+  int playerX = 1;
+  Direction playerDir = Direction::Up;
+
+  int goalY = boardSize - 2;
+  int goalX = boardSize - 2;
+
+  PrintBoard(tiles, playerY, playerX, playerDir);
+
+  while (playerY != goalY || playerX != goalX)
+  {
+    std::cout << "\nPress Enter for the next action.\n";
+    if (!std::cin.get())
+    {
+      return 0;
+    }
+
+    StepPlayer(tiles, playerY, playerX, playerDir);
+    // Windows 콘솔을 지우고 현재 미로만 다시 출력한다.
+    std::system("cls");
+    std::cout << "Algorithm Day 02 - Maze\n\n";
+    PrintBoard(tiles, playerY, playerX, playerDir);
+  }
+
+  std::cout << "\nGoal reached!\n";
+
+  return 0;
 }
 ```
 
-고정 시드로 실행한 결과는 다음과 같다.
+## 14. 구현한 뒤 이해할 내용
+
+### 모든 방이 연결되는 이유
+
+방을 점, 방 사이에 뚫은 벽을 연결선으로 생각해보자. 오른쪽 아래 마지막 방을 제외한 각 방은 오른쪽이나 아래쪽으로 연결선 하나를 만든다.
+
+그 방향으로 연결을 계속 따라가면 좌표가 커지고, 경계에서는 가능한 방향으로만 연결하므로 결국 오른쪽 아래 마지막 방에 도달한다. 모든 방이 같은 마지막 방에 연결되는 셈이다.
+
+방이 R개라면 연결선은 R - 1개다. 모든 방이 연결되고 연결선이 R - 1개인 구조는 트리다. 두 방 사이에 같은 방을 반복하지 않는 경로는 하나뿐이다. 이런 미로를 perfect maze라고 한다.
+
+생성할 때 오른쪽과 아래쪽으로만 벽을 뚫어도 플레이어는 네 방향으로 이동할 수 있다. 왼쪽 방에서 오른쪽 벽을 뚫었다면 현재 방에서는 왼쪽 통로가 된다.
+
+### 무작위 선택에도 방향 편향이 있다
+
+각 방의 선택지는 오른쪽과 아래쪽으로 제한된다. 마지막 행과 마지막 열에는 긴 통로가 생긴다. 두 방향을 50% 확률로 고른다는 것이 모든 미로 모양을 같은 확률로 만든다는 뜻은 아니다.
+
+더 다양한 생성 방식이 필요할 때는 DFS 기반 backtracking, Prim 또는 Kruskal 기반 생성 방식을 비교할 수 있다.
+
+### 오른손 법칙은 최단 경로를 보장하지 않는다
+
+막다른 길에 들어갔다 돌아올 수 있으므로 출구에 도착했다는 사실이 가장 적게 움직였다는 뜻은 아니다. 이동 비용이 같은 격자의 최단 경로는 이후 BFS에서 다룬다.
+
+이번처럼 통로가 트리인 미로에서는 도착할 수 있다. 순환 통로나 분리된 벽 구조가 있는 다른 미로에서도 임의의 목적지에 항상 도착한다고 일반화하면 안 된다.
+
+다른 생성기로 만든 미로도 처리하려면 `(y, x, 방향)` 상태가 반복되는지 검사해 실패를 판단할 수 있다. 위치만 검사하면 같은 칸을 다른 방향으로 다시 지나는 정상 동작까지 막는다.
+
+### 생성과 탐색의 복잡도
+
+가로·세로 크기를 S라고 하면 초기화는 S²칸을 방문하고 방 연결도 방 개수에 비례한다.
+
+| 작업 | 시간 | 공간 |
+| --- | --- | --- |
+| 미로 생성 | O(S²) | 타일 배열 O(S²), 그 외 추가 작업 공간 O(1) |
+| 이번 트리 미로의 오른손 탐색 | O(S²) | 위치와 방향만 보관하면 추가 공간 O(1) |
+
+트리의 가지를 들어갔다 돌아오더라도 통로 크기에 비례하는 횟수 안에서 도착한다. 표의 탐색 시간은 입력 대기와 화면 출력을 제외한 판단·이동 연산 기준이다. 매 행동마다 S²칸을 전부 다시 출력하면 전체 출력 작업은 최악 O(S⁴)까지 늘어날 수 있다.
+
+이동 경로를 모두 저장하거나 반복 상태 검사 배열을 추가하면 추가 공간도 O(S²)이 된다. 종료 처리가 없는 일반 순환 미로에서는 유한한 탐색 시간을 보장할 수 없다.
+
+### 경로 계산과 화면 재생은 나중에 분리할 수 있다
+
+지금은 엔터마다 판단하고 바로 화면에 반영한다. 익숙해진 뒤에는 탐색을 먼저 끝내 좌표 목록을 저장하고, 일정 시간마다 다음 좌표를 표시하는 방식으로 확장할 수 있다.
 
 ```text
-Passage graph is a tree: true
-Reached exit: true
-Recorded positions: 13
+현재 실습: 입력 → 한 차례 판단 → 위치 반영 → 출력
+확장 방식: 전체 경로 계산 → 저장한 경로를 시간 간격에 따라 재생
 ```
 
-`IsPassageTree`는 모든 빈 타일이 입구에서 연결되고 빈 타일 간 간선 수가 정점 수보다 하나 적은지 확인한다. 오른손 탐색은 같은 `(위치, 방향)` 상태가 반복되면 실패를 반환하며, 이 미로에서는 출구에 도달한다.
-
-`Recorded positions`에는 시작 좌표와 실제 이동한 좌표만 들어가며 제자리 회전은 포함하지 않는다. 이 값은 고정 시드로 생성된 특정 미로의 결과일 뿐 모든 9×9 미로에서 같은 길이를 의미하지 않는다.
-
-## 미로 생성과 탐색을 검토할 때 확인할 기준
-
-1. `Tile[y][x]`의 좌표 순서를 모든 함수에서 일관되게 사용하는가?
-2. 보드 크기가 홀수이고 고정 배열 범위 안인지 초기화할 때 검사하는가?
-3. 방 좌표와 방 사이 벽 좌표를 구분하는가?
-4. 마지막 행·열과 우하단 방의 경계 처리가 배열을 벗어나지 않는가?
-5. 모든 방이 연결되고 간선 수가 방 수보다 하나 적은 이유를 설명할 수 있는가?
-6. 동쪽·남쪽 선택이 미로 모양에 방향 편향을 만든다는 점을 아는가?
-7. 난수 시드를 무작위 실행과 재현 가능한 테스트 목적에 맞게 관리하는가?
-8. 방향 enum 순서와 좌·우 회전 공식이 일치하는가?
-9. 탐색 상태를 위치뿐 아니라 바라보는 방향까지 포함해 판단하는가?
-10. 오른손 법칙이 최단 경로를 보장하지 않는다는 점을 구분하는가?
-11. 생성기가 바뀌어도 무한 반복하지 않도록 실패 조건이 있는가?
-12. 경로 계산과 시간 기반 화면 재생을 분리하는가?
-13. 재초기화할 때 경로 인덱스, 누적 시간과 방향도 초기화하는가?
-14. 렌더 반복 범위가 하드코딩된 값이 아니라 실제 보드 크기를 사용하는가?
-
-이 실습의 핵심은 무작위 벽 몇 개를 지우는 데 있지 않다. 생성 단계에서는 모든 방이 하나의 트리로 연결된다는 불변식을 만들고, 탐색 단계에서는 `(위치, 방향)` 상태와 오른쪽 우선 규칙으로 그 통로를 따라간다. 생성된 공간의 성질을 알아야 탐색의 종료 조건과 한계도 함께 설명할 수 있다.
+경로 재생 방식에서는 새 미로를 시작할 때 저장 경로, 재생 인덱스, 누적 시간과 시작 방향도 함께 초기화한다.
 
 ## 다음 학습: 배열, 동적 배열과 연결 리스트
 
-다음 글에서는 선형 데이터를 저장하는 배열, 동적 배열과 연결 리스트를 비교한다. 연속 저장 여부가 임의 접근, 중간 삽입·삭제, 캐시 지역성과 반복자 안정성에 어떤 차이를 만드는지 자료구조 선택 기준으로 정리한다.
+이번에는 미로를 고정 크기 2차원 배열에 저장했다. 다음 글에서는 배열, 동적 배열과 연결 리스트를 비교하며 데이터 저장 방식이 접근·삽입·삭제에 어떤 차이를 만드는지 살펴본다.

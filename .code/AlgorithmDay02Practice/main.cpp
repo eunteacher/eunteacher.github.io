@@ -15,17 +15,44 @@ enum class TileType
   Empty
 };
 
+enum class Direction
+{
+  Up,
+  Right,
+  Down,
+  Left
+};
+
 constexpr int boardSize = 15;
 TileType tiles[boardSize][boardSize]{};
 
-// 미로 출력 
-void PrintBoard(const TileType(&tiles)[boardSize][boardSize])
+// 미로 출력
+void PrintBoard(const TileType(&tiles)[boardSize][boardSize], int playerY, int playerX, Direction playerDir)
 {
   for (int y = 0; y < boardSize; ++y)
   {
     for (int x = 0; x < boardSize; ++x)
     {
-      if (tiles[y][x] == TileType::Wall)
+      if (y == playerY && x == playerX)
+      {
+        if (playerDir == Direction::Up)
+        {
+          std::cout << '^';
+        }
+        else if (playerDir == Direction::Right)
+        {
+          std::cout << '>';
+        }
+        else if (playerDir == Direction::Down)
+        {
+          std::cout << 'v';
+        }
+        else if (playerDir == Direction::Left)
+        {
+          std::cout << '<';
+        }
+      }
+      else if (tiles[y][x] == TileType::Wall)
       {
         std::cout << '#';
       }
@@ -40,7 +67,7 @@ void PrintBoard(const TileType(&tiles)[boardSize][boardSize])
 }
 
 
-void ResetBoard(TileType(&tiles)[boardSize][boardSize])
+void ResetBoard(TileType (&tiles)[boardSize][boardSize])
 {
   /*
    * y와 x가 모두 홀수이면 빈 방으로 만든다.
@@ -64,7 +91,7 @@ void ResetBoard(TileType(&tiles)[boardSize][boardSize])
 }
 
 // 방을 초기화하고 무작위로 연결해서 미로를 만든다.
-void GenerateMaze(TileType(&tiles)[boardSize][boardSize])
+void GenerateMaze(TileType (&tiles)[boardSize][boardSize])
 {
   ResetBoard(tiles);
 
@@ -113,15 +140,113 @@ void GenerateMaze(TileType(&tiles)[boardSize][boardSize])
   }
 }
 
+void StepPlayer(const TileType(&tiles)[boardSize][boardSize], int& playerY, int& playerX, Direction& playerDir)
+{
+  Direction rightDir = static_cast<Direction>((static_cast<int>(playerDir) + 1) % 4);
+
+  int rightY = playerY;
+  int rightX = playerX;
+
+  if (rightDir == Direction::Up)
+  {
+    rightY -= 1;
+  }
+  else if (rightDir == Direction::Right)
+  {
+    rightX += 1;
+  }
+  else if (rightDir == Direction::Down)
+  {
+    rightY += 1;
+  }
+  else if (rightDir == Direction::Left)
+  {
+    rightX -= 1;
+  }
+
+  bool canMoveRight = false;
+
+  if (rightY >= 0 && rightY < boardSize && rightX >= 0 && rightX < boardSize)
+  {
+    canMoveRight = (tiles[rightY][rightX] == TileType::Empty);
+  }
+
+  if (canMoveRight)
+  {
+    playerDir = rightDir;
+    playerY = rightY;
+    playerX = rightX;
+  }
+  else
+  {
+    int nextY = playerY;
+    int nextX = playerX;
+
+    if (playerDir == Direction::Up)
+    {
+      nextY -= 1;
+    }
+    else if (playerDir == Direction::Right)
+    {
+      nextX += 1;
+    }
+    else if (playerDir == Direction::Down)
+    {
+      nextY += 1;
+    }
+    else if (playerDir == Direction::Left)
+    {
+      nextX -= 1;
+    }
+
+    if (nextY >= 0 && nextY < boardSize && nextX >= 0 && nextX < boardSize)
+    {
+      if (tiles[nextY][nextX] == TileType::Empty)
+      {
+        playerY = nextY;
+        playerX = nextX;
+      }
+      else
+      {
+        playerDir = static_cast<Direction>((static_cast<int>(playerDir) + 3) % 4);
+      }
+    }
+  }
+}
+
 int main()
 {
   std::cout << "Algorithm Day 02 - Practice\n";
 
   cout << endl;
 
-  // 여기서부터 직접 구현한다.
   GenerateMaze(tiles);
-  PrintBoard(tiles);
+
+  int playerY = 1;
+  int playerX = 1;
+  Direction playerDir = Direction::Up;
+
+  int goalY = boardSize - 2;
+  int goalX = boardSize - 2;
+
+  PrintBoard(tiles, playerY, playerX, playerDir);
+
+  while (playerY != goalY || playerX != goalX)
+  {
+    std::cout << "Press Enter for the next action.\n";
+
+    if (!std::cin.get())
+    {
+      return 0;
+    }
+
+    StepPlayer(tiles, playerY, playerX, playerDir);
+
+    std::system("cls");
+    PrintBoard(tiles, playerY, playerX, playerDir);
+  }
+
+  std::cout << "Goal reached!\n";
 
   return 0;
 }
