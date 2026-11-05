@@ -998,8 +998,150 @@ int main()
 - 열거형에 필요한 비트 연산자만 직접 제공한다.
 - `MaxPlayerCount`는 단일 컴파일 시간 상수이므로 `constexpr`로 표현한다.
 
-## 다음 학습: 동작을 함수로 묶기
+## Day 15 복습 정리
 
-`constexpr`는 하나의 상수값을, `enum class`는 연관된 선택지의 집합을 타입 시스템 안에서 표현한다. 매크로는 C++ 타입이 아니라 전처리 단계의 토큰 치환이므로 조건부 컴파일처럼 전처리가 필요한 상황에 좁게 사용한다.
+### enum class는 정수로 자동 변환되지 않는다
 
-다음 글에서는 반복해서 사용하는 동작을 함수로 묶고, 함수의 이름·매개변수·반환 타입이 호출자와 어떤 계약을 만드는지 살펴본다.
+```cpp
+enum class Hand
+{
+    Rock = 1,
+    Paper = 2,
+    Scissors = 3
+};
+
+Hand hand = Hand::Rock;
+
+// int value = hand; // 컴파일 오류: 암시적 정수 변환 불가
+int value = static_cast<int>(hand); // 명시적으로 변환하면 1
+```
+
+기존 `enum`은 정수로 암시적 변환될 수 있지만, `enum class`는 그렇지 않다. 정수값이 필요한 경계에서 명시적으로 변환하여 의도를 드러낸다.
+
+### 열거자 이름은 타입의 스코프 안에 있다
+
+```cpp
+enum class Color
+{
+    Red
+};
+
+enum class TrafficLight
+{
+    Red
+};
+
+Color color = Color::Red;
+TrafficLight light = TrafficLight::Red;
+```
+
+두 열거형에 `Red`가 있어도 이름이 충돌하지 않는다. `Color::Red`와 `TrafficLight::Red`는 각각 다른 타입의 스코프에 속한다.
+
+### 명시적 캐스트는 열거자 목록을 검증하지 않는다
+
+```cpp
+Hand hand = static_cast<Hand>(100);
+```
+
+앞의 `Hand`는 기본 기반 타입이 `int`인 `enum class`이므로 위 변환은 가능하다. 다만 100에 대응하는 이름 있는 열거자가 없을 뿐이다. 캐스트가 자동으로 거부하거나 가장 가까운 열거자로 보정하지 않는다.
+
+사용자 입력이나 파일·네트워크에서 받은 정수는 유효한 선택인지 별도로 검사한다.
+
+```cpp
+bool TryParseHand(int input, Hand& hand)
+{
+    switch (input)
+    {
+    case 1:
+        hand = Hand::Rock;
+        return true;
+    case 2:
+        hand = Hand::Paper;
+        return true;
+    case 3:
+        hand = Hand::Scissors;
+        return true;
+    default:
+        return false;
+    }
+}
+```
+
+타입이 값의 종류를 구분해 주는 것과 외부 입력이 허용된 값인지 검증하는 것은 별개의 책임이다.
+
+### 함수형 매크로는 인자를 먼저 계산하지 않고 토큰을 치환한다
+
+```cpp
+#define SQUARE(x) x * x
+
+int result = SQUARE(1 + 2);
+```
+
+매크로가 함수처럼 3을 받아 제곱하는 것이 아니다. 인자에 적힌 토큰이 그대로 들어간다.
+
+```cpp
+// 전처리 후의 식
+int result = 1 + 2 * 1 + 2;
+
+// 곱셈이 먼저 계산되므로 1 + 2 + 2, 즉 5
+```
+
+인자와 전체 식을 괄호로 감싸면 이 우선순위 문제는 해결할 수 있다.
+
+```cpp
+#define SQUARE(x) ((x) * (x))
+
+int result = SQUARE(1 + 2); // ((1 + 2) * (1 + 2)) → 9
+```
+
+두 매크로 정의는 각각 별도의 예제다. 실제 코드에서는 같은 이름을 위처럼 연속 재정의하지 않는다.
+
+### 괄호로 감싸도 인자 중복 평가 문제는 남는다
+
+```cpp
+#define SQUARE(x) ((x) * (x))
+
+int value = 3;
+// int result = SQUARE(value++); // 사용하지 않는다
+```
+
+치환하면 다음 표현식이 된다.
+
+```cpp
+// ((value++) * (value++))
+```
+
+곱셈의 양쪽에서 같은 변수를 순서 보장 없이 변경하므로 정의되지 않은 동작이다. 특정 결과값을 예상해서는 안 된다. 괄호는 연산의 묶음을 정할 뿐, 두 증가 연산의 평가 순서를 보장하지 않는다.
+
+일반 함수라면 인자로 전달한 `value++`를 한 번 평가한다.
+
+```cpp
+constexpr int Square(int value)
+{
+    return value * value;
+}
+
+int value = 3;
+int result = Square(value++); // result는 9, 문장 실행 후 value는 4
+```
+
+단순 계산은 함수나 함수 템플릿으로 표현하면 타입 검사와 일반 함수 호출 규칙을 사용할 수 있다.
+
+### 플랫폼별 코드 포함 여부는 조건부 컴파일로 결정한다
+
+```cpp
+#if defined(_WIN32)
+    std::cout << "Windows\n";
+#else
+    std::cout << "Other platform\n";
+#endif
+```
+
+전처리 단계에서 조건에 맞는 코드만 남기므로 일반적인 실행 중 `if` 분기와 처리 시점이 다르다. `constexpr` 변수나 `enum class`는 전처리기의 조건부 포함을 대신하는 문법이 아니다.
+
+| 목적 | 우선 고려할 방법 |
+| :--- | :--- |
+| 하나의 컴파일 시간 상수 | `constexpr` 변수 |
+| 연관된 선택지를 별도 타입으로 구분 | `enum class` |
+| 짧은 계산 | 함수 또는 함수 템플릿 |
+| 플랫폼·빌드 설정에 따른 코드 포함 | `#if`, `#else`, `#endif` |
